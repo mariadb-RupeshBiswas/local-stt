@@ -4,6 +4,10 @@
 
   var SVG_NS = "http://www.w3.org/2000/svg";
   var MODIFIER_ORDER = ["Fn", "Ctrl", "Alt", "Shift", "Meta"]; // local fallback only, the app display string wins
+  var MAC_KEYS = { Fn: "fn", Ctrl: "Control", Alt: "Option", Shift: "Shift", Meta: "Command" };
+  var WINDOWS_KEYS = { Fn: "Fn", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift", Meta: "Win" };
+  var KEY_ALIASES = { fn: "Fn", ctrl: "Ctrl", control: "Ctrl", alt: "Alt", option: "Alt", shift: "Shift", cmd: "Meta", command: "Meta", win: "Meta", meta: "Meta" };
+  var ARCH_LABELS = { macos: { aarch64: "Apple silicon", arm64: "Apple silicon" }, windows: { x86_64: "64-bit", x64: "64-bit", amd64: "64-bit" } };
   var DEFAULT_COMBO = {
     macos: { modifiers: ["Fn", "Shift"], key: null },
     windows: { modifiers: ["Ctrl", "Alt"], key: null }
@@ -99,16 +103,41 @@
     return typeof bytes === "number" && isFinite(bytes) ? Math.round(bytes / 1048576) + " MB" : "-";
   }
 
+  function keyName(modifier, platform) {
+    return (platform === "windows" ? WINDOWS_KEYS : MAC_KEYS)[modifier];
+  }
+
   function comboParts(combo, platform) {
     if (!combo || !Array.isArray(combo.modifiers)) return [];
-    var names = { Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift", Meta: platform === "windows" ? "Win" : "Cmd", Fn: "Fn" };
-    var parts = MODIFIER_ORDER.filter(function (m) { return combo.modifiers.indexOf(m) !== -1; }).map(function (m) { return names[m]; });
+    var parts = MODIFIER_ORDER.filter(function (m) { return combo.modifiers.indexOf(m) !== -1; }).map(function (m) { return keyName(m, platform); });
     if (combo.key) parts.push(combo.key);
     return parts;
   }
 
+  // the app sends text like "Ctrl + Alt"; rename its modifiers to this platform's keycap names
+  function displayParts(display, platform) {
+    return display.split(" + ").map(function (token) {
+      var modifier = KEY_ALIASES[token.toLowerCase()];
+      return modifier ? keyName(modifier, platform) : token;
+    });
+  }
+
   function sameCombo(a, b) {
-    return JSON.stringify(comboParts(a, "x")) === JSON.stringify(comboParts(b, "x"));
+    return JSON.stringify(comboParts(a, "macos")) === JSON.stringify(comboParts(b, "macos"));
+  }
+
+  function systemLabel(hw, platform) {
+    if (!hw.os && !hw.arch) return "-";
+    var arch = hw.arch ? (ARCH_LABELS[platform] || {})[String(hw.arch).toLowerCase()] || hw.arch : null;
+    return [hw.os, arch].filter(Boolean).join(", ");
+  }
+
+  // Home and End jump to the ends, arrows wrap; -1 means the key is not navigation
+  function stepTarget(event, current, count) {
+    if (event.key === "Home") return 0;
+    if (event.key === "End") return count - 1;
+    var step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
+    return step ? (current + step + count) % count : -1;
   }
 
   function dayKey(date) {
@@ -174,10 +203,9 @@
     }
 
     root.addEventListener("keydown", function (event) {
-      var step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-      if (!step) return;
+      var next = stepTarget(event, currentIndex(), buttons.length);
+      if (next === -1) return;
       event.preventDefault();
-      var next = (currentIndex() + step + buttons.length) % buttons.length;
       choose(next, true);
     });
 
@@ -244,6 +272,11 @@
       search: "",
       progress: {},
       modelErrors: {},
+      activeModel: null, // the model actually loaded, which config.model may not be
+      downloading: null,
+      loadingModel: "",
+      autostartEnabled: null,
+      moving: false,
       capturing: false,
       hotkeyError: ""
     };
@@ -281,11 +314,13 @@
       scroller.appendChild(panels[t.value]);
     });
     var toastHost = h("div", { class: "toast-host", role: "status", "aria-live": "polite" });
+    var announcer = h("div", { class: "sr-only", role: "status", "aria-live": "polite" });
     var dialog = h("dialog", { class: "dlg", "aria-labelledby": "dlg-title" });
 
+    root.appendChild(toolbar); // first in the DOM so the tabs lead the Tab order, CSS keeps them on top
     root.appendChild(scroller);
-    root.appendChild(toolbar);
     root.appendChild(toastHost);
+    root.appendChild(announcer);
     root.appendChild(dialog);
 
     scroller.addEventListener("scroll", function () {
@@ -294,6 +329,7 @@
 
     function showTab(name) {
       if (name === S.tab) return;
+      if (name !== "settings") stopMoving();
       S.tab = name;
       TABS.forEach(function (t) { panels[t.value].hidden = t.value !== name; });
       tabs.sync();
@@ -301,7 +337,38 @@
       if (name === "history" && S.historyStale) loadHistory();
     }
 
-    // ---------- toast ----------
+    // ---------- keyboard shortcuts ----------
+
+    // Cmd on macOS, Ctrl on Windows: 1, 2, 3 pick a tab and F searches the history
+    function onShortcut(event) {
+      var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
+      if (!mod || event.altKey || event.shiftKey || S.capturing || dialog.open) return;
+      var tab = { "1": "history", "2": "model", "3": "settings" }[event.key];
+      if (tab) {
+        event.preventDefault();
+        showTab(tab);
+      } else if (event.key === "f" || event.key === "F") {
+        event.preventDefault();
+        showTab("history");
+        searchInput.focus();
+        searchInput.select();
+      }
+    }
+
+    function onHidden() {
+      if (document.visibilityState === "hidden") stopMoving();
+    }
+
+    document.addEventListener("keydown", onShortcut);
+    document.addEventListener("visibilitychange", onHidden);
+    window.addEventListener("pagehide", stopMoving);
+
+    // ---------- toast and screen reader status ----------
+
+    function announce(message) {
+      announcer.textContent = "";
+      setTimeout(function () { announcer.textContent = message; }, 60);
+    }
 
     function toast(message) {
       clearTimeout(toastTimer);
@@ -327,6 +394,11 @@
       S.platform = state.platform === "windows" ? "windows" : "macos";
       S.hotkeyDisplay = state.hotkeyDisplay || "";
       S.displayFor = JSON.stringify(state.config && state.config.hotkey);
+      S.activeModel = typeof state.activeModel === "string" ? state.activeModel : null;
+      S.downloading = typeof state.downloading === "string" ? state.downloading : null;
+      S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
+      if (S.downloading && !S.progress[S.downloading]) S.progress[S.downloading] = { downloaded: null, total: null };
+      if (S.loadingModel && S.loadingModel === S.activeModel) S.loadingModel = "";
       S.loaded = true;
       S.loadError = "";
       root.dataset.platform = S.platform;
@@ -373,6 +445,7 @@
       renderHistoryEmptyHint();
       return Promise.resolve(invoke("set_config", { patch: change })).then(function (saved) {
         if (saved && typeof saved === "object") S.config = saved;
+        if (change.autostart !== undefined) S.autostartEnabled = !!S.config.autostart;
         syncSettings();
         renderHistoryEmptyHint();
         if (change.hotkey && S.displayFor !== JSON.stringify(S.config.hotkey)) return refreshHotkeyDisplay();
@@ -390,7 +463,7 @@
 
     function hotkeyParts() {
       var fresh = S.hotkeyDisplay && S.displayFor === JSON.stringify(currentCombo());
-      return fresh ? S.hotkeyDisplay.split(" + ") : comboParts(currentCombo(), S.platform);
+      return fresh ? displayParts(S.hotkeyDisplay, S.platform) : comboParts(currentCombo(), S.platform);
     }
 
     // ---------- History ----------
@@ -441,11 +514,14 @@
       var failed = entry.ok === false;
 
       var body = h("div", { class: "hrow-text" + (text ? "" : " is-empty"), text: text || "Nothing was transcribed." });
+      var moreDot = h("span", { class: "dot-sep", "aria-hidden": "true", hidden: true });
       var more = h("button", { class: "linklike", type: "button", text: "Show more", hidden: true, onclick: function () {
         var open = body.classList.toggle("open");
         more.textContent = open ? "Show less" : "Show more";
       } });
-      var copy = h("button", { class: "icon-btn copy", type: "button", "aria-label": "Copy text", disabled: text === "" }, icon("copy"));
+      var snippet = text.length > 40 ? text.slice(0, 40).trim() + "..." : text;
+      var copyLabel = text === "" ? "Copy dictation (empty)" : "Copy dictation: " + snippet;
+      var copy = h("button", { class: "icon-btn copy", type: "button", "aria-label": copyLabel, disabled: text === "" }, icon("copy"));
       var copyTimer = 0;
       copy.addEventListener("click", function () {
         Promise.resolve(invoke("copy_text", { text: text })).then(function () {
@@ -454,11 +530,12 @@
           copy.appendChild(icon("check"));
           copy.classList.add("done");
           copy.setAttribute("aria-label", "Copied");
+          announce("Copied to the clipboard.");
           copyTimer = setTimeout(function () {
             clear(copy);
             copy.appendChild(icon("copy"));
             copy.classList.remove("done");
-            copy.setAttribute("aria-label", "Copy text");
+            copy.setAttribute("aria-label", copyLabel);
           }, 1000);
         }).catch(function (err) { toast("Couldn't copy: " + errText(err)); });
       });
@@ -473,6 +550,7 @@
             h("span", { class: "dot-sep", "aria-hidden": "true" }),
             h("span", { text: dash(entry.model) }),
             failed ? h("span", { class: "tag tag-red", text: "Failed" }) : null,
+            moreDot,
             more
           )
         ),
@@ -480,6 +558,7 @@
       );
       row._body = body;
       row._more = more;
+      row._moreDot = moreDot;
       return row;
     }
 
@@ -509,7 +588,7 @@
       }
 
       if (entries.length === 0) {
-        historyList.appendChild(emptyState("No results", "Nothing matches \"" + S.search.trim() + "\"."));
+        historyList.appendChild(emptyState("No results", "Nothing matches your search."));
         return;
       }
 
@@ -533,27 +612,64 @@
       // reveal "Show more" only where the clamp actually hides text
       requestAnimationFrame(function () {
         rows.forEach(function (row) {
-          if (row._body.scrollHeight > row._body.clientHeight + 1) row._more.hidden = false;
+          if (row._body.scrollHeight > row._body.clientHeight + 1) {
+            row._more.hidden = false;
+            row._moreDot.hidden = false;
+          }
         });
       });
     }
 
-    function askClearHistory() {
+    // one confirmation dialog for every action that deletes or downloads something
+    function askConfirm(opts) {
       clear(dialog);
-      dialog.appendChild(h("h2", { class: "dlg-title", id: "dlg-title", text: "Clear all history?" }));
-      dialog.appendChild(h("p", { class: "dlg-body", text: "This deletes every saved dictation from this computer. It can't be undone." }));
+      dialog.appendChild(h("h2", { class: "dlg-title", id: "dlg-title", text: opts.title }));
+      dialog.appendChild(h("p", { class: "dlg-body", text: opts.body }));
       var cancel = h("button", { class: "btn", type: "button", text: "Cancel", onclick: function () { closeDialog(); } });
-      var confirm = h("button", { class: "btn btn-danger-solid", type: "button", text: "Clear history", onclick: function () {
+      var confirm = h("button", { class: "btn " + (opts.danger ? "btn-danger-solid" : "btn-action"), type: "button", text: opts.confirm, onclick: function () {
         closeDialog();
-        Promise.resolve(invoke("clear_history")).then(function () {
-          S.history = [];
-          renderHistoryList();
-        }).catch(function (err) { toast("Couldn't clear history: " + errText(err)); });
+        opts.onConfirm();
       } });
       dialog.appendChild(h("div", { class: "dlg-actions" }, cancel, confirm));
       if (typeof dialog.showModal === "function") dialog.showModal();
       else dialog.setAttribute("open", "");
-      cancel.focus();
+      (opts.danger ? cancel : confirm).focus();
+    }
+
+    function thisDevice() {
+      return S.platform === "windows" ? "this PC" : "this Mac";
+    }
+
+    function askClearHistory() {
+      askConfirm({
+        title: "Clear all history?",
+        body: "This deletes every saved dictation from " + thisDevice() + ". It can't be undone.",
+        confirm: "Clear history",
+        danger: true,
+        onConfirm: function () {
+          Promise.resolve(invoke("clear_history")).then(function () {
+            S.history = [];
+            renderHistoryList();
+          }).catch(function (err) { toast("Couldn't clear history: " + errText(err)); });
+        }
+      });
+    }
+
+    function askTurnOffHistory() {
+      askConfirm({
+        title: "Turn off history?",
+        body: "Saved dictations will be deleted from " + thisDevice() + ".",
+        confirm: "Turn off",
+        danger: true,
+        onConfirm: function () {
+          patchConfig({ save_history: false }).then(function () {
+            if (S.config && S.config.save_history === false) {
+              S.history = [];
+              renderHistoryList();
+            }
+          });
+        }
+      });
     }
 
     function closeDialog() {
@@ -567,7 +683,7 @@
 
     function hardwareCard() {
       var hw = S.hardware || {};
-      var system = hw.os || hw.arch ? dash(hw.os) + " " + dash(hw.arch) : "-";
+      var system = systemLabel(hw, S.platform);
       var accel = hw.gpu_accel === true ? "Used for dictation" : hw.gpu_accel === false ? "Not used for dictation" : null;
       var items = [
         ["System", system, null],
@@ -587,15 +703,29 @@
       return h("div", { class: "card hw" }, grid);
     }
 
-    function modelAction(fit, active, busy) {
-      if (busy) return h("span", { class: "pill pill-busy", text: "Downloading" });
+    function sizeText(fit) {
+      return typeof fit.size_mb === "number" ? fit.size_mb + " MB" : null;
+    }
+
+    function modelAction(fit, active, downloading, loading) {
+      if (downloading) return h("span", { class: "pill pill-busy", text: "Downloading" });
+      if (loading) return h("span", { class: "pill pill-busy", text: "Loading" });
       if (active) return h("span", { class: "pill pill-active" }, icon("check"), "Active");
       if (!fit.supported) return null;
-      return h("span", { class: "pill pill-action", text: fit.downloaded ? "Use" : "Download" });
+      var size = sizeText(fit);
+      var label = fit.downloaded ? "Use" : size ? "Download " + size : "Download";
+      return h("button", {
+        class: "btn btn-action",
+        type: "button",
+        text: label,
+        "aria-label": (fit.downloaded ? "Use " : "Download ") + dash(fit.label) + (fit.downloaded || !size ? "" : ", " + size),
+        onclick: function () { requestModel(fit); }
+      });
     }
 
     function modelRow(fit) {
-      var active = S.config && S.config.model === fit.id;
+      var active = S.activeModel === fit.id;
+      var loading = S.loadingModel === fit.id;
       var progress = S.progress[fit.id];
       var disabled = !fit.supported;
       var reasons = Array.isArray(fit.reasons) ? fit.reasons : [];
@@ -622,33 +752,20 @@
         ? h("ul", { class: "reasons" }, reasons.map(function (r) { return h("li", {}, icon("info"), h("span", { text: r })); }))
         : null;
 
-      var row = h("div", {
+      return h("div", {
         class: "mrow" + (disabled ? " is-disabled" : "") + (active ? " is-active" : ""),
-        role: "radio",
-        "aria-checked": active ? "true" : "false",
-        "aria-disabled": disabled ? "true" : "false",
-        tabindex: "0"
+        role: "listitem"
       },
         h("div", { class: "mrow-head" },
           h("div", { class: "mrow-title" },
             h("span", { class: "mrow-name", text: dash(fit.label) }),
-            h("span", { class: "mrow-size", text: typeof fit.size_mb === "number" ? fit.size_mb + " MB" : "-" }),
+            h("span", { class: "mrow-size", text: sizeText(fit) || "-" }),
             badges
           ),
-          modelAction(fit, active, !!progress)
+          modelAction(fit, active, !!progress, loading)
         ),
         why, detail, error
       );
-
-      function activate() { chooseModel(fit); }
-      row.addEventListener("click", activate);
-      row.addEventListener("keydown", function (event) {
-        if (event.key === "Enter" || event.key === " ") {
-          event.preventDefault();
-          activate();
-        }
-      });
-      return row;
     }
 
     function renderModels() {
@@ -658,7 +775,7 @@
       modelPanel.appendChild(h("h3", { class: "group-title", text: "This computer" }));
       modelPanel.appendChild(hardwareCard());
       modelPanel.appendChild(h("h3", { class: "group-title", text: "Speech model" }));
-      var list = h("div", { class: "card", role: "radiogroup", "aria-label": "Speech model" });
+      var list = h("div", { class: "card", role: "list", "aria-label": "Speech models" });
       S.models.forEach(function (fit) { list.appendChild(modelRow(fit)); });
       modelPanel.appendChild(list);
       modelPanel.appendChild(h("p", { class: "footnote", text: "Models run on this computer. A download is checked against a fixed checksum before it is used." }));
@@ -679,16 +796,30 @@
         : "Starting download...";
     }
 
+    // a model that is not on disk costs a big download, so say how big before starting it
+    function requestModel(fit) {
+      if (fit.downloaded) {
+        chooseModel(fit);
+        return;
+      }
+      var size = sizeText(fit);
+      askConfirm({
+        title: "Download " + dash(fit.label) + "?",
+        body: (size ? size + " will be downloaded" : "It will be downloaded") + ", checked against a fixed checksum, and kept on " + thisDevice() + " for quick switching.",
+        confirm: size ? "Download " + size : "Download",
+        onConfirm: function () { chooseModel(fit); }
+      });
+    }
+
     function chooseModel(fit) {
-      if (!fit.supported || S.progress[fit.id]) return;
-      if (S.config && S.config.model === fit.id && fit.downloaded) return;
+      if (!fit.supported || S.progress[fit.id] || S.loadingModel === fit.id || S.activeModel === fit.id) return;
       delete S.modelErrors[fit.id];
-      if (!fit.downloaded) S.progress[fit.id] = { downloaded: null, total: null };
+      if (fit.downloaded) S.loadingModel = fit.id;
+      else S.progress[fit.id] = { downloaded: null, total: null };
       renderModels();
-      Promise.resolve(invoke("choose_model", { id: fit.id })).then(function () {
-        if (fit.downloaded) return refreshState();
-      }).catch(function (err) {
+      Promise.resolve(invoke("choose_model", { id: fit.id })).catch(function (err) {
         delete S.progress[fit.id];
+        if (S.loadingModel === fit.id) S.loadingModel = "";
         S.modelErrors[fit.id] = errText(err);
         renderModels();
       });
@@ -726,6 +857,7 @@
       S.capturing = true;
       S.hotkeyError = "";
       syncSettings();
+      announce("Press your shortcut now. Escape cancels.");
       Promise.resolve(invoke("start_hotkey_capture")).catch(function (err) {
         S.capturing = false;
         S.hotkeyError = errText(err);
@@ -809,16 +941,50 @@
         });
       }
       group.addEventListener("keydown", function (event) {
-        var step = { ArrowRight: 1, ArrowDown: 1, ArrowLeft: -1, ArrowUp: -1 }[event.key];
-        if (!step) return;
-        event.preventDefault();
         var current = cards.findIndex(function (c) { return c.value === S.config.theme; });
-        var next = (current + step + cards.length) % cards.length;
+        var next = stepTarget(event, current, cards.length);
+        if (next === -1) return;
+        event.preventDefault();
         buttons[next].focus();
         patchConfig({ theme: cards[next].value });
       });
       sync();
       return { el: group, sync: sync };
+    }
+
+    function setMoving(on) {
+      if (S.moving === on) return;
+      S.moving = on;
+      syncSettings();
+      announce(on ? "The pill is on screen. Drag it where you like." : "Pill position saved.");
+      Promise.resolve(invoke("move_overlay", { on: on })).catch(function (err) {
+        S.moving = !on;
+        syncSettings();
+        toast(errText(err));
+      });
+    }
+
+    function stopMoving() {
+      setMoving(false);
+    }
+
+    function pillPositionControl() {
+      var move = h("button", { class: "btn", type: "button", onclick: function () { setMoving(!S.moving); } });
+      var reset = h("button", { class: "btn", type: "button", text: "Reset position", onclick: function () {
+        Promise.resolve(invoke("reset_overlay_position")).then(function () {
+          toast("Position reset.");
+          if (!S.moving) return null;
+          // the app places only a hidden pill, so hide it and show it again
+          return Promise.resolve(invoke("move_overlay", { on: false })).then(function () {
+            return new Promise(function (done) { setTimeout(done, 200); });
+          }).then(function () {
+            if (S.moving) return invoke("move_overlay", { on: true });
+          });
+        }).catch(function (err) { toast(errText(err)); });
+      } });
+      function sync() { move.textContent = S.moving ? "Done" : "Move pill"; }
+      sync();
+      return { el: h("div", { class: "btn-row" }, move, reset), sync: sync };
     }
 
     // tiny static drawing of each overlay theme, built from plain elements
@@ -867,7 +1033,7 @@
       });
 
       var dictation = card([
-        settingRow("Shortcut", "Click, then press the keys. Add a letter or Space for a longer combo.", hotkey.el),
+        settingRow("Shortcut", "Click, then press the new shortcut.", hotkey.el),
         settingRow("Mode", null, addSync(mode)),
         settingRow("Output language", "English translates what you say. Spoken language keeps it as spoken.", addSync(output)),
         settingRow("Spoken language", "Auto-detect works for most speech.", addSync(select({
@@ -910,20 +1076,21 @@
           onChange: function (v) { patchConfig({ show_overlay: v }); }
         }))),
         h("div", { class: "srow srow-stack" }, h("div", { class: "srow-title", text: "Theme" }), themes.el),
-        settingRow("Position", "Drag the overlay anywhere. It snaps to corners.", h("button", { class: "btn", type: "button", text: "Reset position", onclick: function () {
-          Promise.resolve(invoke("reset_overlay_position")).then(function () { toast("Overlay moved back to the corner."); }).catch(function (err) { toast(errText(err)); });
-        } }))
+        settingRow("Pill position", "Show the pill, then drag it where you like. It snaps to the corners.", addSync(pillPositionControl()))
       ]);
 
       var general = card([
-        settingRow("Save history", "Off keeps nothing on disk. Existing history stays until you clear it.", addSync(toggle({
+        settingRow("Save history", "Off keeps nothing on disk and deletes what is saved.", addSync(toggle({
           label: "Save history",
           value: function () { return cfg().save_history; },
-          onChange: function (v) { patchConfig({ save_history: v }); }
+          onChange: function (v) {
+            if (v) patchConfig({ save_history: true });
+            else askTurnOffHistory();
+          }
         }))),
-        settingRow("Start at login", "Needs a tool install (uv tool install local-stt).", addSync(toggle({
+        settingRow("Start at login", "Opens local-stt when you log in. Works only with an installed copy.", addSync(toggle({
           label: "Start at login",
-          value: function () { return cfg().autostart; },
+          value: function () { return typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfg().autostart; },
           onChange: function (v) { patchConfig({ autostart: v }); }
         })))
       ]);
@@ -980,6 +1147,7 @@
     subscribe("model-done", function (p) {
       if (!p || !p.id) return;
       delete S.progress[p.id];
+      if (S.loadingModel === p.id) S.loadingModel = "";
       if (p.ok === false) {
         S.modelErrors[p.id] = p.error || "The download failed. The previous model is still active.";
         toast(S.modelErrors[p.id]);
@@ -1023,6 +1191,9 @@
         unlisten.forEach(function (fn) { fn(); });
         unlisten = [];
         clearTimeout(toastTimer);
+        document.removeEventListener("keydown", onShortcut);
+        document.removeEventListener("visibilitychange", onHidden);
+        window.removeEventListener("pagehide", stopMoving);
       },
       showTab: showTab
     };
