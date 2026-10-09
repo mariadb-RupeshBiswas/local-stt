@@ -90,6 +90,21 @@ jobs:
           rust-version: "1.99.0"
           command: check advisories licenses sources bans
 
+  ui:
+    name: UI checks (headless Chrome)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install the pinned test dependency
+        working-directory: dev/ui-tests
+        run: npm ci --ignore-scripts --no-audit --no-fund
+      - name: Run UI checks against dev/preview.html
+        working-directory: dev/ui-tests
+        run: npm test
+
   wheel:
     name: Wheel smoke test (${{ matrix.os }})
     strategy:

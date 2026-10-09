@@ -19,4 +19,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Main window with searchable history, model tab and settings.
 - Clipboard copy and automatic paste, optional clipboard restore, start and stop sounds.
 - `local-stt doctor` hardware report, `local-stt fetch-model`, `--autostart on|off`.
-- Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, Trusted Publishing release flow.
+- Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
+  Trusted Publishing release flow with provenance.
+
+### Security
+
+- Clipboard writes are marked private (skipped by clipboard managers, Windows clipboard
+  history and cloud clipboard).
+- Models are re-verified against their pinned checksum when first loaded.
+- Each window can call only the commands it needs.
+- History is capped at 2,000 entries and deleted when history is turned off.

@@ -339,12 +339,17 @@
 
     // ---------- keyboard shortcuts ----------
 
-    // Cmd on macOS, Ctrl on Windows: 1, 2, 3 pick a tab and F searches the history
+    // Cmd on macOS, Ctrl on Windows: 1, 2, 3 pick a tab, F searches the history, W closes the window
     function onShortcut(event) {
       var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
       if (!mod || event.altKey || event.shiftKey || S.capturing || dialog.open) return;
       var tab = { "1": "history", "2": "model", "3": "settings" }[event.key];
-      if (tab) {
+      var win = tauri && tauri.window && tauri.window.getCurrentWindow ? tauri.window.getCurrentWindow() : null;
+      if ((event.key === "w" || event.key === "W") && win) {
+        event.preventDefault();
+        stopMoving();
+        win.close();
+      } else if (tab) {
         event.preventDefault();
         showTab(tab);
       } else if (event.key === "f" || event.key === "F") {

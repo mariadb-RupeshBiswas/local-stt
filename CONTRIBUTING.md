@@ -38,6 +38,7 @@ uvx --from target/wheels/*.whl local-stt
 
 ## Before you open a pull request
 
+- `cd dev/ui-tests && npm ci --ignore-scripts && npm test` when you touch `ui/`
 - `cargo fmt --all --check`
 - `cargo clippy --all-targets -- -D warnings`
 - `cargo test`

@@ -19,6 +19,7 @@ whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local
 | Engine tests | `LOCAL_STT_TEST_MODEL=<path to ggml-small-q5_1.bin> cargo test --release --test engine` |
 | Lint | `cargo fmt --all --check && cargo clippy --all-targets -- -D warnings` |
 | Wheel | `uvx maturin build --release` then `uvx --from target/wheels/<file>.whl local-stt` |
+| UI checks | `cd dev/ui-tests && npm ci --ignore-scripts && npm test` (headless Chrome against `dev/preview.html`) |
 | Workflow audit | `uvx zizmor .github/workflows` |
 | Hardware report | `cargo run -- doctor` |
 
@@ -41,7 +42,8 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 | `src/hwprobe/` | RAM, CPU, GPU, disk |
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |
 | `src/config.rs`, `src/history.rs`, `src/paths.rs` | Local files |
-| `ui/` | Plain HTML/CSS/JS for the pill and the main window (no bundler) |
+| `ui/` | Plain HTML/CSS/JS for the pill and the main window (no bundler); everything here ships |
+| `dev/` | Browser preview with a mock Tauri bus, and the UI checks; never shipped |
 
 ## Rules
 

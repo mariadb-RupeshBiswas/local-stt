@@ -1,0 +1,12 @@
+{
+  "name": "local-stt-ui-tests",
+  "private": true,
+  "type": "module",
+  "description": "Headless browser checks for the local-stt UI, run against dev/preview.html",
+  "scripts": {
+    "test": "node ui.test.mjs"
+  },
+  "devDependencies": {
+    "playwright-core": "1.63.0"
+  }
+}

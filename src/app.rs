@@ -581,7 +581,13 @@ fn apply(
                 }
                 Err(e) => {
                     machine.on(Input::Cancel, now);
-                    fail(app, &format!("Microphone unavailable: {e}"), cfg.sounds);
+                    // The pill fits about two short lines; long device names fall back to a generic label.
+                    let label = if e.chars().count() <= 60 {
+                        e
+                    } else {
+                        "Microphone unavailable".to_string()
+                    };
+                    fail(app, &label, cfg.sounds);
                 }
             }
         }
@@ -762,7 +768,7 @@ fn verify_model(
     let actual =
         download::sha256_file(path).map_err(|e| format!("cannot read the model file: {e}"))?;
     if !actual.eq_ignore_ascii_case(models::info(id).sha256) {
-        return Err("The model file is damaged. Choose the model again to re-download it.".into());
+        return Err("Model file damaged. Re-download it in the Model tab.".into());
     }
     verified.push(id);
     Ok(())
