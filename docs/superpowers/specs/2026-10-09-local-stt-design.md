@@ -54,6 +54,8 @@ One Rust module per job.
 | `hwprobe` | Read RAM, CPU model and thread count, architecture, GPU, free disk | macOS `sysctl` + `statvfs`; Windows `GlobalMemoryStatusEx`, `GetSystemInfo`, `GetDiskFreeSpaceExW` via `windows-sys`, GPU name via PowerShell CIM |
 | `models` | Catalog of 3 models, fit rules, download with pinned SHA-256, switch active model | `curl` (ships with macOS and Windows 10+) |
 | `config` | `config.json` in the app data dir: active model, overlay position | none |
+| `autostart` | Start at login: LaunchAgent (macOS), Run key (Windows) | `reg` via argv on Windows |
+| `state` | Pure recording state machine (hold, toggle, cancel, 300 ms tap guard, 5 min cap) | none |
 | overlay window | Always-on-top, borderless, non-focusable: red dot, level bar, state text | Tauri |
 | main window | Model dropdown + history list | Tauri, plain HTML/JS, no npm |
 | tray | Open, Quit; no Dock / taskbar icon | Tauri |
@@ -126,7 +128,8 @@ glass capsule that sits above content, system font, system colours, quiet motion
   goes to the bottom-right of the screen with the mouse pointer. First run uses that same
   default. Positions are clamped to the visible work area (not under the menu bar, Dock
   or taskbar).
-- Hidden between dictations.
+- Hidden between dictations. Settings has a "Move pill" button that shows it in a
+  "Drag me anywhere" state so it can be placed without recording.
 - Never takes focus. Spike 0 (2026-10-09) proved it: created hidden with `focusable(false)`
   and `focused(false)`, then shown later, the frontmost app kept focus. A window that is
   visible at creation did steal focus, so the overlay is always created hidden.
@@ -188,8 +191,8 @@ Ctrl+Alt+Del) and refused if it matches.
   as a script, so `uvx local-stt` needs no Rust and no Python packages.
 - macOS: an `Info.plist` with the microphone usage text is embedded in the binary with
   `-sectcreate __TEXT __info_plist`, so the mic prompt works outside a `.app` bundle.
-- `--autostart on` uses the Tauri autostart plugin (LaunchAgent on macOS, Run key on
-  Windows). It points at the binary path, so it needs `uv tool install`, not `uvx`,
+- `--autostart on` writes a LaunchAgent plist on macOS or a `HKCU\...\Run` value on Windows
+  (a few lines of code, no plugin). It points at the binary path, so it needs `uv tool install`, not `uvx`,
   whose cache path can change.
 - Where wheels are published (PyPI or GitHub releases) is decided before the first release.
 
@@ -209,7 +212,6 @@ Crates from named organizations, last release within a year (checked 2026-10-09)
 |---|---|---|
 | `tauri` 2.12, `tauri-build` | Tauri org | 2026-10-09 |
 | `tauri-plugin-clipboard-manager` 2.4 | Tauri org | 2026-10-01 |
-| `tauri-plugin-autostart` 2.7 | Tauri org | 2026-10-01 |
 | `cpal` 0.18 | RustAudio org | 2026-08-16 |
 | `serde`, `serde_json` | serde-rs org | 2026-07-20 |
 | `windows-sys` 0.61 (Windows only) | Microsoft | 2025-10-06, kept by owner decision: generated bindings beat hand-written FFI |
@@ -235,9 +237,9 @@ App:
   Mismatch deletes the file. Arguments go to `curl` as an argv list, never through a shell.
 - The hotkey hook compares key events against the configured combo and keeps only a
   "combo held" flag. It never records, stores or logs any other key.
-- Tauri: CSP set explicitly to `default-src 'self'`; `withGlobalTauri` off; devtools off in
-  release builds; no shell, fs or http plugins. Capabilities grant only clipboard write,
-  autostart, window and tray. Frontend commands take a model id from a fixed list, never a
+- Tauri: CSP set explicitly (`default-src 'self'`, no inline script or style); `withGlobalTauri` on because there is no bundler, which is safe only because the CSP admits no script the app did not ship; devtools off in
+  release builds; no shell, fs or http plugins. Capabilities grant only events,
+  window dragging and clipboard write. Frontend commands take a model id from a fixed list, never a
   path or URL. The history command takes no arguments.
 - `unsafe` lives only in the FFI modules, each call wrapped in a safe function with a one-line
   `SAFETY:` comment. `#![deny(unsafe_op_in_unsafe_fn)]`.
