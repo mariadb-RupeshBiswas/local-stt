@@ -44,7 +44,9 @@ fn main() {
         println!("cargo:rustc-link-lib=c++");
         // Info.plist inside the binary gives the mic prompt its text outside a .app bundle.
         let manifest = std::env::var("CARGO_MANIFEST_DIR").unwrap();
-        println!("cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{manifest}/Info.plist");
+        println!(
+            "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{manifest}/Info.plist"
+        );
     }
     println!("cargo:rerun-if-changed=shim.c");
     println!("cargo:rerun-if-changed=Info.plist");

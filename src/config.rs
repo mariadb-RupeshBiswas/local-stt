@@ -1,6 +1,6 @@
 //! User settings in config.json.
 
-use crate::hotkey::{Combo, Modifier};
+use crate::hotkey::Combo;
 use crate::models::ModelId;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
@@ -52,7 +52,7 @@ pub struct Config {
 impl Default for Config {
     fn default() -> Self {
         Config {
-            hotkey: default_hotkey(),
+            hotkey: crate::hotkey::default_combo(),
             mode: Mode::Hold,
             translate: true,
             language: "auto".into(),
@@ -67,28 +67,6 @@ impl Default for Config {
             autostart: false,
             model: ModelId::Small,
         }
-    }
-}
-
-// Private copy of hotkey::default_combo so this module builds before Task 4 lands.
-fn default_hotkey() -> Combo {
-    let modifiers = if cfg!(target_os = "macos") {
-        vec![Modifier::Fn, Modifier::Shift]
-    } else {
-        vec![Modifier::Ctrl, Modifier::Alt]
-    };
-    Combo {
-        modifiers,
-        key: None,
-    }
-}
-
-// Private copy of the minimal hotkey::validate rule.
-fn hotkey_ok(c: &Combo) -> bool {
-    match c.modifiers.len() {
-        0 => false,
-        1 => c.key.is_some(),
-        _ => true,
     }
 }
 
@@ -153,8 +131,8 @@ pub fn load(path: &Path) -> Config {
         }
     };
     let (mut cfg, mut repaired) = parse_fields(parsed);
-    if !hotkey_ok(&cfg.hotkey) {
-        cfg.hotkey = default_hotkey();
+    if crate::hotkey::validate(&cfg.hotkey).is_err() {
+        cfg.hotkey = crate::hotkey::default_combo();
         repaired = true;
     }
     if repaired {
@@ -224,7 +202,7 @@ mod tests {
     fn invalid_hotkey_replaced_by_default() {
         let p = tmp("hk");
         std::fs::write(&p, r#"{"hotkey":{"modifiers":[],"key":"A"}}"#).unwrap();
-        assert_eq!(load(&p).hotkey, default_hotkey());
+        assert_eq!(load(&p).hotkey, crate::hotkey::default_combo());
     }
     #[test]
     fn unknown_theme_falls_back_but_other_fields_survive() {
@@ -246,7 +224,7 @@ mod tests {
         assert!(!c.restore_clipboard && !c.autostart);
         assert_eq!(c.language, "auto");
         assert!(c.microphone.is_none() && c.overlay_pos.is_none());
-        assert!(c.hotkey.key.is_none() && hotkey_ok(&c.hotkey));
+        assert!(c.hotkey.key.is_none() && crate::hotkey::validate(&c.hotkey).is_ok());
     }
     #[cfg(unix)]
     #[test]

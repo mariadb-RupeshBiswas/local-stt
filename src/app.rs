@@ -1,0 +1,831 @@
+//! Tauri wiring: tray, windows, hotkey controller, transcription worker.
+
+use crate::config::{self, Config, OverlayPos, Theme};
+use crate::engine::{Engine, Opts};
+use crate::hotkey::{self, HotkeyEvent};
+use crate::hwprobe::{self, Hardware};
+use crate::models::{self, ModelId};
+use crate::overlay::{self, Screen};
+use crate::recorder::{Recorder, Recording};
+use crate::state::{Action, Input, Machine, MAX_RECORDING_MS};
+use crate::{audio, download, history, output, paths, sound};
+use serde_json::json;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
+use tauri::tray::TrayIconBuilder;
+use tauri::{
+    AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
+    WindowEvent,
+};
+use tauri_plugin_clipboard_manager::ClipboardExt;
+
+pub const OVERLAY: &str = "overlay";
+pub const MAIN: &str = "main";
+
+pub enum Job {
+    Load(PathBuf, ModelId),
+    Transcribe {
+        pcm: Vec<f32>,
+        opts: Opts,
+        duration_ms: u64,
+    },
+}
+
+pub enum Msg {
+    Hotkey(HotkeyEvent),
+    Done {
+        result: Result<String, String>,
+        duration_ms: u64,
+    },
+    SetMode(config::Mode),
+}
+
+pub struct Shared {
+    pub config: Mutex<Config>,
+    pub hardware: Hardware,
+    pub hook: Mutex<Option<hotkey::Hook>>,
+    pub worker: Mutex<Sender<Job>>,
+    pub ctrl: Mutex<Sender<Msg>>,
+    pub downloading: Mutex<Option<ModelId>>,
+    pub active_model: Mutex<Option<ModelId>>,
+    moving_by_code: AtomicBool,
+    last_user_move_ms: AtomicU64,
+    snap_pending: AtomicBool,
+}
+
+impl Shared {
+    pub fn config(&self) -> Config {
+        lock(&self.config).clone()
+    }
+
+    pub fn update_config(&self, f: impl FnOnce(&mut Config)) -> Config {
+        let mut guard = lock(&self.config);
+        f(&mut guard);
+        let _ = config::save(&paths::config_path(), &guard);
+        guard.clone()
+    }
+}
+
+pub fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
+    // A panic elsewhere must not take the whole app down with a poisoned lock.
+    m.lock().unwrap_or_else(|p| p.into_inner())
+}
+
+pub fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+pub fn run() -> Result<(), String> {
+    paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
+    let cfg = config::load(&paths::config_path());
+    let hardware = hwprobe::probe(&paths::data_dir());
+    let (worker_tx, worker_rx) = mpsc::channel::<Job>();
+    let (ctrl_tx, ctrl_rx) = mpsc::channel::<Msg>();
+    let shared = Arc::new(Shared {
+        config: Mutex::new(cfg),
+        hardware,
+        hook: Mutex::new(None),
+        worker: Mutex::new(worker_tx),
+        ctrl: Mutex::new(ctrl_tx),
+        downloading: Mutex::new(None),
+        active_model: Mutex::new(None),
+        moving_by_code: AtomicBool::new(false),
+        last_user_move_ms: AtomicU64::new(0),
+        snap_pending: AtomicBool::new(false),
+    });
+
+    let app = tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
+        .manage(shared.clone())
+        .invoke_handler(tauri::generate_handler![
+            crate::commands::get_state,
+            crate::commands::set_config,
+            crate::commands::start_hotkey_capture,
+            crate::commands::cancel_hotkey_capture,
+            crate::commands::choose_model,
+            crate::commands::get_history,
+            crate::commands::clear_history,
+            crate::commands::reset_overlay_position,
+            crate::commands::move_overlay,
+            crate::commands::copy_text,
+        ])
+        .setup(move |app| {
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+            let handle = app.handle().clone();
+            build_tray(&handle)?;
+            create_overlay(&handle)?;
+            spawn_worker(handle.clone(), worker_rx);
+            spawn_controller(handle.clone(), ctrl_rx);
+            start_hotkey(&handle);
+            first_run_or_load(&handle);
+            Ok(())
+        })
+        .build(tauri::generate_context!())
+        .map_err(|e| format!("cannot start the app: {e}"))?;
+
+    app.run(|_app, event| {
+        // Closing the main window must not quit a menu-bar app.
+        if let RunEvent::ExitRequested { api, code, .. } = event {
+            if code.is_none() {
+                api.prevent_exit();
+            }
+        }
+    });
+    Ok(())
+}
+
+fn shared(app: &AppHandle) -> Arc<Shared> {
+    app.state::<Arc<Shared>>().inner().clone()
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let open = MenuItem::with_id(app, "open", "Open local-stt", true, None::<&str>)?;
+    let sep = PredefinedMenuItem::separator(app)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit local-stt", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&open, &sep, &quit])?;
+    TrayIconBuilder::with_id("tray")
+        .icon(tauri::include_image!("icons/tray.png"))
+        .icon_as_template(true)
+        .tooltip(tray_tooltip(&shared(app)))
+        .menu(&menu)
+        .show_menu_on_left_click(true)
+        .on_menu_event(|app, event| match event.id().as_ref() {
+            "open" => show_main(app),
+            "quit" => app.exit(0),
+            _ => {}
+        })
+        .build(app)?;
+    Ok(())
+}
+
+fn tray_tooltip(shared: &Shared) -> String {
+    let cfg = shared.config();
+    format!(
+        "local-stt: hold {} to dictate",
+        hotkey::display(&cfg.hotkey)
+    )
+}
+
+pub fn refresh_tray(app: &AppHandle) {
+    if let Some(tray) = app.tray_by_id("tray") {
+        let _ = tray.set_tooltip(Some(tray_tooltip(&shared(app))));
+    }
+}
+
+pub fn show_main(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window(MAIN) {
+        let _ = w.show();
+        let _ = w.unminimize();
+        let _ = w.set_focus();
+        return;
+    }
+    let built = WebviewWindowBuilder::new(app, MAIN, WebviewUrl::App("main.html".into()))
+        .title("local-stt")
+        .inner_size(760.0, 580.0)
+        .min_inner_size(640.0, 480.0)
+        .center()
+        .build();
+    if let Ok(w) = built {
+        let _ = w.set_focus();
+    }
+}
+
+// ---------- overlay window ----------
+
+fn pill_size(theme: Theme) -> (f64, f64) {
+    match theme {
+        Theme::Pill => (220.0, 44.0),
+        Theme::Waveform => (260.0, 44.0),
+        Theme::Minimal => (44.0, 44.0),
+    }
+}
+
+fn create_overlay(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let theme = shared(app).config().theme;
+    let (w, h) = pill_size(theme);
+    let builder = WebviewWindowBuilder::new(app, OVERLAY, WebviewUrl::App("overlay.html".into()))
+        .title("local-stt recording")
+        .inner_size(w, h)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(true)
+        .visible_on_all_workspaces(true)
+        // Created hidden and never focusable, so showing it cannot steal focus from the user's app.
+        .visible(false)
+        .focused(false)
+        .focusable(false);
+    #[cfg(target_os = "macos")]
+    let builder = {
+        use tauri::window::{Effect, EffectState, EffectsBuilder};
+        builder.effects(
+            EffectsBuilder::new()
+                .effects([Effect::LiquidGlassRegular, Effect::HudWindow])
+                .state(EffectState::Active)
+                .radius(22.0)
+                .build(),
+        )
+    };
+    #[cfg(windows)]
+    let builder = {
+        use tauri::window::{Effect, EffectsBuilder};
+        builder.effects(
+            EffectsBuilder::new()
+                .effects([Effect::Mica, Effect::Acrylic])
+                .build(),
+        )
+    };
+    let window = builder.build()?;
+    let handle = app.clone();
+    window.on_window_event(move |event| {
+        if let WindowEvent::Moved(_) = event {
+            on_overlay_moved(&handle);
+        }
+    });
+    Ok(window)
+}
+
+fn units_scale(scale: f64) -> f64 {
+    // macOS desktop coordinates are points; Windows uses physical pixels.
+    if cfg!(target_os = "macos") {
+        scale
+    } else {
+        1.0
+    }
+}
+
+fn screens(app: &AppHandle) -> Vec<(Screen, f64)> {
+    let monitors = app.available_monitors().unwrap_or_default();
+    let mut out = Vec::new();
+    for (i, m) in monitors.iter().enumerate() {
+        let wa = m.work_area();
+        let s = units_scale(m.scale_factor());
+        let name = m
+            .name()
+            .cloned()
+            .unwrap_or_else(|| format!("display-{}", i + 1));
+        let screen = Screen {
+            name,
+            x: wa.position.x as f64 / s,
+            y: wa.position.y as f64 / s,
+            w: wa.size.width as f64 / s,
+            h: wa.size.height as f64 / s,
+        };
+        out.push((screen, m.scale_factor()));
+    }
+    out
+}
+
+fn pointer(app: &AppHandle) -> (f64, f64) {
+    let scale = app
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .map(|m| units_scale(m.scale_factor()))
+        .unwrap_or(1.0);
+    app.cursor_position()
+        .map(|p| (p.x / scale, p.y / scale))
+        .unwrap_or((0.0, 0.0))
+}
+
+fn size_in_units(theme: Theme, monitor_scale: f64) -> (f64, f64) {
+    let (w, h) = pill_size(theme);
+    if cfg!(target_os = "macos") {
+        (w, h)
+    } else {
+        (w * monitor_scale, h * monitor_scale)
+    }
+}
+
+fn set_overlay_pos(app: &AppHandle, win: &WebviewWindow, pos: (f64, f64)) {
+    let s = shared(app);
+    s.moving_by_code.store(true, Ordering::SeqCst);
+    if cfg!(target_os = "macos") {
+        let _ = win.set_position(tauri::LogicalPosition::new(pos.0, pos.1));
+    } else {
+        let _ = win.set_position(tauri::PhysicalPosition::new(
+            pos.0.round() as i32,
+            pos.1.round() as i32,
+        ));
+    }
+    let app2 = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(120));
+        shared(&app2).moving_by_code.store(false, Ordering::SeqCst);
+    });
+}
+
+fn place_overlay(app: &AppHandle, win: &WebviewWindow) {
+    let cfg = shared(app).config();
+    let list = screens(app);
+    let plain: Vec<Screen> = list.iter().map(|(s, _)| s.clone()).collect();
+    let ptr = pointer(app);
+    let target_scale = match cfg
+        .overlay_pos
+        .as_ref()
+        .and_then(|p| list.iter().find(|(s, _)| s.name == p.monitor))
+    {
+        Some((_, scale)) => *scale,
+        None => overlay::screen_for_point(&plain, ptr)
+            .and_then(|s| list.iter().find(|(x, _)| x.name == s.name))
+            .map(|(_, scale)| *scale)
+            .unwrap_or(1.0),
+    };
+    let size = size_in_units(cfg.theme, target_scale);
+    let (lw, lh) = pill_size(cfg.theme);
+    let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
+    let pos = overlay::resolve(&plain, cfg.overlay_pos.as_ref(), ptr, size);
+    set_overlay_pos(app, win, pos);
+}
+
+pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Option<u64>) {
+    let s = shared(app);
+    let cfg = s.config();
+    if !cfg.show_overlay && state != "positioning" {
+        return;
+    }
+    let Some(win) = app.get_webview_window(OVERLAY) else {
+        return;
+    };
+    if !win.is_visible().unwrap_or(false) {
+        place_overlay(app, &win);
+    }
+    let _ = app.emit(
+        "overlay-theme",
+        json!({ "theme": cfg.theme, "reducedMotion": false }),
+    );
+    let _ = app.emit(
+        "overlay-state",
+        json!({ "state": state, "label": label, "startedAtMs": started_at_ms }),
+    );
+    let _ = win.show();
+}
+
+pub fn hide_overlay_after(app: &AppHandle, delay_ms: u64) {
+    let app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(delay_ms));
+        if let Some(win) = app.get_webview_window(OVERLAY) {
+            let _ = win.hide();
+        }
+    });
+}
+
+fn on_overlay_moved(app: &AppHandle) {
+    let s = shared(app);
+    if s.moving_by_code.load(Ordering::SeqCst) {
+        return;
+    }
+    s.last_user_move_ms.store(now_ms(), Ordering::SeqCst);
+    if s.snap_pending.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    let app = app.clone();
+    std::thread::spawn(move || {
+        let s = shared(&app);
+        // Wait for 250 ms without movement, so a drag in progress is never fought.
+        loop {
+            std::thread::sleep(Duration::from_millis(60));
+            if now_ms().saturating_sub(s.last_user_move_ms.load(Ordering::SeqCst)) >= 250 {
+                break;
+            }
+        }
+        s.snap_pending.store(false, Ordering::SeqCst);
+        snap_and_save(&app);
+    });
+}
+
+fn snap_and_save(app: &AppHandle) {
+    let Some(win) = app.get_webview_window(OVERLAY) else {
+        return;
+    };
+    let Ok(phys) = win.outer_position() else {
+        return;
+    };
+    let win_scale = win.scale_factor().unwrap_or(1.0);
+    let u = units_scale(win_scale);
+    let from = (phys.x as f64 / u, phys.y as f64 / u);
+    let list = screens(app);
+    let plain: Vec<Screen> = list.iter().map(|(s, _)| s.clone()).collect();
+    let theme = shared(app).config().theme;
+    let size = size_in_units(theme, win_scale);
+    let center = (from.0 + size.0 / 2.0, from.1 + size.1 / 2.0);
+    let Some(screen) = overlay::screen_for_point(&plain, center).cloned() else {
+        return;
+    };
+    let to = overlay::snap(&screen, from, size);
+    animate_to(app, &win, from, to);
+    shared(app).update_config(|c| {
+        c.overlay_pos = Some(OverlayPos {
+            monitor: screen.name.clone(),
+            x: to.0,
+            y: to.1,
+        })
+    });
+}
+
+fn animate_to(app: &AppHandle, win: &WebviewWindow, from: (f64, f64), to: (f64, f64)) {
+    if (from.0 - to.0).abs() < 0.5 && (from.1 - to.1).abs() < 0.5 {
+        return;
+    }
+    let frames = (overlay::SPRING_RESPONSE_S * 60.0 * 1.25) as u32;
+    for i in 1..=frames {
+        let t = i as f64 / 60.0;
+        let p = (
+            overlay::spring(from.0, to.0, t),
+            overlay::spring(from.1, to.1, t),
+        );
+        set_overlay_pos(app, win, p);
+        std::thread::sleep(Duration::from_millis(16));
+    }
+    set_overlay_pos(app, win, to);
+}
+
+// ---------- hotkey ----------
+
+fn start_hotkey(app: &AppHandle) {
+    let s = shared(app);
+    // LOCAL_STT_NO_PERMISSION_PROMPTS lets developers and CI start the app without a system dialog.
+    let prompt = std::env::var_os("LOCAL_STT_NO_PERMISSION_PROMPTS").is_none();
+    if !hotkey::accessibility_ok(prompt) {
+        set_tray_problem(
+            app,
+            "allow Accessibility in System Settings, then restart local-stt",
+        );
+    }
+    let (tx, rx) = mpsc::channel::<HotkeyEvent>();
+    match hotkey::start(s.config().hotkey, tx) {
+        Ok(hook) => *lock(&s.hook) = Some(hook),
+        Err(e) => set_tray_problem(app, &format!("shortcut unavailable: {e}")),
+    }
+    let ctrl = lock(&s.ctrl).clone();
+    std::thread::spawn(move || {
+        for ev in rx {
+            if ctrl.send(Msg::Hotkey(ev)).is_err() {
+                break;
+            }
+        }
+    });
+}
+
+fn set_tray_problem(app: &AppHandle, problem: &str) {
+    if let Some(tray) = app.tray_by_id("tray") {
+        let _ = tray.set_tooltip(Some(format!("local-stt: {problem}")));
+    }
+}
+
+fn on_captured(app: &AppHandle, combo: hotkey::Combo) {
+    let s = shared(app);
+    if let Some(hook) = lock(&s.hook).as_ref() {
+        hook.set_capture(false);
+    }
+    match hotkey::validate(&combo) {
+        Ok(()) => {
+            let cfg = s.update_config(|c| c.hotkey = combo.clone());
+            if let Some(hook) = lock(&s.hook).as_ref() {
+                hook.set_combo(cfg.hotkey.clone());
+            }
+            refresh_tray(app);
+            let _ = app.emit(
+                "hotkey-captured",
+                json!({ "combo": cfg.hotkey, "display": hotkey::display(&cfg.hotkey) }),
+            );
+        }
+        Err(e) => {
+            let cfg = s.config();
+            let _ = app.emit(
+                "hotkey-captured",
+                json!({ "combo": cfg.hotkey, "display": hotkey::display(&cfg.hotkey), "error": e }),
+            );
+        }
+    }
+}
+
+// ---------- controller ----------
+
+fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
+    std::thread::spawn(move || {
+        let mut machine = Machine::new(shared(&app).config().mode);
+        let mut recorder: Option<Recorder> = None;
+        loop {
+            let msg = rx.recv_timeout(Duration::from_millis(200));
+            let now = now_ms();
+            if let Some(since) = machine.recording_since() {
+                if now.saturating_sub(since) >= MAX_RECORDING_MS {
+                    let action = machine.on(Input::Timeout, now);
+                    apply(&app, action, &mut recorder, &mut machine, now);
+                }
+            }
+            match msg {
+                Ok(Msg::Hotkey(HotkeyEvent::Captured(combo))) => on_captured(&app, combo),
+                Ok(Msg::Hotkey(ev)) => {
+                    let input = match ev {
+                        HotkeyEvent::Pressed => Input::Pressed,
+                        HotkeyEvent::Released => Input::Released,
+                        HotkeyEvent::Cancel => Input::Cancel,
+                        HotkeyEvent::Captured(_) => continue,
+                    };
+                    let action = machine.on(input, now);
+                    apply(&app, action, &mut recorder, &mut machine, now);
+                }
+                Ok(Msg::Done {
+                    result,
+                    duration_ms,
+                }) => {
+                    machine.on(Input::TranscribeDone, now);
+                    deliver(&app, result, duration_ms);
+                }
+                Ok(Msg::SetMode(mode)) => machine.set_mode(mode),
+                Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
+    });
+}
+
+fn apply(
+    app: &AppHandle,
+    action: Action,
+    recorder: &mut Option<Recorder>,
+    machine: &mut Machine,
+    now: u64,
+) {
+    let cfg = shared(app).config();
+    match action {
+        Action::StartRecording => {
+            if cfg.sounds {
+                sound::play(sound::Cue::Start);
+            }
+            let level_app = app.clone();
+            let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+            let on_level = Box::new(move |level: f32| {
+                let mut t = lock(&last);
+                if t.elapsed() >= Duration::from_millis(33) {
+                    *t = Instant::now();
+                    let _ = level_app.emit("overlay-level", json!({ "level": level }));
+                }
+            });
+            match Recorder::start(cfg.microphone.as_deref(), on_level) {
+                Ok(r) => {
+                    *recorder = Some(r);
+                    show_overlay(app, "recording", "Recording", Some(now));
+                }
+                Err(e) => {
+                    machine.on(Input::Cancel, now);
+                    fail(app, &format!("Microphone unavailable: {e}"), cfg.sounds);
+                }
+            }
+        }
+        Action::StopAndTranscribe => {
+            let Some(r) = recorder.take() else {
+                machine.on(Input::TranscribeDone, now);
+                return;
+            };
+            if cfg.sounds {
+                sound::play(sound::Cue::Stop);
+            }
+            let rec: Recording = r.stop();
+            if rec.samples_16k.is_empty() || audio::is_silent(&rec.samples_16k, audio::SILENCE_RMS)
+            {
+                machine.on(Input::TranscribeDone, now);
+                fail(app, "No speech heard", cfg.sounds);
+                return;
+            }
+            show_overlay(app, "transcribing", "Transcribing", None);
+            let threads = std::thread::available_parallelism()
+                .map(|n| n.get() as u32)
+                .unwrap_or(4)
+                .min(8);
+            let opts = Opts {
+                translate: cfg.translate,
+                language: cfg.language.clone(),
+                threads,
+            };
+            let job = Job::Transcribe {
+                pcm: rec.samples_16k,
+                opts,
+                duration_ms: rec.duration_ms,
+            };
+            if lock(&shared(app).worker).send(job).is_err() {
+                machine.on(Input::TranscribeDone, now);
+                fail(app, "Speech engine stopped", cfg.sounds);
+            }
+        }
+        Action::CancelRecording => {
+            if let Some(r) = recorder.take() {
+                r.cancel();
+            }
+            hide_overlay_after(app, 0);
+        }
+        Action::Idle | Action::None => {}
+    }
+}
+
+fn fail(app: &AppHandle, message: &str, sounds: bool) {
+    if sounds {
+        sound::play(sound::Cue::Error);
+    }
+    show_overlay(app, "error", message, None);
+    hide_overlay_after(app, 3_000);
+}
+
+fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
+    let s = shared(app);
+    let cfg = s.config();
+    let model = lock(&s.active_model)
+        .map(model_name)
+        .unwrap_or("-")
+        .to_string();
+    let text = match result {
+        Ok(t) if !t.trim().is_empty() => t,
+        Ok(_) => return fail(app, "No speech heard", cfg.sounds),
+        Err(e) => {
+            record(&cfg, &model, "", duration_ms, false);
+            return fail(app, &e, cfg.sounds);
+        }
+    };
+    let previous = if cfg.restore_clipboard {
+        app.clipboard().read_text().ok()
+    } else {
+        None
+    };
+    if let Err(e) = app.clipboard().write_text(text.clone()) {
+        return fail(app, &format!("Clipboard unavailable: {e}"), cfg.sounds);
+    }
+    let mut label = "Copied";
+    if cfg.paste {
+        // Give the clipboard a beat to settle before the target app reads it.
+        std::thread::sleep(Duration::from_millis(40));
+        match output::send_paste() {
+            Ok(()) => label = "Pasted",
+            Err(_) => label = "Copied (paste blocked)",
+        }
+    }
+    if let Some(prev) = previous {
+        let app2 = app.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(400));
+            let _ = app2.clipboard().write_text(prev);
+        });
+    }
+    record(&cfg, &model, &text, duration_ms, true);
+    let _ = app.emit("history-changed", ());
+    show_overlay(app, "done", label, None);
+    hide_overlay_after(app, 700);
+}
+
+fn record(cfg: &Config, model: &str, text: &str, duration_ms: u64, ok: bool) {
+    if !cfg.save_history {
+        return;
+    }
+    let entry = history::Entry {
+        ts_ms: now_ms(),
+        text: text.to_string(),
+        duration_ms,
+        model: model.to_string(),
+        ok,
+    };
+    let _ = history::append(&paths::history_path(), &entry);
+}
+
+pub fn model_name(id: ModelId) -> &'static str {
+    models::info(id).label
+}
+
+// ---------- worker and models ----------
+
+fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
+    std::thread::spawn(move || {
+        let mut engine: Option<Engine> = None;
+        for job in rx {
+            match job {
+                Job::Load(path, id) => match Engine::load(&path) {
+                    Ok(e) => {
+                        engine = Some(e);
+                        *lock(&shared(&app).active_model) = Some(id);
+                        let _ = app.emit("model-done", json!({ "id": id, "ok": true }));
+                    }
+                    Err(e) => {
+                        let _ =
+                            app.emit("model-done", json!({ "id": id, "ok": false, "error": e }));
+                    }
+                },
+                Job::Transcribe {
+                    pcm,
+                    opts,
+                    duration_ms,
+                } => {
+                    let result = match engine.as_ref() {
+                        Some(e) => e.transcribe(&pcm, &opts),
+                        None => {
+                            Err("No model loaded yet. Open local-stt to download one.".to_string())
+                        }
+                    };
+                    let ctrl = lock(&shared(&app).ctrl).clone();
+                    let _ = ctrl.send(Msg::Done {
+                        result,
+                        duration_ms,
+                    });
+                }
+            }
+        }
+    });
+}
+
+fn first_run_or_load(app: &AppHandle) {
+    let id = shared(app).config().model;
+    let path = models::path(&paths::models_dir(), id);
+    if path.exists() {
+        let _ = lock(&shared(app).worker).send(Job::Load(path, id));
+        return;
+    }
+    show_main(app);
+    let _ = start_download(app.clone(), id);
+}
+
+pub fn activate_model(app: &AppHandle, id: ModelId) {
+    let s = shared(app);
+    s.update_config(|c| c.model = id);
+    let path = models::path(&paths::models_dir(), id);
+    let _ = lock(&s.worker).send(Job::Load(path, id));
+}
+
+pub fn start_download(app: AppHandle, id: ModelId) -> Result<(), String> {
+    let s = shared(&app);
+    {
+        let mut busy = lock(&s.downloading);
+        if busy.is_some() {
+            return Err("Another model is downloading. Try again when it finishes.".into());
+        }
+        *busy = Some(id);
+    }
+    std::thread::spawn(move || {
+        let info = models::info(id);
+        let dest = models::path(&paths::models_dir(), id);
+        let total = info.size_bytes;
+        let last = std::cell::Cell::new(Instant::now() - Duration::from_secs(1));
+        let emitter = app.clone();
+        let progress = move |done: u64| {
+            if last.get().elapsed() >= Duration::from_millis(200) {
+                last.set(Instant::now());
+                let _ = emitter.emit(
+                    "model-progress",
+                    json!({ "id": id, "downloaded": done, "total": total }),
+                );
+            }
+        };
+        let result = download::download(&models::url(id), info.sha256, &dest, &progress);
+        *lock(&shared(&app).downloading) = None;
+        match result {
+            Ok(()) => {
+                let _ = app.emit(
+                    "model-progress",
+                    json!({ "id": id, "downloaded": total, "total": total }),
+                );
+                activate_model(&app, id);
+            }
+            Err(e) => {
+                let _ = app.emit("model-done", json!({ "id": id, "ok": false, "error": e }));
+            }
+        }
+    });
+    Ok(())
+}
+
+pub fn ctrl_send(app: &AppHandle, msg: Msg) {
+    let _ = lock(&shared(app).ctrl).send(msg);
+}
+
+pub fn shared_of(app: &AppHandle) -> Arc<Shared> {
+    shared(app)
+}
+
+pub fn overlay_theme_changed(app: &AppHandle) {
+    let cfg = shared(app).config();
+    let (w, h) = pill_size(cfg.theme);
+    if let Some(win) = app.get_webview_window(OVERLAY) {
+        let _ = win.set_size(tauri::LogicalSize::new(w, h));
+    }
+    let _ = app.emit(
+        "overlay-theme",
+        json!({ "theme": cfg.theme, "reducedMotion": false }),
+    );
+}
+
+pub fn overlay_positioning(app: &AppHandle, on: bool) {
+    if on {
+        show_overlay(app, "positioning", "Drag me anywhere", None);
+    } else {
+        hide_overlay_after(app, 0);
+    }
+}
