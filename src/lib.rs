@@ -13,3 +13,6 @@ pub mod output;
 pub mod paths;
 pub mod recorder;
 pub mod sound;
+pub mod overlay;
+pub mod state;
+pub mod autostart;
