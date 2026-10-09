@@ -418,7 +418,9 @@ mod tests {
     }
     #[test]
     fn validate_rules() {
-        assert!(validate(&fn_shift()).is_ok());
+        // Windows hooks cannot see Fn, so Fn combos are refused there by design.
+        assert_eq!(validate(&fn_shift()).is_ok(), !cfg!(windows));
+        assert!(validate(&default_combo()).is_ok());
         assert!(validate(&Combo {
             modifiers: vec![],
             key: Some("A".into())

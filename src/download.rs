@@ -162,6 +162,15 @@ fn fetch_and_verify(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Windows paths need file:///C:/... with forward slashes.
+    fn file_url(p: &Path) -> String {
+        let s = p.display().to_string().replace('\\', "/");
+        if s.starts_with('/') {
+            format!("file://{s}")
+        } else {
+            format!("file:///{s}")
+        }
+    }
     #[test]
     fn sha256_known_value() {
         let p = std::env::temp_dir().join(format!("lstt-sha-{}", std::process::id()));
@@ -178,7 +187,7 @@ mod tests {
         let src = dir.join("src.bin");
         std::fs::write(&src, b"hello").unwrap();
         let dest = dir.join("dest.bin");
-        let url = format!("file://{}", src.display());
+        let url = file_url(&src);
         let err = download_with(&url, &"0".repeat(64), &dest, &|_| {}, true).unwrap_err();
         assert!(err.contains("checksum"));
         assert!(!dest.exists());
@@ -206,7 +215,7 @@ mod tests {
         let src = dir.join("src.bin");
         std::fs::write(&src, b"abc").unwrap();
         let dest = dir.join("dest.bin");
-        let url = format!("file://{}", src.display());
+        let url = file_url(&src);
         let sha = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
         download_with(&url, sha, &dest, &|_| {}, true).unwrap();
         assert_eq!(std::fs::read(&dest).unwrap(), b"abc");
@@ -224,7 +233,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("lstt-dl-miss-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let dest = dir.join("dest.bin");
-        let url = format!("file://{}", dir.join("nope.bin").display());
+        let url = file_url(&dir.join("nope.bin"));
         assert!(download_with(&url, &"0".repeat(64), &dest, &|_| {}, true).is_err());
         assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 0);
     }
