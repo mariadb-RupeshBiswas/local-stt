@@ -101,6 +101,16 @@ fn hindi_is_translated() {
         eprintln!("skip: LOCAL_STT_TEST_MODEL not set");
         return;
     };
+    // CI runners may not ship the Hindi voice; skip rather than fail on a missing OS asset.
+    let voices = std::process::Command::new("say")
+        .args(["-v", "?"])
+        .output()
+        .map(|o| o.stdout)
+        .unwrap_or_default();
+    if !String::from_utf8_lossy(&voices).contains("Lekha") {
+        eprintln!("skip: Hindi voice Lekha not installed");
+        return;
+    }
     let e = Engine::load(&m).unwrap();
     let pcm = speak_to_pcm(
         "\u{0906}\u{091c} \u{092e}\u{094c}\u{0938}\u{092e} \u{092c}\u{0939}\u{0941}\u{0924} \u{0905}\u{091a}\u{094d}\u{091b}\u{093e} \u{0939}\u{0948}",
