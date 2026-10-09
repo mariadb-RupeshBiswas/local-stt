@@ -1,0 +1,7 @@
+models/
+samples/
+target/
+dist/
+.DS_Store
+CLAUDE.md
+.claude/
