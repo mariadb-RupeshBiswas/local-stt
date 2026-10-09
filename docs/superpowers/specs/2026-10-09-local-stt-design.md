@@ -48,7 +48,7 @@ One Rust module per job.
 | `hotkey` | Emit `Pressed` / `Released` for the configured combo (modifier-only or modifiers + one key); Esc cancels | macOS `CGEventTap` on flags-changed; Windows `WH_KEYBOARD_LL` hook. macOS hand-written FFI, Windows `windows-sys` |
 | `recorder` | Capture default mic while held; RMS level every ~50 ms; return mono f32 samples | cpal |
 | `audio` | Downmix and linear-resample to 16 kHz | none |
-| `engine` | Load model once, keep it loaded, transcribe a buffer | whisper.cpp via a ~40-line C shim (`shim.c`) |
+| `engine` | Load model once, keep it loaded, transcribe a buffer | whisper.cpp via a ~40-line C shim (`shim.cpp`) |
 | `output` | Clipboard, then paste keystroke | Tauri clipboard plugin; `CGEventPost` FFI / `SendInput` via `windows-sys` |
 | `history` | Append `{ts, text, duration_ms, model, ok}` to `history.jsonl`; read newest first | none |
 | `hwprobe` | Read RAM, CPU model and thread count, architecture, GPU, free disk | macOS `sysctl` + `statvfs`; Windows `GlobalMemoryStatusEx`, `GetSystemInfo`, `GetDiskFreeSpaceExW` via `windows-sys`, GPU name via PowerShell CIM |
@@ -315,7 +315,7 @@ notarization, a `.app` / `.msi` installer, Intel Macs, Windows GPU acceleration.
 
 ```
 local-stt/
-  Cargo.toml  pyproject.toml  build.rs  shim.c  Info.plist
+  Cargo.toml  pyproject.toml  build.rs  shim.cpp  Info.plist
   src/        Rust modules listed above
   ui/         overlay.html, main.html (plain HTML/JS)
   vendor/whisper.cpp   git submodule at v1.9.5

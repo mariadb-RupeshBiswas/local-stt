@@ -35,7 +35,7 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 | `src/state.rs` | Pure recording state machine (hold / toggle / cancel) |
 | `src/overlay.rs` | Recording pill window and multi-monitor geometry |
 | `src/commands.rs` | Commands the UI may call |
-| `src/engine.rs`, `shim.c` | whisper.cpp through a small C shim |
+| `src/engine.rs`, `shim.cpp` | whisper.cpp through a small C ABI shim (C++ only to stop exceptions) |
 | `src/recorder.rs`, `src/audio.rs`, `src/sound.rs` | Microphone capture, resampling, level, cues |
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke |
