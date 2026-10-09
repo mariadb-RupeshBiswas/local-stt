@@ -37,7 +37,10 @@ pub struct Machine {
 
 impl Machine {
     pub fn new(mode: Mode) -> Machine {
-        Machine { mode, phase: Phase::Idle }
+        Machine {
+            mode,
+            phase: Phase::Idle,
+        }
     }
 
     pub fn set_mode(&mut self, mode: Mode) {
@@ -150,6 +153,9 @@ mod tests {
     fn timeout_stops_long_recording() {
         let mut s = Machine::new(Mode::Toggle);
         s.on(Input::Pressed, 0);
-        assert_eq!(s.on(Input::Timeout, MAX_RECORDING_MS), Action::StopAndTranscribe);
+        assert_eq!(
+            s.on(Input::Timeout, MAX_RECORDING_MS),
+            Action::StopAndTranscribe
+        );
     }
 }

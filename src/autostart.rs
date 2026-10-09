@@ -33,7 +33,11 @@ mod platform {
 
     fn plist_path() -> Option<PathBuf> {
         let home = std::env::var_os("HOME")?;
-        Some(PathBuf::from(home).join("Library/LaunchAgents").join(format!("{LABEL}.plist")))
+        Some(
+            PathBuf::from(home)
+                .join("Library/LaunchAgents")
+                .join(format!("{LABEL}.plist")),
+        )
     }
 
     pub fn plist(exe: &Path) -> String {
@@ -44,7 +48,10 @@ mod platform {
     }
 
     fn xml_escape(s: &str) -> String {
-        s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;").replace('"', "&quot;")
+        s.replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
     }
 
     pub fn set(enabled: bool, exe: &Path) -> Result<(), String> {
@@ -57,9 +64,11 @@ mod platform {
             };
         }
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+            std::fs::create_dir_all(dir)
+                .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
         }
-        std::fs::write(&path, plist(exe)).map_err(|e| format!("cannot write {}: {e}", path.display()))
+        std::fs::write(&path, plist(exe))
+            .map_err(|e| format!("cannot write {}: {e}", path.display()))
     }
 
     pub fn is_enabled() -> bool {
@@ -117,8 +126,12 @@ mod tests {
 
     #[test]
     fn uvx_cache_paths_are_ephemeral() {
-        assert!(is_ephemeral(Path::new("/Users/a/.cache/uv/archive-v0/abc/bin/local-stt")));
-        assert!(is_ephemeral(Path::new(r"C:\Users\a\AppData\Local\uv\cache\archive-v0\x\Scripts\local-stt.exe")));
+        assert!(is_ephemeral(Path::new(
+            "/Users/a/.cache/uv/archive-v0/abc/bin/local-stt"
+        )));
+        assert!(is_ephemeral(Path::new(
+            r"C:\Users\a\AppData\Local\uv\cache\archive-v0\x\Scripts\local-stt.exe"
+        )));
         assert!(!is_ephemeral(Path::new("/Users/a/.local/bin/local-stt")));
     }
 

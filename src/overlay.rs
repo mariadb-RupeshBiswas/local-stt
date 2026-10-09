@@ -91,12 +91,21 @@ mod tests {
     use super::*;
 
     fn mon(name: &str, x: f64, y: f64, w: f64, h: f64) -> Screen {
-        Screen { name: name.into(), x, y, w, h }
+        Screen {
+            name: name.into(),
+            x,
+            y,
+            w,
+            h,
+        }
     }
 
     #[test]
     fn default_is_bottom_right_of_pointer_screen() {
-        let screens = [mon("A", 0.0, 0.0, 1440.0, 900.0), mon("B", 1440.0, 0.0, 1920.0, 1080.0)];
+        let screens = [
+            mon("A", 0.0, 0.0, 1440.0, 900.0),
+            mon("B", 1440.0, 0.0, 1920.0, 1080.0),
+        ];
         assert_eq!(
             default_pos(&screens, (2000.0, 500.0), (220.0, 44.0)),
             (1440.0 + 1920.0 - 24.0 - 220.0, 1080.0 - 24.0 - 44.0)
@@ -106,18 +115,28 @@ mod tests {
     #[test]
     fn pointer_off_every_screen_uses_first() {
         let screens = [mon("A", 0.0, 0.0, 1440.0, 900.0)];
-        assert_eq!(default_pos(&screens, (-500.0, -500.0), (220.0, 44.0)), (1196.0, 832.0));
+        assert_eq!(
+            default_pos(&screens, (-500.0, -500.0), (220.0, 44.0)),
+            (1196.0, 832.0)
+        );
     }
 
     #[test]
     fn no_screens_does_not_panic() {
-        assert_eq!(default_pos(&[], (0.0, 0.0), (220.0, 44.0)), (MARGIN, MARGIN));
+        assert_eq!(
+            default_pos(&[], (0.0, 0.0), (220.0, 44.0)),
+            (MARGIN, MARGIN)
+        );
     }
 
     #[test]
     fn position_on_missing_monitor_falls_back() {
         let screens = [mon("A", 0.0, 0.0, 1440.0, 900.0)];
-        let saved = OverlayPos { monitor: "Gone".into(), x: 3000.0, y: 100.0 };
+        let saved = OverlayPos {
+            monitor: "Gone".into(),
+            x: 3000.0,
+            y: 100.0,
+        };
         assert_eq!(
             resolve(&screens, Some(&saved), (10.0, 10.0), (220.0, 44.0)),
             (1440.0 - 244.0, 900.0 - 68.0)
@@ -126,23 +145,44 @@ mod tests {
 
     #[test]
     fn saved_position_on_second_monitor_is_kept() {
-        let screens = [mon("A", 0.0, 0.0, 1440.0, 900.0), mon("B", 1440.0, -200.0, 1920.0, 1080.0)];
-        let saved = OverlayPos { monitor: "B".into(), x: 2000.0, y: 300.0 };
-        assert_eq!(resolve(&screens, Some(&saved), (0.0, 0.0), (220.0, 44.0)), (2000.0, 300.0));
+        let screens = [
+            mon("A", 0.0, 0.0, 1440.0, 900.0),
+            mon("B", 1440.0, -200.0, 1920.0, 1080.0),
+        ];
+        let saved = OverlayPos {
+            monitor: "B".into(),
+            x: 2000.0,
+            y: 300.0,
+        };
+        assert_eq!(
+            resolve(&screens, Some(&saved), (0.0, 0.0), (220.0, 44.0)),
+            (2000.0, 300.0)
+        );
     }
 
     #[test]
     fn saved_position_outside_shrunken_monitor_is_pulled_back() {
         let screens = [mon("A", 0.0, 0.0, 1280.0, 800.0)];
-        let saved = OverlayPos { monitor: "A".into(), x: 1700.0, y: 1000.0 };
-        assert_eq!(resolve(&screens, Some(&saved), (0.0, 0.0), (220.0, 44.0)), (1036.0, 732.0));
+        let saved = OverlayPos {
+            monitor: "A".into(),
+            x: 1700.0,
+            y: 1000.0,
+        };
+        assert_eq!(
+            resolve(&screens, Some(&saved), (0.0, 0.0), (220.0, 44.0)),
+            (1036.0, 732.0)
+        );
     }
 
     #[test]
     fn snaps_near_corner() {
         let s = mon("A", 0.0, 0.0, 1440.0, 900.0);
         assert_eq!(
-            snap(&s, (1440.0 - 220.0 - 10.0, 900.0 - 44.0 - 5.0), (220.0, 44.0)),
+            snap(
+                &s,
+                (1440.0 - 220.0 - 10.0, 900.0 - 44.0 - 5.0),
+                (220.0, 44.0)
+            ),
             (1440.0 - 244.0, 900.0 - 68.0)
         );
     }
@@ -164,7 +204,10 @@ mod tests {
         let mut last = 0.0;
         for i in 0..=60 {
             let v = spring(0.0, 100.0, i as f64 / 60.0);
-            assert!(v >= last - 1e-9 && v <= 100.0 + 1e-9, "overshoot or reversal at frame {i}: {v}");
+            assert!(
+                v >= last - 1e-9 && v <= 100.0 + 1e-9,
+                "overshoot or reversal at frame {i}: {v}"
+            );
             last = v;
         }
         assert!((spring(0.0, 100.0, SPRING_RESPONSE_S) - 100.0).abs() < 2.0);
