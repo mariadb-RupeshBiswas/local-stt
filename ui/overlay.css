@@ -1,0 +1,283 @@
+/* The native window provides the glass; the page itself stays transparent. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+[hidden] { display: none !important; }
+
+.ov {
+  --dot: var(--red);
+  position: relative;
+  width: 100%;
+  height: 100%;
+  font: 500 13px/1 var(--font);
+  letter-spacing: var(--track-body);
+  color: var(--label);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+.ov[data-state="transcribing"] { --dot: var(--orange); }
+.ov[data-state="done"] { --dot: var(--green); }
+.ov[data-state="error"] { --dot: var(--grey); }
+
+/* children ignore the pointer so every press lands on the drag region */
+.ov-capsule,
+.ov-capsule * { pointer-events: none; }
+.ov-capsule { pointer-events: auto; }
+
+.ov-capsule {
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  width: 100%;
+  height: 100%;
+  padding: 0 var(--s4) 0 14px;
+  border-radius: 999px;
+  background: var(--ov-tint);
+  box-shadow: inset 0 0 0 0.5px var(--ov-border), inset 0 0.5px 0 var(--ov-highlight);
+  /* leaving: quick fade, same path as the entrance */
+  opacity: 0;
+  transform: scale(0.92);
+  filter: blur(6px);
+  transition: opacity 150ms var(--ease-out), transform 150ms var(--ease-out), filter 150ms var(--ease-out);
+}
+
+/* materialise: scale, blur and opacity arrive together */
+.ov[data-visible="true"] .ov-capsule {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+  transition: opacity 180ms var(--ease-enter), transform 180ms var(--ease-enter), filter 180ms var(--ease-enter);
+}
+
+/* ---- lead: dot, ring, check ---- */
+
+.ov-lead {
+  position: relative;
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+.ov-dot,
+.ov-ring {
+  position: absolute;
+  border-radius: 50%;
+}
+
+.ov-dot {
+  left: 4px;
+  top: 4px;
+  width: 8px;
+  height: 8px;
+  background: var(--dot);
+  transition: background-color 200ms ease, transform 200ms var(--ease-out), opacity 200ms ease;
+}
+
+.ov[data-state="recording"] .ov-dot {
+  box-shadow: 0 0 8px var(--ov-glow);
+  animation: ov-breathe 1s ease-in-out infinite;
+}
+
+@keyframes ov-breathe {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+.ov-ring {
+  inset: 0;
+  display: none;
+  background: var(--dot);
+  opacity: 0.2;
+  transform: scale(1);
+  transition: background-color 200ms ease;
+}
+
+.ov-check {
+  position: absolute;
+  inset: 0;
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--green);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.ov-check path {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+}
+
+.ov[data-state="done"] .ov-dot {
+  transform: scale(0.4);
+  opacity: 0;
+  animation: none;
+  box-shadow: none;
+}
+
+.ov[data-state="done"] .ov-check path {
+  stroke-dashoffset: 0;
+  transition: stroke-dashoffset 260ms var(--ease-out) 60ms;
+}
+
+/* ---- text ---- */
+
+.ov-text {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+  transition: opacity 100ms ease, filter 100ms ease;
+}
+
+.ov-text.swap {
+  opacity: 0;
+  filter: blur(2px);
+}
+
+.ov-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-time {
+  flex: none;
+  color: var(--label-2);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: var(--track-small);
+}
+
+/* ---- meters ---- */
+
+.ov-meter {
+  flex: none;
+  display: flex;
+  align-items: center;
+  height: 18px;
+  transition: opacity 200ms ease;
+}
+
+.ov[data-state="transcribing"] .ov-meter { opacity: 0.35; }
+.ov[data-state="done"] .ov-meter,
+.ov[data-state="error"] .ov-meter { display: none; }
+
+.ov-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 18px;
+}
+
+.ov-bars i {
+  display: block;
+  width: 3px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ov-bar);
+}
+
+.theme-pill .ov-bars-wave,
+.theme-waveform .ov-bars-pill { display: none; }
+.theme-waveform .ov-bars { gap: 2px; }
+.theme-waveform .ov-bars i {
+  width: 2px;
+  border-radius: 1px;
+  transition: height 100ms linear;
+}
+
+/* static level bar, used instead of moving bars when motion is reduced */
+.ov-level {
+  display: none;
+  width: 40px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--ov-bar-track);
+  overflow: hidden;
+}
+
+.ov-level i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--ov-bar);
+  transform-origin: left center;
+  transform: scaleX(0);
+}
+
+.ov.reduce-motion .ov-bars { display: none; }
+.ov.reduce-motion .ov-level { display: block; }
+
+/* ---- themes ---- */
+
+.theme-minimal .ov-capsule {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  justify-content: center;
+  border-radius: 50%;
+}
+
+.theme-minimal .ov-dot {
+  left: 3px;
+  top: 3px;
+  width: 10px;
+  height: 10px;
+}
+
+.theme-minimal .ov-ring { display: block; }
+.theme-minimal[data-state="done"] .ov-ring,
+.theme-minimal[data-state="error"] .ov-ring { display: none; }
+.theme-minimal .ov-meter { display: none; }
+
+/* label stays for screen readers, hidden visually */
+.theme-minimal .ov-text {
+  position: absolute;
+  flex: none;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.theme-waveform .ov-time { display: none; }
+
+/* ---- accessibility modes ---- */
+
+.ov.solid .ov-capsule {
+  background: var(--ov-solid);
+  box-shadow: inset 0 0 0 1px var(--ov-solid-border);
+}
+
+.ov.reduce-motion .ov-capsule,
+.ov.reduce-motion[data-visible="true"] .ov-capsule {
+  transform: none;
+  filter: none;
+  transition: opacity 150ms linear;
+}
+
+.ov.reduce-motion .ov-dot {
+  animation: none;
+  transition: background-color 200ms ease;
+}
+
+.ov.reduce-motion[data-state="done"] .ov-dot { transform: none; }
+.ov.reduce-motion .ov-check path { transition: none; }
+.ov.reduce-motion .ov-text { transition: opacity 100ms ease; }
+.ov.reduce-motion .ov-text.swap { filter: none; }
+.ov.reduce-motion .ov-ring { transform: none !important; }
+.ov.reduce-motion .ov-bars i { transition: none; }

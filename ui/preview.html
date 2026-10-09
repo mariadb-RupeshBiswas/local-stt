@@ -1,0 +1,375 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>local-stt UI preview</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="overlay.css">
+<link rel="stylesheet" href="main.css">
+<!-- Browser-only harness with mock events. The app never loads this file, so the strict CSP does not apply. -->
+<style>
+  html, body { height: auto; overflow: auto; background: #e4e4ea; }
+  @media (prefers-color-scheme: dark) { html, body { background: #0d0d0f; } }
+  body { margin: 0; padding: 24px; font: 13px/1.4 var(--font); color: var(--label); }
+  h1 { margin: 0 0 4px; font-size: 20px; letter-spacing: var(--track-title); }
+  h2 { margin: 28px 0 10px; font-size: 15px; }
+  .pv-nav { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-bottom: 8px; color: var(--label-2); }
+  .pv-nav a { color: var(--accent-ink); text-decoration: none; }
+  .pv-panels { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+  .pv-panel { padding: 16px; border-radius: 16px; background: var(--bg); color: var(--label); }
+  .pv-panel h3 { margin: 0 0 10px; font-size: 13px; color: var(--label-2); }
+  .pv-grid { display: grid; grid-template-columns: 72px repeat(4, 268px); gap: 8px; align-items: center; }
+  .pv-colhead, .pv-rowhead { font-size: 12px; color: var(--label-2); }
+  .pv-wall {
+    position: relative; display: grid; place-items: center; height: 92px; border-radius: 12px; overflow: hidden;
+    background:
+      radial-gradient(circle at 18% 30%, #ffcf7a 0 22%, transparent 23%),
+      radial-gradient(circle at 78% 70%, #ff6b8a 0 26%, transparent 27%),
+      linear-gradient(115deg, #7aa7ff, #b389ff 60%, #ffa27a);
+  }
+  [data-scheme="dark"] .pv-wall {
+    background:
+      radial-gradient(circle at 18% 30%, #3b3f8f 0 22%, transparent 23%),
+      radial-gradient(circle at 78% 70%, #7a2f57 0 26%, transparent 27%),
+      linear-gradient(115deg, #151a3a, #2a1f4d 60%, #3a2430);
+  }
+  .pv-glass {
+    display: block; width: 220px; height: 44px; border-radius: 22px; overflow: hidden;
+    background: rgba(255, 255, 255, 0.32);
+    -webkit-backdrop-filter: blur(24px) saturate(1.8); backdrop-filter: blur(24px) saturate(1.8);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.22), 0 0 0 0.5px rgba(0, 0, 0, 0.08);
+  }
+  [data-scheme="dark"] .pv-glass { background: rgba(40, 40, 44, 0.4); }
+  .pv-glass.theme-minimal { width: 44px; border-radius: 50%; }
+  .pv-ov { width: 100%; height: 100%; }
+  .pv-live { display: flex; gap: 12px; align-items: center; }
+  .pv-live .pv-wall { width: 300px; }
+  .pv-btns { display: flex; gap: 8px; }
+  .pv-window { width: 720px; height: 520px; border-radius: 12px; overflow: hidden; box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3), 0 0 0 0.5px rgba(0, 0, 0, 0.25); }
+  .pv-windows { display: flex; flex-wrap: wrap; gap: 28px; }
+  .pv-cap { margin: 0 0 8px; font-size: 12px; color: var(--label-2); }
+</style>
+</head>
+<body>
+<h1>local-stt UI preview</h1>
+<nav class="pv-nav" id="pv-nav"></nav>
+<div id="pv-root"></div>
+
+<script>window.__LSTT_PREVIEW__ = true;</script>
+<script src="overlay.js"></script>
+<script src="main.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  var params = new URLSearchParams(location.search);
+  var view = params.get("view") || "overlays";
+  var scheme = params.get("scheme") || (view === "overlays" ? "both" : "light");
+  var reduce = params.get("reduce") === "1";
+  var solid = params.get("solid") === "1";
+  var platform = params.get("platform") === "windows" ? "windows" : "macos";
+  var rootEl = document.getElementById("pv-root");
+
+  function el(tag, className, text) {
+    var node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  // ---------- nav ----------
+  var navLinks = [
+    ["Overlay states", "?view=overlays"],
+    ["Overlay, reduced motion", "?view=overlays&reduce=1"],
+    ["Overlay, solid (reduced transparency)", "?view=overlays&solid=1"],
+    ["History", "?view=main&tab=history&scheme=both"],
+    ["Model", "?view=main&tab=model&scheme=both"],
+    ["Settings", "?view=main&tab=settings&scheme=both"]
+  ];
+  navLinks.forEach(function (pair) {
+    var a = el("a", "", pair[0]);
+    a.href = pair[1];
+    document.getElementById("pv-nav").appendChild(a);
+  });
+
+  // ---------- mock Tauri bridge ----------
+  function makeBus(commands) {
+    var handlers = {};
+    return {
+      emit: function (name, payload) {
+        (handlers[name] || []).slice().forEach(function (fn) { fn({ payload: payload }); });
+      },
+      tauri: {
+        event: {
+          listen: function (name, fn) {
+            (handlers[name] = handlers[name] || []).push(fn);
+            return Promise.resolve(function () {
+              handlers[name] = handlers[name].filter(function (x) { return x !== fn; });
+            });
+          }
+        },
+        core: {
+          invoke: function (cmd, args) {
+            if (!commands || !commands[cmd]) return Promise.resolve(null);
+            try { return Promise.resolve(commands[cmd](args || {})); } catch (err) { return Promise.reject(err); }
+          }
+        }
+      }
+    };
+  }
+
+  // fake speech: syllable bursts with slow phrasing
+  function speechLevel(t) {
+    var phrase = 0.55 + 0.45 * Math.sin(t / 900);
+    var syllable = Math.abs(Math.sin(t / 150 + 1)) * (0.6 + 0.4 * Math.sin(t / 233));
+    var noise = Math.random() * 0.05;
+    return Math.max(0, Math.min(1, 0.06 + 0.5 * phrase * syllable + noise));
+  }
+
+  // ---------- overlay gallery ----------
+  var LABELS = { recording: "Recording", transcribing: "Transcribing", done: "Pasted", error: "No speech heard" };
+  var STATES = ["recording", "transcribing", "done", "error"];
+  var THEMES = ["pill", "waveform", "minimal"];
+
+  function overlayCell(parent, theme, state) {
+    var wall = el("div", "pv-wall");
+    var glass = el("div", "pv-glass theme-" + theme);
+    var mount = el("div", "pv-ov");
+    if (reduce) mount.dataset.forceReduce = "1";
+    if (solid) mount.dataset.forceSolid = "1";
+    glass.appendChild(mount);
+    wall.appendChild(glass);
+    parent.appendChild(wall);
+
+    var bus = makeBus({ get_state: function () { return { config: { theme: theme } }; } });
+    window.mountOverlay(mount, bus.tauri, { autoHide: false });
+    bus.emit("overlay-theme", { theme: theme, reducedMotion: reduce });
+    bus.emit("overlay-state", { state: "recording", label: LABELS.recording, startedAtMs: Date.now() - 6000 });
+    var timer = setInterval(function () { bus.emit("overlay-level", { level: speechLevel(Date.now()) }); }, 33);
+    if (state !== "recording") {
+      setTimeout(function () {
+        clearInterval(timer);
+        bus.emit("overlay-state", { state: state, label: LABELS[state] });
+      }, 1600);
+    }
+  }
+
+  function overlayGallery(schemeName) {
+    var panel = el("section", "pv-panel");
+    panel.dataset.scheme = schemeName;
+    panel.appendChild(el("h3", "", schemeName === "dark" ? "Dark" : "Light"));
+    var grid = el("div", "pv-grid");
+    grid.appendChild(el("div"));
+    STATES.forEach(function (s) { grid.appendChild(el("div", "pv-colhead", s)); });
+    THEMES.forEach(function (theme) {
+      grid.appendChild(el("div", "pv-rowhead", theme));
+      STATES.forEach(function (state) { overlayCell(grid, theme, state); });
+    });
+    panel.appendChild(grid);
+    return panel;
+  }
+
+  function liveDemo(schemeName) {
+    var panel = el("section", "pv-panel");
+    panel.dataset.scheme = schemeName;
+    panel.appendChild(el("h3", "", "Live: " + schemeName + " (press Dictate, it enters, runs, then leaves on its own)"));
+    var row = el("div", "pv-live");
+    var wall = el("div", "pv-wall");
+    var glass = el("div", "pv-glass theme-pill");
+    var mount = el("div", "pv-ov");
+    if (reduce) mount.dataset.forceReduce = "1";
+    glass.appendChild(mount);
+    wall.appendChild(glass);
+    var bus = makeBus({ get_state: function () { return { config: { theme: "pill" } }; } });
+    window.mountOverlay(mount, bus.tauri);
+    bus.emit("overlay-theme", { theme: "pill", reducedMotion: reduce });
+    // the real window is invisible while hidden, so the fake glass follows the capsule
+    glass.style.opacity = "0";
+    glass.style.transition = "opacity 150ms linear";
+    new MutationObserver(function () { glass.style.opacity = mount.dataset.visible === "true" ? "1" : "0"; })
+      .observe(mount, { attributes: true, attributeFilter: ["data-visible"] });
+
+    var run = 0;
+    function dictate(ok) {
+      run += 1;
+      var mine = run;
+      bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: Date.now() });
+      var timer = setInterval(function () { bus.emit("overlay-level", { level: speechLevel(Date.now()) }); }, 33);
+      setTimeout(function () {
+        clearInterval(timer);
+        if (mine !== run) return;
+        bus.emit("overlay-state", { state: "transcribing", label: "Transcribing" });
+        setTimeout(function () {
+          if (mine !== run) return;
+          bus.emit("overlay-state", ok ? { state: "done", label: "Pasted" } : { state: "error", label: LABELS.error });
+        }, 1200);
+      }, 3200);
+    }
+    var buttons = el("div", "pv-btns");
+    [["Dictate", function () { dictate(true); }], ["Fail", function () { dictate(false); }]].forEach(function (pair) {
+      var b = el("button", "btn", pair[0]);
+      b.addEventListener("click", pair[1]);
+      buttons.appendChild(b);
+    });
+    THEMES.forEach(function (name) {
+      var b = el("button", "btn", name);
+      b.addEventListener("click", function () {
+        glass.className = "pv-glass theme-" + name;
+        bus.emit("overlay-theme", { theme: name, reducedMotion: reduce });
+      });
+      buttons.appendChild(b);
+    });
+    row.appendChild(wall);
+    row.appendChild(buttons);
+    panel.appendChild(row);
+    return panel;
+  }
+
+  // ---------- main window mock ----------
+  function mockState() {
+    var now = Date.now();
+    var minute = 60 * 1000;
+    var hour = 60 * minute;
+    var day = 24 * hour;
+    var empty = params.get("empty") === "1";
+    var entries = [
+      { ts_ms: now - 3 * minute, text: "Please check the September billing numbers before the meeting tomorrow.", duration_ms: 3200, model: "small", ok: true },
+      { ts_ms: now - 41 * minute, text: "Here are the notes from the planning call. First, the pricing page needs a clearer comparison between the monthly and annual plans. Second, the onboarding email should mention the free trial limit in the first paragraph. Third, we agreed to review the churn dashboard on Thursday and decide whether to split the Cloud and On-prem views. Finally, please send the updated slide deck to the whole team before the end of the day so everyone can comment.", duration_ms: 27800, model: "small", ok: true },
+      { ts_ms: now - 2 * hour, text: "Remind me to renew the domain before the end of the month.", duration_ms: 2400, model: "small", ok: true },
+      { ts_ms: now - 5 * hour, text: "", duration_ms: 1900, model: "small", ok: false },
+      { ts_ms: now - day - 2 * hour, text: "The weather is really nice today, let's take the afternoon off.", duration_ms: 2900, model: "small", ok: true },
+      { ts_ms: now - day - 3 * hour, text: "Can you share the latest numbers from the Q3 review?", duration_ms: 2100, model: "small", ok: true },
+      { ts_ms: now - 3 * day, text: "Draft a short reply thanking them for the quick turnaround.", duration_ms: 3000, model: "small", ok: true },
+      { ts_ms: now - 9 * day, text: "Add a line to the changelog about the new overlay themes.", duration_ms: null, model: "small", ok: true }
+    ];
+    if (params.get("xss") === "1") {
+      entries.unshift({ ts_ms: now - minute, text: "<img src=x onerror=window.__pwned=1> & <b>bold</b>", duration_ms: 1000, model: "small", ok: true });
+    }
+    var winReasons = platform === "windows";
+    return {
+      config: {
+        hotkey: platform === "windows" ? { modifiers: ["Ctrl", "Alt"], key: null } : { modifiers: ["Fn", "Shift"], key: null },
+        mode: "hold", translate: true, language: "auto", paste: true, restore_clipboard: false,
+        microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
+        save_history: params.get("hist") !== "off", autostart: false, model: "small"
+      },
+      models: [
+        { id: "small", label: "Small", size_mb: 181, supported: true, recommended: false, downloaded: true, reasons: [] },
+        { id: "medium", label: "Medium", size_mb: 514, supported: true, recommended: true, downloaded: false, reasons: [] },
+        { id: "large-v3", label: "Large v3", size_mb: 1031, supported: false, recommended: false, downloaded: false,
+          reasons: winReasons
+            ? ["Needs 16 GB RAM, this PC has 8 GB", "Needs a GPU this app can use; Windows build runs on CPU"]
+            : ["Needs 16 GB RAM, this Mac has 8 GB", "Free disk space could not be read"] }
+      ],
+      hardware: winReasons
+        ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: 8, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
+        : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: 8, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: null },
+      inputs: ["MacBook Air Microphone", "USB Audio Device"],
+      version: "0.1.0",
+      platform: platform,
+      hotkeyDisplay: platform === "windows" ? "Ctrl + Alt" : "Fn + Shift",
+      history: empty ? [] : entries
+    };
+  }
+
+  function mainWindow(schemeName, tab) {
+    var data = mockState();
+    var bus;
+    var captureTimer = 0;
+    var commands = {
+      get_state: function () { return data; },
+      set_config: function (a) {
+        Object.assign(data.config, a.patch);
+        if (a.patch.hotkey) {
+          var names = { Fn: "Fn", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift", Meta: platform === "windows" ? "Win" : "Cmd" };
+          var parts = ["Fn", "Ctrl", "Alt", "Shift", "Meta"].filter(function (m) { return a.patch.hotkey.modifiers.indexOf(m) !== -1; }).map(function (m) { return names[m]; });
+          if (a.patch.hotkey.key) parts.push(a.patch.hotkey.key);
+          data.hotkeyDisplay = parts.join(" + ");
+        }
+        return data.config;
+      },
+      get_history: function () { return data.history; },
+      clear_history: function () { data.history = []; },
+      copy_text: function (a) {
+        try { if (navigator.clipboard) navigator.clipboard.writeText(a.text).catch(function () {}); } catch (e) { /* preview only */ }
+      },
+      reset_overlay_position: function () {},
+      start_hotkey_capture: function () {
+        captureTimer = setTimeout(function () {
+          bus.emit("hotkey-captured", { combo: { modifiers: ["Ctrl", "Alt"], key: "Space" }, display: "Ctrl + Alt + Space" });
+        }, 2200);
+      },
+      cancel_hotkey_capture: function () { clearTimeout(captureTimer); },
+      choose_model: function (a) {
+        var fit = data.models.filter(function (m) { return m.id === a.id; })[0];
+        if (fit.downloaded) { data.config.model = a.id; return; }
+        var done = 0;
+        var total = fit.size_mb * 1048576;
+        var timer = setInterval(function () {
+          done = Math.min(total, done + total / 20);
+          bus.emit("model-progress", { id: a.id, downloaded: done, total: total });
+          if (done >= total) {
+            clearInterval(timer);
+            fit.downloaded = true;
+            data.config.model = a.id;
+            bus.emit("model-done", { id: a.id, ok: true });
+          }
+        }, 250);
+      }
+    };
+    bus = makeBus(commands);
+
+    var frame = el("div", "pv-window");
+    frame.dataset.scheme = schemeName;
+    if (reduce) frame.dataset.forceReduce = "1";
+    var host = el("div");
+    host.style.width = "100%";
+    host.style.height = "100%";
+    host.dataset.scheme = schemeName;
+    if (reduce) host.dataset.forceReduce = "1";
+    frame.appendChild(host);
+
+    var api = window.mountMain(host, bus.tauri);
+    if (tab !== "history") api.showTab(tab);
+
+    // freeze a download at 42% for the still screenshot
+    var freeze = params.get("download");
+    if (freeze) {
+      setTimeout(function () {
+        var fit = data.models.filter(function (m) { return m.id === freeze; })[0];
+        if (!fit) return;
+        var total = fit.size_mb * 1048576;
+        bus.emit("model-progress", { id: freeze, downloaded: total * 0.42, total: total });
+      }, 300);
+    }
+    return frame;
+  }
+
+  // ---------- compose ----------
+  var schemes = scheme === "both" ? ["light", "dark"] : [scheme];
+
+  if (view === "overlays") {
+    rootEl.appendChild(el("h2", "", "States and themes" + (reduce ? " (reduced motion)" : "") + (solid ? " (solid)" : "")));
+    var panels = el("div", "pv-panels");
+    schemes.forEach(function (s) { panels.appendChild(overlayGallery(s)); });
+    rootEl.appendChild(panels);
+    rootEl.appendChild(el("h2", "", "Live"));
+    var live = el("div", "pv-panels");
+    schemes.forEach(function (s) { live.appendChild(liveDemo(s)); });
+    rootEl.appendChild(live);
+  } else {
+    var tab = params.get("tab") || "history";
+    var wins = el("div", "pv-windows");
+    schemes.forEach(function (s) {
+      var wrap = el("div");
+      wrap.appendChild(el("p", "pv-cap", tab + ", " + s + (reduce ? ", reduced motion" : "") + ", " + platform));
+      wrap.appendChild(mainWindow(s, tab));
+      wins.appendChild(wrap);
+    });
+    rootEl.appendChild(wins);
+  }
+})();
+</script>
+</body>
+</html>
