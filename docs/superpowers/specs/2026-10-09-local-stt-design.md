@@ -45,7 +45,7 @@ One Rust module per job.
 
 | Module | Job | Platform code |
 |---|---|---|
-| `hotkey` | Emit `Pressed` / `Released` for the held combo | macOS `CGEventTap` on flags-changed; Windows `WH_KEYBOARD_LL` hook. macOS hand-written FFI, Windows `windows-sys` |
+| `hotkey` | Emit `Pressed` / `Released` for the configured combo (modifier-only or modifiers + one key); Esc cancels | macOS `CGEventTap` on flags-changed; Windows `WH_KEYBOARD_LL` hook. macOS hand-written FFI, Windows `windows-sys` |
 | `recorder` | Capture default mic while held; RMS level every ~50 ms; return mono f32 samples | cpal |
 | `audio` | Downmix and linear-resample to 16 kHz | none |
 | `engine` | Load model once, keep it loaded, transcribe a buffer | whisper.cpp via a ~40-line C shim (`shim.c`) |
@@ -103,15 +103,84 @@ The other two are pinned the same way at implementation time.
 
 ## Overlay
 
-- About 180 x 44 px; default bottom-right of the main screen, 24 px from the edges.
-- Red dot, live level bar, state label (Recording, Transcribing, or an error for 3 s).
-- Drag anywhere to move; position saved in `config.json`.
-- Must never take focus, or the paste lands in the overlay. Main technical risk; tested first.
+Visual design follows Apple's Human Interface Guidelines for floating controls: a small
+glass capsule that sits above content, system font, system colours, quiet motion.
+
+- Shape: capsule about 220 x 44 pt (Minimal theme: 44 pt circle), fully rounded, native
+  window shadow, a 0.5 pt light inner border for edge definition on any wallpaper.
+- Material: real window translucency, not a CSS imitation. macOS 26+ uses Tauri's
+  `LiquidGlassRegular` effect, older macOS `HudWindow`; Windows 11 `Mica`, Windows 10
+  `Acrylic`; an opaque dark fallback where none is available. Window is `transparent`
+  (needs Tauri's `macos-private-api` feature).
+- Type: `system-ui` (SF Pro on macOS, Segoe UI Variable on Windows), 13 pt medium,
+  tabular digits for the timer so it does not jitter.
+- Colour: macOS system red (#FF3B30 light, #FF453A dark) for the recording dot, system
+  orange while transcribing, system green for done. Text in label colour at 85 % opacity.
+- Level meter: 7 rounded bars driven by mic RMS with fast attack and slow release, so it
+  reads as calm rather than twitchy. Normal speech fills about half the height.
+- Motion: appears with a 180 ms scale-and-fade, state changes cross-fade in 200 ms,
+  disappears with a 150 ms fade. With "reduce motion" on, everything is a plain fade.
+- Position: drag the whole capsule anywhere on any monitor. Within 16 pt of a screen edge
+  or corner it snaps to a 24 pt margin, so corners are easy to hit. The position is saved
+  with the monitor's name and scale; if that monitor is gone at next start, the capsule
+  goes to the bottom-right of the screen with the mouse pointer. First run uses that same
+  default. Positions are clamped to the visible work area (not under the menu bar, Dock
+  or taskbar).
+- Hidden between dictations.
+- Never takes focus. Spike 0 (2026-10-09) proved it: created hidden with `focusable(false)`
+  and `focused(false)`, then shown later, the frontmost app kept focus. A window that is
+  visible at creation did steal focus, so the overlay is always created hidden.
+- States, each with a text label so colour is never the only signal:
+
+| State | Look | Label |
+|---|---|---|
+| Recording | Red dot, live level | "Recording" plus elapsed seconds |
+| Transcribing | Amber dot, level frozen | "Transcribing" |
+| Done | Green check, 600 ms | "Pasted" or "Copied" |
+| Error | Grey dot, 3 s | Short reason, for example "No speech heard" |
+
+- The red dot pulses slowly (once per second, well under the 3-flashes-per-second limit).
+  With the OS "reduce motion" setting on, it stays solid and the level shows as a static bar.
+- Esc cancels a recording; nothing is transcribed or saved.
+
+Themes (Settings > Overlay):
+
+| Theme | What it shows |
+|---|---|
+| Pill (default) | Red dot, label, horizontal level bar |
+| Waveform | Red dot, label, bars scrolling the last ~2 s of mic level |
+| Minimal | Red dot only, with a ring that grows with mic level |
+
+All themes follow the OS light or dark appearance.
 
 ## Main window
 
-- Opened from the tray. Model dropdown on top, history list below (time, text, copy button).
-- The dropdown shows all three models with Recommended / Downloaded / Not supported labels.
+Opened from the tray. Three tabs.
+
+- **History:** time, text, copy button, newest first. Search box. Clear history button.
+- **Model:** dropdown of the three models with Recommended / Downloaded / Not supported
+  labels, the reason for each greyed-out row, and the detected hardware.
+- **Settings:** everything below, saved to `config.json` on change.
+
+| Setting | Options | Default |
+|---|---|---|
+| Hotkey | Click the field, press the combo. Modifier-only (Fn+Shift) or modifiers plus one key (Ctrl+Alt+Space). Reset button | macOS Fn+Shift, Windows Ctrl+Alt |
+| Mode | Hold to talk, or press once to start and again to stop | Hold to talk |
+| Output language | English (translate) or keep the spoken language | English |
+| Spoken language | Auto-detect or a fixed language from Whisper's list | Auto-detect |
+| Paste | Paste into the focused app, or copy only | Paste |
+| Restore clipboard | Put the previous clipboard back after pasting | Off |
+| Microphone | System default or a specific input device | System default |
+| Overlay theme | Pill, Waveform, Minimal | Pill |
+| Show overlay | On or off | On |
+| Reset overlay position | Button | - |
+| Sounds | Short start and stop sounds (non-visual cue) | On |
+| Save history | On or off; off keeps nothing on disk | On |
+| Start at login | On or off | Off |
+
+Hotkey rules: at least one modifier, at most one non-modifier key, and the combo is
+checked against a short list of system shortcuts (for example Cmd+Q, Cmd+Tab, Alt+F4,
+Ctrl+Alt+Del) and refused if it matches.
 
 ## Packaging and start at login
 
@@ -164,7 +233,8 @@ App:
 - No network except the model download. Hardcoded HTTPS URL per model,
   `curl --fail --proto =https --tlsv1.2`, write to a temp file, verify SHA-256, then rename.
   Mismatch deletes the file. Arguments go to `curl` as an argv list, never through a shell.
-- The hotkey hook reads modifier state only. It never records, stores or logs other keys.
+- The hotkey hook compares key events against the configured combo and keeps only a
+  "combo held" flag. It never records, stores or logs any other key.
 - Tauri: CSP set explicitly to `default-src 'self'`; `withGlobalTauri` off; devtools off in
   release builds; no shell, fs or http plugins. Capabilities grant only clipboard write,
   autostart, window and tray. Frontend commands take a model id from a fixed list, never a
@@ -213,9 +283,22 @@ Repository and CI:
   history, overlay drag, model switch.
 - Windows: same checklist, run by the user on their PC. Not verifiable from this Mac.
 
+## Public repo files
+
+- `README.md`: what it is in one line, feature list, install (`uvx local-stt`), first-run
+  permissions, settings, models table, privacy section, FAQ, keywords people search for
+  (free speech to text, offline dictation, local Whisper, private voice typing, no cloud,
+  no subscription, Mac and Windows, Hindi to English). Claims stay true: free and MIT,
+  runs offline after the model download, no telemetry.
+- `CHANGELOG.md` (Keep a Changelog), `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`
+  (Contributor Covenant 2.1), `SECURITY.md` (private vulnerability reporting), `AGENTS.md`
+  (build, test, layout, rules for AI coding agents), issue and PR templates.
+- Search metadata: GitHub topics, PyPI keywords and classifiers in `pyproject.toml`,
+  crates.io keywords and categories in `Cargo.toml`.
+
 ## Out of scope
 
-Custom hotkeys, more than three models, live streaming text, code signing and
+More than three models, live streaming text, code signing and
 notarization, a `.app` / `.msi` installer, Intel Macs, Windows GPU acceleration.
 
 ## Repo layout
