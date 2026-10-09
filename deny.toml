@@ -4,6 +4,8 @@ all-features = true
 [advisories]
 version = 2
 yanked = "deny"
+# Transitive crates under Tauri and its GTK stack may be unmaintained; we can only act on our own.
+unmaintained = "workspace"
 
 [licenses]
 version = 2

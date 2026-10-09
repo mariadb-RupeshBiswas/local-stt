@@ -15,7 +15,9 @@ fn main() {
     let dst = cfg.build();
 
     cc::Build::new()
-        .file("shim.c")
+        .cpp(true)
+        .std("c++17")
+        .file("shim.cpp")
         .include("vendor/whisper.cpp/include")
         .include("vendor/whisper.cpp/ggml/include")
         .compile("lstt_shim");
@@ -47,8 +49,25 @@ fn main() {
         println!(
             "cargo:rustc-link-arg-bins=-Wl,-sectcreate,__TEXT,__info_plist,{manifest}/Info.plist"
         );
+        // ggml-metal uses @available checks, which need compiler-rt when the deployment target is older than the SDK.
+        if let Some(dir) = clang_runtime_dir() {
+            println!("cargo:rustc-link-search=native={dir}");
+            println!("cargo:rustc-link-lib=static=clang_rt.osx");
+        }
     }
-    println!("cargo:rerun-if-changed=shim.c");
+    println!("cargo:rerun-if-changed=shim.cpp");
     println!("cargo:rerun-if-changed=Info.plist");
     tauri_build::build();
+}
+
+fn clang_runtime_dir() -> Option<String> {
+    let out = std::process::Command::new("xcrun")
+        .args(["clang", "--print-runtime-dir"])
+        .output()
+        .ok()?;
+    let dir = String::from_utf8(out.stdout).ok()?.trim().to_string();
+    std::path::Path::new(&dir)
+        .join("libclang_rt.osx.a")
+        .exists()
+        .then_some(dir)
 }

@@ -87,6 +87,7 @@ jobs:
           persist-credentials: false
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
+          rust-version: "1.99.0"
           command: check advisories licenses sources bans
 
   wheel:
@@ -110,9 +111,11 @@ jobs:
         with:
           command: build
           target: ${{ matrix.target }}
+          maturin-version: v1.15.0
           args: --release --locked --out dist
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
+          version: "0.12.22"
           enable-cache: false
       - name: Run the wheel through uvx
         shell: bash

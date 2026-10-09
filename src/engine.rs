@@ -68,6 +68,7 @@ fn transcribe_raw(
         -1 => Err("engine is not ready".to_string()),
         -2 => Err("transcription failed".to_string()),
         -3 => Err("transcript is too long".to_string()),
+        -4 => Err("speech engine hit an internal error".to_string()),
         other => Err(format!("engine error {other}")),
     }
 }

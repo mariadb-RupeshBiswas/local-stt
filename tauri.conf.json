@@ -13,5 +13,5 @@
       "freezePrototype": true
     }
   },
-  "bundle": { "icon": ["icons/icon.png"] }
+  "bundle": { "icon": ["icons/icon.png", "icons/icon.ico"] }
 }
