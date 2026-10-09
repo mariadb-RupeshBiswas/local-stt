@@ -36,6 +36,7 @@ fn wav_data_to_f32(bytes: &[u8]) -> Vec<f32> {
     panic!("no data chunk in WAV");
 }
 
+#[cfg(target_os = "macos")]
 fn speak_to_pcm(text: &str, voice: Option<&str>) -> Vec<f32> {
     let wav = std::env::temp_dir().join(format!("lstt-{}-{}.wav", std::process::id(), text.len()));
     let mut cmd = std::process::Command::new("say");
@@ -55,6 +56,7 @@ fn speak_to_pcm(text: &str, voice: Option<&str>) -> Vec<f32> {
 }
 
 // Headless CI voices sometimes render silence; that is an OS limitation, not an engine bug.
+#[cfg(target_os = "macos")]
 fn usable(pcm: &[f32]) -> bool {
     let ok = !local_stt::audio::is_silent(pcm, local_stt::audio::SILENCE_RMS);
     if !ok {
