@@ -4,8 +4,15 @@
 
   var SVG_NS = "http://www.w3.org/2000/svg";
   var THEMES = ["pill", "waveform", "minimal"];
-  var STATES = ["recording", "transcribing", "done", "error"];
-  var DEFAULT_LABELS = { recording: "Recording", transcribing: "Transcribing", done: "Done", error: "Something went wrong" };
+  var STATES = ["recording", "transcribing", "done", "warning", "error", "positioning"];
+  var DEFAULT_LABELS = {
+    recording: "Recording",
+    transcribing: "Transcribing",
+    done: "Done",
+    warning: "Check settings",
+    error: "Something went wrong",
+    positioning: "Drag me anywhere"
+  };
 
   var PILL_BARS = 7;
   var WAVE_BARS = 20;
@@ -17,7 +24,7 @@
   var RIPPLE_FRAMES = 4; // each bar away from the centre shows the level 4 frames older
   var HOLD_STEP_MS = 100; // reduced motion: level is sampled, not animated
   var SHOW_DONE_MS = 600;
-  var SHOW_ERROR_MS = 3000;
+  var SHOW_ERROR_MS = 3000; // error and warning share it, the backend hides at the same moment
   var FADE_OUT_MS = 150;
   var LABEL_SWAP_MS = 90;
 
@@ -49,6 +56,19 @@
     return svg;
   }
 
+  function buildWarn() {
+    var svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("class", "ov-warn");
+    svg.setAttribute("viewBox", "0 0 16 16");
+    svg.setAttribute("aria-hidden", "true");
+    ["M8 2.3 14.3 13.2H1.7Z", "M8 6.6v2.9", "M8 11.5h.01"].forEach(function (d) {
+      var path = document.createElementNS(SVG_NS, "path");
+      path.setAttribute("d", d);
+      svg.appendChild(path);
+    });
+    return svg;
+  }
+
   function buildBars(count) {
     var wrap = el("div", "ov-bars");
     wrap.setAttribute("aria-hidden", "true");
@@ -77,6 +97,7 @@
     lead.appendChild(ring);
     lead.appendChild(dot);
     lead.appendChild(buildCheck());
+    lead.appendChild(buildWarn());
 
     var text = el("div", "ov-text");
     var label = el("span", "ov-label");
@@ -116,6 +137,7 @@
     var waveClock = 0;
     var holdClock = 0;
     var reduceFromEvent = false;
+    var solidFromEvent = false; // Windows has no native glass, so the app asks for the opaque capsule
     var reduce = false;
     var rafId = 0;
     var lastFrame = 0;
@@ -136,7 +158,7 @@
     function applyAccessibility() {
       reduce = reduceFromEvent || !!(reduceQuery && reduceQuery.matches) || root.dataset.forceReduce === "1";
       root.classList.toggle("reduce-motion", reduce);
-      root.classList.toggle("solid", !!(solidQuery && solidQuery.matches) || root.dataset.forceSolid === "1");
+      root.classList.toggle("solid", solidFromEvent || !!(solidQuery && solidQuery.matches));
     }
 
     function listenQuery(query) {
@@ -263,6 +285,11 @@
       clearTimeout(hideTimer);
       if (visible) return;
       visible = true;
+      // snap to hidden first: after a native hide the capsule can still read as shown
+      capsule.classList.add("snap");
+      root.dataset.visible = "false";
+      void capsule.offsetWidth;
+      capsule.classList.remove("snap");
       void capsule.offsetWidth; // commit the hidden style so the entrance transitions
       root.dataset.visible = "true";
     }
@@ -285,6 +312,9 @@
       if (!payload || STATES.indexOf(payload.state) === -1) return;
       var next = payload.state;
       var previous = status;
+      // the app hides the window itself on cancel and on leaving positioning, so JS never saw a hide
+      var reopened = (next === "recording" || next === "positioning") && (previous === "recording" || previous === "positioning");
+      if (reopened) visible = false;
       status = next;
       root.dataset.state = next;
       var text_ = typeof payload.label === "string" && payload.label !== "" ? payload.label : DEFAULT_LABELS[next];
@@ -305,7 +335,7 @@
       setLabel(text_);
       show();
       if (next === "done") hideAfter(SHOW_DONE_MS);
-      else if (next === "error") hideAfter(SHOW_ERROR_MS);
+      else if (next === "error" || next === "warning") hideAfter(SHOW_ERROR_MS);
       else clearTimeout(hideTimer);
     }
 
@@ -332,6 +362,7 @@
       if (!payload) return;
       applyTheme(payload.theme);
       if (typeof payload.reducedMotion === "boolean") reduceFromEvent = payload.reducedMotion;
+      if (typeof payload.solid === "boolean") solidFromEvent = payload.solid;
       applyAccessibility();
       if (reduce) stopLoop();
       else if (status === "recording" && visible) startLoop();

@@ -4,10 +4,10 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>local-stt UI preview</title>
-<link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="overlay.css">
-<link rel="stylesheet" href="main.css">
-<!-- Browser-only harness with mock events. The app never loads this file, so the strict CSP does not apply. -->
+<link rel="stylesheet" href="../ui/tokens.css">
+<link rel="stylesheet" href="../ui/overlay.css">
+<link rel="stylesheet" href="../ui/main.css">
+<!-- Browser-only harness with mock events. It lives outside ui/ so the app never embeds it, and the strict CSP does not apply. -->
 <style>
   html, body { height: auto; overflow: auto; background: #e4e4ea; }
   @media (prefers-color-scheme: dark) { html, body { background: #0d0d0f; } }
@@ -19,7 +19,7 @@
   .pv-panels { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
   .pv-panel { padding: 16px; border-radius: 16px; background: var(--bg); color: var(--label); }
   .pv-panel h3 { margin: 0 0 10px; font-size: 13px; color: var(--label-2); }
-  .pv-grid { display: grid; grid-template-columns: 72px repeat(4, 268px); gap: 8px; align-items: center; }
+  .pv-grid { display: grid; grid-template-columns: 72px repeat(6, 232px); gap: 8px; align-items: center; }
   .pv-colhead, .pv-rowhead { font-size: 12px; color: var(--label-2); }
   .pv-wall {
     position: relative; display: grid; place-items: center; height: 92px; border-radius: 12px; overflow: hidden;
@@ -34,6 +34,9 @@
       radial-gradient(circle at 78% 70%, #7a2f57 0 26%, transparent 27%),
       linear-gradient(115deg, #151a3a, #2a1f4d 60%, #3a2430);
   }
+  body[data-wall="black"] .pv-wall { background: #000; }
+  body[data-wall="white"] .pv-wall { background: #fff; }
+  body[data-wall="vivid"] .pv-wall { background: linear-gradient(115deg, #ff2d55, #ffcc00 50%, #30d158); }
   .pv-glass {
     display: block; width: 220px; height: 44px; border-radius: 22px; overflow: hidden;
     background: rgba(255, 255, 255, 0.32);
@@ -57,8 +60,8 @@
 <div id="pv-root"></div>
 
 <script>window.__LSTT_PREVIEW__ = true;</script>
-<script src="overlay.js"></script>
-<script src="main.js"></script>
+<script src="../ui/overlay.js"></script>
+<script src="../ui/main.js"></script>
 <script>
 (function () {
   "use strict";
@@ -69,6 +72,7 @@
   var reduce = params.get("reduce") === "1";
   var solid = params.get("solid") === "1";
   var platform = params.get("platform") === "windows" ? "windows" : "macos";
+  document.body.dataset.wall = params.get("wall") || "";
   var rootEl = document.getElementById("pv-root");
 
   function el(tag, className, text) {
@@ -82,7 +86,10 @@
   var navLinks = [
     ["Overlay states", "?view=overlays"],
     ["Overlay, reduced motion", "?view=overlays&reduce=1"],
-    ["Overlay, solid (reduced transparency)", "?view=overlays&solid=1"],
+    ["Overlay, solid (Windows, reduced transparency)", "?view=overlays&solid=1"],
+    ["Overlay over black", "?view=overlays&wall=black"],
+    ["Overlay over white", "?view=overlays&wall=white"],
+    ["Overlay over vivid", "?view=overlays&wall=vivid"],
     ["History", "?view=main&tab=history&scheme=both"],
     ["Model", "?view=main&tab=model&scheme=both"],
     ["Settings", "?view=main&tab=settings&scheme=both"]
@@ -128,8 +135,15 @@
   }
 
   // ---------- overlay gallery ----------
-  var LABELS = { recording: "Recording", transcribing: "Transcribing", done: "Pasted", error: "No speech heard" };
-  var STATES = ["recording", "transcribing", "done", "error"];
+  var LABELS = {
+    recording: "Recording",
+    transcribing: "Transcribing",
+    done: "Pasted",
+    warning: "Copied. Allow Accessibility to paste",
+    error: "No speech heard",
+    positioning: "Drag me anywhere"
+  };
+  var STATES = ["recording", "transcribing", "done", "warning", "error", "positioning"];
   var THEMES = ["pill", "waveform", "minimal"];
 
   function overlayCell(parent, theme, state) {
@@ -137,14 +151,13 @@
     var glass = el("div", "pv-glass theme-" + theme);
     var mount = el("div", "pv-ov");
     if (reduce) mount.dataset.forceReduce = "1";
-    if (solid) mount.dataset.forceSolid = "1";
     glass.appendChild(mount);
     wall.appendChild(glass);
     parent.appendChild(wall);
 
     var bus = makeBus({ get_state: function () { return { config: { theme: theme } }; } });
     window.mountOverlay(mount, bus.tauri, { autoHide: false });
-    bus.emit("overlay-theme", { theme: theme, reducedMotion: reduce });
+    bus.emit("overlay-theme", { theme: theme, reducedMotion: reduce, solid: solid });
     bus.emit("overlay-state", { state: "recording", label: LABELS.recording, startedAtMs: Date.now() - 6000 });
     var timer = setInterval(function () { bus.emit("overlay-level", { level: speechLevel(Date.now()) }); }, 33);
     if (state !== "recording") {
@@ -183,7 +196,7 @@
     wall.appendChild(glass);
     var bus = makeBus({ get_state: function () { return { config: { theme: "pill" } }; } });
     window.mountOverlay(mount, bus.tauri);
-    bus.emit("overlay-theme", { theme: "pill", reducedMotion: reduce });
+    bus.emit("overlay-theme", { theme: "pill", reducedMotion: reduce, solid: solid });
     // the real window is invisible while hidden, so the fake glass follows the capsule
     glass.style.opacity = "0";
     glass.style.transition = "opacity 150ms linear";
@@ -191,9 +204,10 @@
       .observe(mount, { attributes: true, attributeFilter: ["data-visible"] });
 
     var run = 0;
-    function dictate(ok) {
+    function dictate(outcome) {
       run += 1;
       var mine = run;
+      glass.style.opacity = "1"; // the app shows the native window before the page reacts
       bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: Date.now() });
       var timer = setInterval(function () { bus.emit("overlay-level", { level: speechLevel(Date.now()) }); }, 33);
       setTimeout(function () {
@@ -202,12 +216,26 @@
         bus.emit("overlay-state", { state: "transcribing", label: "Transcribing" });
         setTimeout(function () {
           if (mine !== run) return;
-          bus.emit("overlay-state", ok ? { state: "done", label: "Pasted" } : { state: "error", label: LABELS.error });
+          bus.emit("overlay-state", { state: outcome, label: outcome === "done" ? "Pasted" : LABELS[outcome] });
         }, 1200);
       }, 3200);
     }
     var buttons = el("div", "pv-btns");
-    [["Dictate", function () { dictate(true); }], ["Fail", function () { dictate(false); }]].forEach(function (pair) {
+    var pairs = [
+      ["Dictate", function () { dictate("done"); }],
+      ["Warn", function () { dictate("warning"); }],
+      ["Fail", function () { dictate("error"); }],
+      ["Move pill", function () {
+        run += 1;
+        glass.style.opacity = "1";
+        bus.emit("overlay-state", { state: "positioning", label: LABELS.positioning });
+      }],
+      ["Hide (cancel or Done)", function () {
+        run += 1;
+        glass.style.opacity = "0"; // the app hides the native window and the page hears nothing
+      }]
+    ];
+    pairs.forEach(function (pair) {
       var b = el("button", "btn", pair[0]);
       b.addEventListener("click", pair[1]);
       buttons.appendChild(b);
@@ -216,7 +244,7 @@
       var b = el("button", "btn", name);
       b.addEventListener("click", function () {
         glass.className = "pv-glass theme-" + name;
-        bus.emit("overlay-theme", { theme: name, reducedMotion: reduce });
+        bus.emit("overlay-theme", { theme: name, reducedMotion: reduce, solid: solid });
       });
       buttons.appendChild(b);
     });
@@ -265,6 +293,9 @@
       hardware: winReasons
         ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: 8, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
         : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: 8, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: null },
+      activeModel: params.get("active") === "none" ? null : "small",
+      downloading: params.get("downloading") || null,
+      autostartEnabled: false,
       inputs: ["MacBook Air Microphone", "USB Audio Device"],
       version: "0.1.0",
       platform: platform,
@@ -272,6 +303,8 @@
       history: empty ? [] : entries
     };
   }
+
+  window.__calls = [];
 
   function mainWindow(schemeName, tab) {
     var data = mockState();
@@ -281,6 +314,8 @@
       get_state: function () { return data; },
       set_config: function (a) {
         Object.assign(data.config, a.patch);
+        if (a.patch.save_history === false) data.history = []; // the app deletes the file when history goes off
+        if (a.patch.autostart !== undefined) data.autostartEnabled = a.patch.autostart;
         if (a.patch.hotkey) {
           var names = { Fn: "Fn", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift", Meta: platform === "windows" ? "Win" : "Cmd" };
           var parts = ["Fn", "Ctrl", "Alt", "Shift", "Meta"].filter(function (m) { return a.patch.hotkey.modifiers.indexOf(m) !== -1; }).map(function (m) { return names[m]; });
@@ -294,7 +329,8 @@
       copy_text: function (a) {
         try { if (navigator.clipboard) navigator.clipboard.writeText(a.text).catch(function () {}); } catch (e) { /* preview only */ }
       },
-      reset_overlay_position: function () {},
+      reset_overlay_position: function () { window.__calls.push("reset_overlay_position"); },
+      move_overlay: function (a) { window.__calls.push("move_overlay:" + a.on); },
       start_hotkey_capture: function () {
         captureTimer = setTimeout(function () {
           bus.emit("hotkey-captured", { combo: { modifiers: ["Ctrl", "Alt"], key: "Space" }, display: "Ctrl + Alt + Space" });
@@ -302,18 +338,29 @@
       },
       cancel_hotkey_capture: function () { clearTimeout(captureTimer); },
       choose_model: function (a) {
+        window.__calls.push("choose_model:" + a.id);
         var fit = data.models.filter(function (m) { return m.id === a.id; })[0];
-        if (fit.downloaded) { data.config.model = a.id; return; }
+        function activate() {
+          data.config.model = a.id;
+          data.activeModel = a.id;
+          bus.emit("model-done", { id: a.id, ok: true });
+        }
+        if (fit.downloaded) { setTimeout(activate, 500); return; }
         var done = 0;
         var total = fit.size_mb * 1048576;
+        data.downloading = a.id;
         var timer = setInterval(function () {
           done = Math.min(total, done + total / 20);
           bus.emit("model-progress", { id: a.id, downloaded: done, total: total });
-          if (done >= total) {
+          if (params.get("fail") === a.id && done >= total / 2) {
             clearInterval(timer);
+            data.downloading = null;
+            bus.emit("model-done", { id: a.id, ok: false, error: "The download failed. The previous model is still active." });
+          } else if (done >= total) {
+            clearInterval(timer);
+            data.downloading = null;
             fit.downloaded = true;
-            data.config.model = a.id;
-            bus.emit("model-done", { id: a.id, ok: true });
+            activate();
           }
         }, 250);
       }
@@ -321,6 +368,7 @@
     bus = makeBus(commands);
 
     var frame = el("div", "pv-window");
+    frame.style.height = (parseInt(params.get("h"), 10) || 520) + "px";
     frame.dataset.scheme = schemeName;
     if (reduce) frame.dataset.forceReduce = "1";
     var host = el("div");
