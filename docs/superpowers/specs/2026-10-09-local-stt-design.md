@@ -22,6 +22,7 @@ local-stt doctor              # print hardware specs and which models fit
 
 | Topic | Decision |
 |---|---|
+| License | MIT, copyright "local-stt contributors" |
 | Name | `local-stt` (free on PyPI, crates.io, GitHub on 2026-10-09) |
 | Repo | `mariadb-RupeshBiswas/local-stt`, work identity, standard Claude co-author trailer |
 | Platforms | macOS (Apple Silicon) built and tested first; Windows x64 from the same code, tested by the user |
@@ -44,13 +45,13 @@ One Rust module per job.
 
 | Module | Job | Platform code |
 |---|---|---|
-| `hotkey` | Emit `Pressed` / `Released` for the held combo | macOS `CGEventTap` on flags-changed; Windows `WH_KEYBOARD_LL` hook. Hand-written FFI |
+| `hotkey` | Emit `Pressed` / `Released` for the held combo | macOS `CGEventTap` on flags-changed; Windows `WH_KEYBOARD_LL` hook. macOS hand-written FFI, Windows `windows-sys` |
 | `recorder` | Capture default mic while held; RMS level every ~50 ms; return mono f32 samples | cpal |
 | `audio` | Downmix and linear-resample to 16 kHz | none |
 | `engine` | Load model once, keep it loaded, transcribe a buffer | whisper.cpp via a ~40-line C shim (`shim.c`) |
-| `output` | Clipboard, then paste keystroke | Tauri clipboard plugin; `CGEventPost` / `SendInput` FFI |
+| `output` | Clipboard, then paste keystroke | Tauri clipboard plugin; `CGEventPost` FFI / `SendInput` via `windows-sys` |
 | `history` | Append `{ts, text, duration_ms, model, ok}` to `history.jsonl`; read newest first | none |
-| `hwprobe` | Read RAM, CPU model and thread count, architecture, GPU, free disk | macOS `sysctl` + `statvfs`; Windows `GlobalMemoryStatusEx`, `GetSystemInfo`, `GetDiskFreeSpaceExW`, GPU name via PowerShell CIM |
+| `hwprobe` | Read RAM, CPU model and thread count, architecture, GPU, free disk | macOS `sysctl` + `statvfs`; Windows `GlobalMemoryStatusEx`, `GetSystemInfo`, `GetDiskFreeSpaceExW` via `windows-sys`, GPU name via PowerShell CIM |
 | `models` | Catalog of 3 models, fit rules, download with pinned SHA-256, switch active model | `curl` (ships with macOS and Windows 10+) |
 | `config` | `config.json` in the app data dir: active model, overlay position | none |
 | overlay window | Always-on-top, borderless, non-focusable: red dot, level bar, state text | Tauri |
@@ -142,11 +143,12 @@ Crates from named organizations, last release within a year (checked 2026-10-09)
 | `tauri-plugin-autostart` 2.7 | Tauri org | 2026-10-01 |
 | `cpal` 0.18 | RustAudio org | 2026-08-16 |
 | `serde`, `serde_json` | serde-rs org | 2026-07-20 |
+| `windows-sys` 0.61 (Windows only) | Microsoft | 2025-10-06, kept by owner decision: generated bindings beat hand-written FFI |
 | `cmake` 0.1, `cc` 1.6 (build only) | rust-lang org | 2026-10-08, 2026-10-03 |
 | maturin 1.15 (build only) | PyO3 org | 2026-08-24 |
 
 Not used, because the last release is older than a year or the publisher is a person:
-`core-graphics` (2025-05), `windows-sys` (2025-10-06), `whisper-rs`, `sysinfo`,
+`core-graphics` (2025-05), `whisper-rs`, `sysinfo`,
 `reqwest`, `hound`. Their small parts are replaced with FFI, `curl`, or a few lines of code.
 
 whisper.cpp is vendored as a git submodule pinned to commit
