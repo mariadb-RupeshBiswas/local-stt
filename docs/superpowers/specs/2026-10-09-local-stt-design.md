@@ -32,7 +32,7 @@ local-stt doctor              # print hardware specs and which models fit
 | Other models | Medium q5_0 (514 MB) and large-v3 q5_0 (1031 MB), offered by hardware fit |
 | Hotkey | macOS: hold Fn+Shift. Windows: hold Ctrl+Alt |
 | Task | Translate on: Hindi becomes English, English passes through |
-| Output | Clipboard, then synthetic paste (Cmd+V / Ctrl+V) |
+| Output | Private clipboard write (arboard), then synthetic paste (Cmd+V / Ctrl+V) |
 | Indicator | Floating overlay, bottom-right by default, draggable, live mic level |
 
 Measured on an Apple M4 Pro (24 GB), file test, wall time including model load:
@@ -49,7 +49,7 @@ One Rust module per job.
 | `recorder` | Capture default mic while held; RMS level every ~50 ms; return mono f32 samples | cpal |
 | `audio` | Downmix and linear-resample to 16 kHz | none |
 | `engine` | Load model once, keep it loaded, transcribe a buffer | whisper.cpp via a ~40-line C shim (`shim.cpp`) |
-| `output` | Clipboard, then paste keystroke | Tauri clipboard plugin; `CGEventPost` FFI / `SendInput` via `windows-sys` |
+| `output` | Clipboard, then paste keystroke | `arboard` (private markers); `CGEventPost` FFI / `SendInput` via `windows-sys` |
 | `history` | Append `{ts, text, duration_ms, model, ok}` to `history.jsonl`; read newest first | none |
 | `hwprobe` | Read RAM, CPU model and thread count, architecture, GPU, free disk | macOS `sysctl` + `statvfs`; Windows `GlobalMemoryStatusEx`, `GetSystemInfo`, `GetDiskFreeSpaceExW` via `windows-sys`, GPU name via PowerShell CIM |
 | `models` | Catalog of 3 models, fit rules, download with pinned SHA-256, switch active model | `curl` (ships with macOS and Windows 10+) |
@@ -211,7 +211,7 @@ Crates from named organizations, last release within a year (checked 2026-10-09)
 | Crate | Publisher | Latest release |
 |---|---|---|
 | `tauri` 2.12, `tauri-build` | Tauri org | 2026-10-09 |
-| `tauri-plugin-clipboard-manager` 2.4 | Tauri org | 2026-10-01 |
+| `arboard` 3.6 | 1Password | 2025-08-23, a deliberate exception to the one-year rule: it was already in the build through Tauri's clipboard plugin, and it is the only option that marks clipboard writes private |
 | `cpal` 0.18 | RustAudio org | 2026-08-16 |
 | `serde`, `serde_json` | serde-rs org | 2026-07-20 |
 | `windows-sys` 0.61 (Windows only) | Microsoft | 2025-10-06, kept on purpose: Microsoft's generated bindings are safer than hand-written FFI |

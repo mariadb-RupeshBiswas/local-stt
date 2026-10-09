@@ -31,6 +31,8 @@ uvx local-stt
 
 ## How it works
 
+![Recording pill in its states](docs/screenshots/overlay-states-light.png)
+
 1. Hold **Fn + Shift** on a Mac, or **Ctrl + Alt** on Windows. Change it any time in Settings.
 2. Speak. A small glass recording pill shows a red dot and your live microphone level.
 3. Let go. Your words are transcribed on your laptop, copied to the clipboard and pasted where your cursor is.
@@ -40,6 +42,8 @@ Every dictation is kept in a local history you can search and copy from, or you 
 ## Install
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/), the fast Python package manager. You do not need Python, Rust or anything else.
+
+> The first release is not on PyPI yet. Until it is, build from source in a minute or two: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
 uvx local-stt                # try it right now
@@ -61,6 +65,8 @@ If the emoji picker opens when you press Fn, set **System Settings > Keyboard > 
 ## Settings
 
 Open the app from the menu bar or tray icon.
+
+![Settings, light and dark](docs/screenshots/main-settings.png)
 
 | Setting | What it does | Default |
 |---|---|---|
@@ -89,6 +95,8 @@ local-stt checks your computer (memory, processor, graphics, free disk) and only
 | Whisper Large v3 | 1.0 GB | Best accuracy | 16 GB RAM and Apple Silicon |
 
 Run `local-stt doctor` to see your hardware and which models fit, right in the terminal.
+
+![Model picker with hardware check](docs/screenshots/main-model.png)
 
 ## Privacy and security
 
