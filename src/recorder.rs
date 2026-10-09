@@ -129,7 +129,7 @@ fn open(
     on_level: Box<dyn Fn(f32) + Send + 'static>,
 ) -> Result<(cpal::Stream, u16, u32), String> {
     let host = cpal::default_host();
-    let device = pick_input(&host, name).ok_or("No microphone found")?;
+    let device = pick_input(&host, name)?;
     let supported = device.default_input_config().map_err(describe)?;
     let config = supported.config();
     let format = supported.sample_format();
@@ -154,16 +154,23 @@ fn open(
 }
 
 // An unknown or unplugged device name falls back to the system default.
-fn pick_input(host: &cpal::Host, name: Option<&str>) -> Option<cpal::Device> {
-    if let (Some(wanted), Ok(devices)) = (name, host.input_devices()) {
+// A chosen microphone that is gone is an error, never a silent switch to another mic.
+fn pick_input(host: &cpal::Host, name: Option<&str>) -> Result<cpal::Device, String> {
+    let Some(wanted) = name else {
+        return host
+            .default_input_device()
+            .ok_or_else(|| "No microphone found".to_string());
+    };
+    if let Ok(devices) = host.input_devices() {
         for device in devices {
-            let found = device.description().is_ok_and(|d| d.name() == wanted);
-            if found {
-                return Some(device);
+            if device.description().is_ok_and(|d| d.name() == wanted) {
+                return Ok(device);
             }
         }
     }
-    host.default_input_device()
+    Err(format!(
+        "{wanted} is not connected. Pick another microphone in Settings."
+    ))
 }
 
 fn build<T>(

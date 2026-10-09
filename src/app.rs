@@ -8,7 +8,7 @@ use crate::models::{self, ModelId};
 use crate::overlay::{self, Screen};
 use crate::recorder::{Recorder, Recording};
 use crate::state::{Action, Input, Machine, MAX_RECORDING_MS};
-use crate::{audio, download, history, output, paths, sound};
+use crate::{audio, clipboard, download, history, output, paths, sound};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -21,7 +21,6 @@ use tauri::{
     AppHandle, Emitter, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder,
     WindowEvent,
 };
-use tauri_plugin_clipboard_manager::ClipboardExt;
 
 pub const OVERLAY: &str = "overlay";
 pub const MAIN: &str = "main";
@@ -55,6 +54,7 @@ pub struct Shared {
     moving_by_code: AtomicBool,
     last_user_move_ms: AtomicU64,
     snap_pending: AtomicBool,
+    overlay_gen: AtomicU64,
 }
 
 impl Shared {
@@ -99,10 +99,10 @@ pub fn run() -> Result<(), String> {
         moving_by_code: AtomicBool::new(false),
         last_user_move_ms: AtomicU64::new(0),
         snap_pending: AtomicBool::new(false),
+        overlay_gen: AtomicU64::new(0),
     });
 
     let app = tauri::Builder::default()
-        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(shared.clone())
         .invoke_handler(tauri::generate_handler![
             crate::commands::get_state,
@@ -236,15 +236,6 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<WebviewWindow> {
                 .build(),
         )
     };
-    #[cfg(windows)]
-    let builder = {
-        use tauri::window::{Effect, EffectsBuilder};
-        builder.effects(
-            EffectsBuilder::new()
-                .effects([Effect::Mica, Effect::Acrylic])
-                .build(),
-        )
-    };
     let window = builder.build()?;
     let handle = app.clone();
     window.on_window_event(move |event| {
@@ -357,13 +348,12 @@ pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Op
     let Some(win) = app.get_webview_window(OVERLAY) else {
         return;
     };
+    // Any pending hide from an earlier state is now stale.
+    s.overlay_gen.fetch_add(1, Ordering::SeqCst);
     if !win.is_visible().unwrap_or(false) {
         place_overlay(app, &win);
     }
-    let _ = app.emit(
-        "overlay-theme",
-        json!({ "theme": cfg.theme, "reducedMotion": false }),
-    );
+    let _ = app.emit("overlay-theme", theme_payload(&cfg));
     let _ = app.emit(
         "overlay-state",
         json!({ "state": state, "label": label, "startedAtMs": started_at_ms }),
@@ -372,13 +362,22 @@ pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Op
 }
 
 pub fn hide_overlay_after(app: &AppHandle, delay_ms: u64) {
+    let generation = shared(app).overlay_gen.load(Ordering::SeqCst);
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(delay_ms));
+        if shared(&app).overlay_gen.load(Ordering::SeqCst) != generation {
+            return;
+        }
         if let Some(win) = app.get_webview_window(OVERLAY) {
             let _ = win.hide();
         }
     });
+}
+
+fn theme_payload(cfg: &Config) -> serde_json::Value {
+    // Windows gets no native glass on a borderless capsule, so the page draws an opaque one.
+    json!({ "theme": cfg.theme, "reducedMotion": false, "solid": cfg!(windows) })
 }
 
 fn on_overlay_moved(app: &AppHandle) {
@@ -655,33 +654,39 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         }
     };
     let previous = if cfg.restore_clipboard {
-        app.clipboard().read_text().ok()
+        clipboard::read_text()
     } else {
         None
     };
-    if let Err(e) = app.clipboard().write_text(text.clone()) {
+    if let Err(e) = clipboard::write_private(&text) {
         return fail(app, &format!("Clipboard unavailable: {e}"), cfg.sounds);
     }
-    let mut label = "Copied";
+    let mut pasted = !cfg.paste;
     if cfg.paste {
         // Give the clipboard a beat to settle before the target app reads it.
         std::thread::sleep(Duration::from_millis(40));
-        match output::send_paste() {
-            Ok(()) => label = "Pasted",
-            Err(_) => label = "Copied (paste blocked)",
-        }
+        pasted = output::send_paste().is_ok() && hotkey::accessibility_ok(false);
     }
     if let Some(prev) = previous {
-        let app2 = app.clone();
+        let ours = text.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(400));
-            let _ = app2.clipboard().write_text(prev);
+            // Never overwrite something the user copied in the meantime.
+            if clipboard::read_text().as_deref() == Some(ours.as_str()) {
+                let _ = clipboard::write_private(&prev);
+            }
         });
     }
     record(&cfg, &model, &text, duration_ms, true);
     let _ = app.emit("history-changed", ());
-    show_overlay(app, "done", label, None);
-    hide_overlay_after(app, 700);
+    if pasted {
+        let label = if cfg.paste { "Pasted" } else { "Copied" };
+        show_overlay(app, "done", label, None);
+        hide_overlay_after(app, 700);
+    } else {
+        show_overlay(app, "warning", "Copied. Allow Accessibility to paste", None);
+        hide_overlay_after(app, 3_000);
+    }
 }
 
 fn record(cfg: &Config, model: &str, text: &str, duration_ms: u64, ok: bool) {
@@ -707,9 +712,12 @@ pub fn model_name(id: ModelId) -> &'static str {
 fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
     std::thread::spawn(move || {
         let mut engine: Option<Engine> = None;
+        let mut verified: Vec<ModelId> = Vec::new();
         for job in rx {
             match job {
-                Job::Load(path, id) => match Engine::load(&path) {
+                Job::Load(path, id) => match verify_model(&path, id, &mut verified)
+                    .and_then(|()| Engine::load(&path))
+                {
                     Ok(e) => {
                         engine = Some(e);
                         *lock(&shared(&app).active_model) = Some(id);
@@ -740,6 +748,24 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
             }
         }
     });
+}
+
+// Re-checks the pinned checksum once per run, so a damaged or swapped file is never parsed.
+fn verify_model(
+    path: &std::path::Path,
+    id: ModelId,
+    verified: &mut Vec<ModelId>,
+) -> Result<(), String> {
+    if verified.contains(&id) {
+        return Ok(());
+    }
+    let actual =
+        download::sha256_file(path).map_err(|e| format!("cannot read the model file: {e}"))?;
+    if !actual.eq_ignore_ascii_case(models::info(id).sha256) {
+        return Err("The model file is damaged. Choose the model again to re-download it.".into());
+    }
+    verified.push(id);
+    Ok(())
 }
 
 fn first_run_or_load(app: &AppHandle) {
@@ -816,10 +842,7 @@ pub fn overlay_theme_changed(app: &AppHandle) {
     if let Some(win) = app.get_webview_window(OVERLAY) {
         let _ = win.set_size(tauri::LogicalSize::new(w, h));
     }
-    let _ = app.emit(
-        "overlay-theme",
-        json!({ "theme": cfg.theme, "reducedMotion": false }),
-    );
+    let _ = app.emit("overlay-theme", theme_payload(&cfg));
 }
 
 pub fn overlay_positioning(app: &AppHandle, on: bool) {

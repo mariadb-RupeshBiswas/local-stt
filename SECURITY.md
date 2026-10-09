@@ -18,9 +18,9 @@ steps to reproduce and the impact you see.
 | Resource | Why | When |
 |---|---|---|
 | Microphone | Record your speech | Only while the shortcut is held (or between presses in toggle mode) |
-| Keyboard events | Detect the shortcut | Always while running; only the "combo held" state is kept |
+| Keyboard events | Detect the shortcut | Always while running; only the keys currently held are kept in memory to match the shortcut, never recorded, stored or sent |
 | Synthetic paste keystroke | Type the text for you | After each dictation, when Paste is on |
-| Clipboard (write) | Hand over the text | After each dictation |
+| Clipboard (write, marked private) | Hand over the text; clipboard managers, Windows clipboard history and cloud clipboard skip it. macOS Universal Clipboard may still share it with your own nearby devices when Handoff is on | After each dictation |
 | Network | Download a model from `huggingface.co` over HTTPS | First run and when you choose another model |
 | Files in the app data folder | Settings, history, models | Always; created readable only by your user |
 
@@ -35,4 +35,5 @@ The app sends nothing anywhere: no telemetry, no crash reports, no update checks
 - Release wheels are published with PyPI Trusted Publishing (no stored tokens) and carry
   build provenance attestations.
 - whisper.cpp is vendored as a git submodule pinned to a release commit.
-- Models are pinned by SHA-256 and verified before use.
+- Models are pinned by SHA-256, verified on download and again the first time they load in each run.
+- Each app window can call only the commands it needs (Tauri capabilities); the recording pill can only read state.

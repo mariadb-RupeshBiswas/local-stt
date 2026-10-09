@@ -13,7 +13,39 @@ pub struct Entry {
     pub ok: bool,
 }
 
+// About 2,000 typical dictations; older ones are dropped so the file never grows without bound.
+const KEEP_ENTRIES: usize = 2_000;
+const TRIM_ABOVE_BYTES: u64 = 1024 * 1024;
+
 pub fn append(path: &Path, e: &Entry) -> std::io::Result<()> {
+    append_line(path, e)?;
+    trim_if_large(path, TRIM_ABOVE_BYTES, KEEP_ENTRIES)
+}
+
+fn trim_if_large(path: &Path, max_bytes: u64, keep: usize) -> std::io::Result<()> {
+    if std::fs::metadata(path)?.len() <= max_bytes {
+        return Ok(());
+    }
+    let mut newest = read_newest_first(path, keep)?;
+    newest.reverse();
+    let mut tmp_name = path.as_os_str().to_owned();
+    tmp_name.push(".tmp");
+    let tmp = std::path::PathBuf::from(tmp_name);
+    let _ = std::fs::remove_file(&tmp);
+    let mut file = crate::config::private_options()
+        .write(true)
+        .create_new(true)
+        .open(&tmp)?;
+    for entry in &newest {
+        let mut line = serde_json::to_vec(entry).map_err(std::io::Error::other)?;
+        line.push(b'\n');
+        file.write_all(&line)?;
+    }
+    drop(file);
+    std::fs::rename(&tmp, path)
+}
+
+fn append_line(path: &Path, e: &Entry) -> std::io::Result<()> {
     // serde_json escapes newlines, so one entry is always one line.
     let mut line = serde_json::to_vec(e).map_err(std::io::Error::other)?;
     line.push(b'\n');
@@ -104,6 +136,19 @@ mod tests {
         append(&p, &e(1, "x")).unwrap();
         clear(&p).unwrap();
         assert!(read_newest_first(&p, 10).unwrap().is_empty());
+    }
+    #[test]
+    fn large_file_is_trimmed_to_newest() {
+        let p = tmp("trim");
+        let _ = clear(&p);
+        for i in 1..=50 {
+            append_line(&p, &e(i, "some dictated text")).unwrap();
+        }
+        trim_if_large(&p, 100, 10).unwrap();
+        let kept = read_newest_first(&p, 100).unwrap();
+        assert_eq!(kept.len(), 10);
+        assert_eq!(kept[0].ts_ms, 50);
+        assert_eq!(kept[9].ts_ms, 41);
     }
     #[cfg(unix)]
     #[test]

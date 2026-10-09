@@ -1,0 +1,20 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "main",
+  "description": "Main window: history, model choice and settings through the app's own validated commands.",
+  "windows": ["main"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-get-state",
+    "allow-set-config",
+    "allow-start-hotkey-capture",
+    "allow-cancel-hotkey-capture",
+    "allow-choose-model",
+    "allow-get-history",
+    "allow-clear-history",
+    "allow-reset-overlay-position",
+    "allow-move-overlay",
+    "allow-copy-text"
+  ]
+}

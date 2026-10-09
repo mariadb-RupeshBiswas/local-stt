@@ -7,7 +7,6 @@ use crate::{autostart, history, hotkey, paths};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
-use tauri_plugin_clipboard_manager::ClipboardExt;
 
 const HISTORY_LIMIT: usize = 500;
 const MAX_COPY_CHARS: usize = 100_000;
@@ -74,6 +73,12 @@ pub fn set_config(
     let next = merge_patch(&before, &patch)?;
     if next.autostart != before.autostart {
         autostart::set(next.autostart)?;
+    }
+    if before.save_history && !next.save_history {
+        // "Off" means nothing kept on disk, not just nothing new.
+        history::clear(&paths::history_path())
+            .map_err(|e| format!("cannot delete history: {e}"))?;
+        let _ = tauri::Emitter::emit(&app, "history-changed", ());
     }
     let saved = state.update_config(|c| *c = next.clone());
     if saved.hotkey != before.hotkey {
@@ -152,11 +157,11 @@ pub fn move_overlay(app: AppHandle, on: bool) {
 }
 
 #[tauri::command]
-pub fn copy_text(app: AppHandle, text: String) -> Result<(), String> {
+pub fn copy_text(text: String) -> Result<(), String> {
     if text.chars().count() > MAX_COPY_CHARS {
         return Err("text too long".into());
     }
-    app.clipboard().write_text(text).map_err(|e| e.to_string())
+    crate::clipboard::write_private(&text)
 }
 
 #[cfg(test)]

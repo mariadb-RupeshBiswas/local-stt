@@ -57,7 +57,21 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=shim.cpp");
     println!("cargo:rerun-if-changed=Info.plist");
-    tauri_build::build();
+    // Listing the commands makes Tauri require a capability for each, so every window gets only what it needs.
+    let manifest = tauri_build::AppManifest::new().commands(&[
+        "get_state",
+        "set_config",
+        "start_hotkey_capture",
+        "cancel_hotkey_capture",
+        "choose_model",
+        "get_history",
+        "clear_history",
+        "reset_overlay_position",
+        "move_overlay",
+        "copy_text",
+    ]);
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
+        .expect("tauri build step failed");
 }
 
 fn clang_runtime_dir() -> Option<String> {

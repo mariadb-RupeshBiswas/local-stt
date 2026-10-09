@@ -8,6 +8,20 @@ use std::time::Duration;
 
 const ALLOWED_PREFIX: &str = "https://huggingface.co/";
 const POLL: Duration = Duration::from_millis(250);
+// Largest pinned model is about 1 GB; the cap only stops a runaway response before the hash check.
+const MAX_BYTES: &str = "2147483648";
+
+// System curl by absolute path, so PATH cannot swap in another binary.
+fn curl_program() -> std::path::PathBuf {
+    if cfg!(windows) {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        std::path::PathBuf::from(root)
+            .join("System32")
+            .join("curl.exe")
+    } else {
+        std::path::PathBuf::from("/usr/bin/curl")
+    }
+}
 
 pub fn download(
     url: &str,
@@ -90,7 +104,10 @@ fn fetch_and_verify(
     } else {
         "=https"
     };
-    let mut child = Command::new("curl")
+    let mut child = Command::new(curl_program())
+        // -q must come first: it stops curl reading a user .curlrc.
+        .args(["-q", "--max-filesize", MAX_BYTES, "--connect-timeout", "20"])
+        .args(["--speed-limit", "1024", "--speed-time", "60"])
         .args([
             "--fail",
             "--location",

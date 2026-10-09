@@ -61,7 +61,7 @@ fn doctor() -> Result<(), String> {
         }
     );
     println!("  Free disk    {} GB", dash(hw.free_disk_gb));
-    println!("  Data folder  {}", paths::data_dir().display());
+    println!("  Data folder  {}", without_home(&paths::data_dir()));
     println!();
     println!("Models");
     for fit in models::evaluate(&hw, &paths::models_dir()) {
@@ -86,6 +86,16 @@ fn doctor() -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+// Keeps the account name out of output that people paste into public issues.
+fn without_home(path: &std::path::Path) -> String {
+    let shown = path.display().to_string();
+    let home = std::env::var("HOME").or_else(|_| std::env::var("USERPROFILE"));
+    match home {
+        Ok(h) if !h.is_empty() && shown.starts_with(&h) => format!("~{}", &shown[h.len()..]),
+        _ => shown,
+    }
 }
 
 fn parse_model(id: Option<&str>) -> Result<models::ModelId, String> {

@@ -93,7 +93,8 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 ## Privacy and security
 
 - Speech recognition runs locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Audio stays in memory and is discarded after each dictation.
-- The only network request the app ever makes is downloading a model from Hugging Face over HTTPS, verified against a pinned checksum before use.
+- The only network request the app ever makes is downloading a model from Hugging Face over HTTPS, verified against a pinned checksum on download and again when it loads.
+- Text is put on the clipboard marked as private, so clipboard managers, Windows clipboard history and cloud clipboard skip it. On a Mac with Handoff on, Universal Clipboard can still pass it to your own nearby devices.
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
 - History and settings are plain local files readable only by your user account. History can be switched off or cleared at any time.
 - Releases are built in GitHub Actions, published with PyPI Trusted Publishing and carry build provenance attestations.

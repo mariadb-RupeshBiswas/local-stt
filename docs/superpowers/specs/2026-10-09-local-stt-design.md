@@ -24,7 +24,7 @@ local-stt doctor              # print hardware specs and which models fit
 |---|---|
 | License | MIT, copyright "local-stt contributors" |
 | Name | `local-stt` (free on PyPI, crates.io, GitHub on 2026-10-09) |
-| Repo | `mariadb-RupeshBiswas/local-stt`, work identity, standard Claude co-author trailer |
+| Repo | `mariadb-RupeshBiswas/local-stt` |
 | Platforms | macOS (Apple Silicon) built and tested first; Windows x64 from the same code, tested by the user |
 | Stack | Rust + Tauri 2, shipped as a Python wheel through maturin `bindings = "bin"` |
 | Speech engine | whisper.cpp v1.9.5 compiled into the binary (Metal on macOS, CPU on Windows) |
@@ -35,7 +35,7 @@ local-stt doctor              # print hardware specs and which models fit
 | Output | Clipboard, then synthetic paste (Cmd+V / Ctrl+V) |
 | Indicator | Floating overlay, bottom-right by default, draggable, live mic level |
 
-Measured on the user's M4 Pro (24 GB), file test, wall time including model load:
+Measured on an Apple M4 Pro (24 GB), file test, wall time including model load:
 small q5_1 0.45 s, large-v3 q5_0 2.63 s. Both transcribed the English clip exactly
 and translated the Hindi clip correctly.
 
@@ -214,7 +214,7 @@ Crates from named organizations, last release within a year (checked 2026-10-09)
 | `tauri-plugin-clipboard-manager` 2.4 | Tauri org | 2026-10-01 |
 | `cpal` 0.18 | RustAudio org | 2026-08-16 |
 | `serde`, `serde_json` | serde-rs org | 2026-07-20 |
-| `windows-sys` 0.61 (Windows only) | Microsoft | 2025-10-06, kept by owner decision: generated bindings beat hand-written FFI |
+| `windows-sys` 0.61 (Windows only) | Microsoft | 2025-10-06, kept on purpose: Microsoft's generated bindings are safer than hand-written FFI |
 | `cmake` 0.1, `cc` 1.6 (build only) | rust-lang org | 2026-10-08, 2026-10-03 |
 | maturin 1.15 (build only) | PyO3 org | 2026-08-24 |
 
@@ -262,7 +262,15 @@ Repository and CI:
   needs a manual approval. The PyPI trusted-publisher entry is created by the owner.
 - Repo settings after creation (owner approves each): branch ruleset on `main` (PR only,
   CI required), secret scanning with push protection, private vulnerability reporting.
-- A pre-push sweep script fails on private keys, tokens and internal names.
+- GitHub secret scanning with push protection blocks committed credentials; maintainers also run a
+  local pre-push sweep for keys, tokens and internal names.
+- App commands are scoped per window through Tauri capabilities: the recording pill can only read
+  state; the main window gets exactly the commands it uses.
+- Clipboard writes are marked private (skipped by clipboard managers, Windows clipboard history and
+  cloud clipboard). macOS Universal Clipboard can still hand the text to the user's own nearby
+  devices when Handoff is on; the README says so.
+- Models are verified against the pinned SHA-256 on download and again the first time they are
+  loaded in each run.
 - `CLAUDE.md` and `.claude/` are gitignored.
 
 ## Error handling

@@ -84,8 +84,15 @@ mod platform {
     const KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
     const VALUE: &str = "local-stt";
 
+    fn reg() -> std::path::PathBuf {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        std::path::PathBuf::from(root)
+            .join("System32")
+            .join("reg.exe")
+    }
+
     pub fn set(enabled: bool, exe: &Path) -> Result<(), String> {
-        let mut cmd = Command::new("reg");
+        let mut cmd = Command::new(reg());
         if enabled {
             let data = format!("\"{}\"", exe.display());
             cmd.args(["add", KEY, "/v", VALUE, "/t", "REG_SZ", "/d", &data, "/f"]);
@@ -101,7 +108,7 @@ mod platform {
     }
 
     pub fn is_enabled() -> bool {
-        Command::new("reg")
+        Command::new(reg())
             .args(["query", KEY, "/v", VALUE])
             .output()
             .map(|o| o.status.success())
