@@ -2,8 +2,6 @@
 
 use std::path::{Path, PathBuf};
 
-const LABEL: &str = "io.github.localstt";
-
 /// uvx runs binaries from a throwaway cache, so a login item would point at a vanishing path.
 pub fn is_ephemeral(exe: &Path) -> bool {
     let p = exe.to_string_lossy().replace('\\', "/").to_lowercase();
@@ -28,7 +26,7 @@ pub fn is_enabled() -> bool {
 
 #[cfg(target_os = "macos")]
 mod platform {
-    use super::LABEL;
+    const LABEL: &str = "io.github.localstt";
     use std::path::{Path, PathBuf};
 
     fn plist_path() -> Option<PathBuf> {

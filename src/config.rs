@@ -77,14 +77,18 @@ fn with_suffix(path: &Path, suffix: &str) -> PathBuf {
 }
 
 // Owner-only on Unix; the mode applies only when the file is created.
+#[cfg(unix)]
 pub(crate) fn private_options() -> OpenOptions {
+    use std::os::unix::fs::OpenOptionsExt;
     let mut opts = OpenOptions::new();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::OpenOptionsExt;
-        opts.mode(0o600);
-    }
+    opts.mode(0o600);
     opts
+}
+
+// Windows profile folders are already per-user by ACL.
+#[cfg(not(unix))]
+pub(crate) fn private_options() -> OpenOptions {
+    OpenOptions::new()
 }
 
 fn backup(path: &Path) {
