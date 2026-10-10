@@ -21,3 +21,4 @@ pub mod paths;
 pub mod recorder;
 pub mod sound;
 pub mod state;
+pub mod update;

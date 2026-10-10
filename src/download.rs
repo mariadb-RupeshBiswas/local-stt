@@ -12,7 +12,7 @@ const POLL: Duration = Duration::from_millis(250);
 const MAX_BYTES: &str = "2147483648";
 
 // System curl by absolute path, so PATH cannot swap in another binary.
-fn curl_program() -> std::path::PathBuf {
+pub(crate) fn curl_program() -> std::path::PathBuf {
     if cfg!(windows) {
         let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
         std::path::PathBuf::from(root)

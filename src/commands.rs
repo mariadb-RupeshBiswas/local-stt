@@ -30,6 +30,7 @@ pub fn get_state(state: State<'_, Arc<Shared>>) -> Value {
         "hotkeyDisplay": hotkey::display(&cfg.hotkey),
         "toggleDisplay": cfg.toggle_hotkey.as_ref().map(hotkey::display),
         "installed": crate::install::is_installed(),
+        "update": lock(&state.update).clone(),
         "activeModel": *lock(&state.active_model),
         "downloading": *lock(&state.downloading),
         "autostartEnabled": autostart::is_enabled(),
@@ -176,6 +177,44 @@ pub fn reset_overlay_position(state: State<'_, Arc<Shared>>) {
 #[tauri::command]
 pub fn move_overlay(app: AppHandle, on: bool) {
     app::overlay_positioning(&app, on);
+}
+
+#[tauri::command]
+pub fn check_for_updates(app: AppHandle) {
+    app::check_updates_now(app, true);
+}
+
+/// Installs the version the last check found, then restarts into it.
+#[tauri::command]
+pub async fn install_update(app: AppHandle) -> Result<String, String> {
+    let shared = app::shared_of(&app);
+    let version = lock(&shared.update)
+        .as_ref()
+        .filter(|u| u.available)
+        .and_then(|u| u.latest.clone())
+        .ok_or("No update is available.")?;
+    let target = version.clone();
+    let notes = tauri::async_runtime::spawn_blocking(move || crate::update::install(&target))
+        .await
+        .map_err(|e| format!("update task failed: {e}"))??;
+    app::restart_into_installed(&app);
+    Ok(format!("Updated to {version}. Restarting. {notes}"))
+}
+
+#[tauri::command]
+pub fn skip_update(app: AppHandle, state: State<'_, Arc<Shared>>) {
+    let latest = lock(&state.update).as_ref().and_then(|u| u.latest.clone());
+    state.update_config(|c| c.skip_update = latest);
+    app::refresh_update_menu(&app);
+}
+
+#[tauri::command]
+pub fn open_release_notes(state: State<'_, Arc<Shared>>) -> Result<(), String> {
+    let url = lock(&state.update)
+        .as_ref()
+        .map(|u| u.notes_url.clone())
+        .unwrap_or_else(|| crate::update::RELEASES_URL.to_string());
+    crate::update::open_url(&url)
 }
 
 #[tauri::command]

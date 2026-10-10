@@ -44,6 +44,10 @@ pub struct Config {
     pub sounds: bool,
     pub save_history: bool,
     pub autostart: bool,
+    /// Daily version check against PyPI; nothing but the request is sent.
+    pub check_updates: bool,
+    /// A version the user chose to skip; it is not offered again.
+    pub skip_update: Option<String>,
     pub model: ModelId,
 }
 
@@ -65,6 +69,8 @@ impl Default for Config {
             sounds: true,
             save_history: true,
             autostart: false,
+            check_updates: true,
+            skip_update: None,
             model: ModelId::Small,
         }
     }

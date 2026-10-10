@@ -80,6 +80,7 @@ pub struct Shared {
     overlay_gen: AtomicU64,
     // Set while the final transcription waits, so live partials never delay it.
     final_pending: AtomicBool,
+    pub update: Mutex<Option<crate::update::UpdateInfo>>,
 }
 
 impl Shared {
@@ -127,6 +128,7 @@ pub fn run() -> Result<(), String> {
         snap_pending: AtomicBool::new(false),
         overlay_gen: AtomicU64::new(0),
         final_pending: AtomicBool::new(false),
+        update: Mutex::new(None),
     });
 
     let app = tauri::Builder::default()
@@ -143,6 +145,10 @@ pub fn run() -> Result<(), String> {
             crate::commands::move_overlay,
             crate::commands::copy_text,
             crate::commands::install_app,
+            crate::commands::check_for_updates,
+            crate::commands::install_update,
+            crate::commands::skip_update,
+            crate::commands::open_release_notes,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -155,6 +161,7 @@ pub fn run() -> Result<(), String> {
             spawn_controller(handle.clone(), ctrl_rx);
             start_hotkey(&handle);
             first_run_or_load(&handle);
+            spawn_update_checker(handle.clone());
             // LOCAL_STT_EXIT_AFTER_MS lets CI and smoke tests exercise a full start and a clean quit.
             if let Some(ms) = std::env::var("LOCAL_STT_EXIT_AFTER_MS")
                 .ok()
@@ -184,11 +191,37 @@ fn shared(app: &AppHandle) -> Arc<Shared> {
     app.state::<Arc<Shared>>().inner().clone()
 }
 
-fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+// An available update is a quiet menu item, never a pop-up over the user's work.
+fn tray_menu(app: &AppHandle, update: Option<&str>) -> tauri::Result<Menu<tauri::Wry>> {
     let open = MenuItem::with_id(app, "open", "Open local-stt", true, None::<&str>)?;
+    let check = MenuItem::with_id(app, "check", "Check for Updates...", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit local-stt", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&open, &sep, &quit])?;
+    match update {
+        Some(version) => {
+            let label = format!("Update to {version}...");
+            let install = MenuItem::with_id(app, "update", label, true, None::<&str>)?;
+            let sep_top = PredefinedMenuItem::separator(app)?;
+            Menu::with_items(app, &[&install, &sep_top, &open, &check, &sep, &quit])
+        }
+        None => Menu::with_items(app, &[&open, &check, &sep, &quit]),
+    }
+}
+
+pub fn refresh_update_menu(app: &AppHandle) {
+    let s = shared(app);
+    let cfg = s.config();
+    let offer = lock(&s.update)
+        .as_ref()
+        .filter(|u| u.available && u.latest != cfg.skip_update)
+        .and_then(|u| u.latest.clone());
+    if let (Some(tray), Ok(menu)) = (app.tray_by_id("tray"), tray_menu(app, offer.as_deref())) {
+        let _ = tray.set_menu(Some(menu));
+    }
+}
+
+fn build_tray(app: &AppHandle) -> tauri::Result<()> {
+    let menu = tray_menu(app, None)?;
     TrayIconBuilder::with_id("tray")
         .icon(tauri::include_image!("icons/tray.png"))
         .icon_as_template(true)
@@ -198,6 +231,11 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
         .on_menu_event(|app, event| match event.id().as_ref() {
             "open" => show_main(app),
             "quit" => app.exit(0),
+            "update" => {
+                show_main(app);
+                let _ = app.emit("show-update", ());
+            }
+            "check" => check_updates_now(app.clone(), true),
             _ => {}
         })
         .build(app)?;
@@ -926,6 +964,46 @@ pub fn model_name(id: ModelId) -> &'static str {
 
 // ---------- worker and models ----------
 
+// Checks quietly a little after launch, then daily; the user is told by a menu item and a banner, not a dialog.
+fn spawn_update_checker(app: AppHandle) {
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_secs(30));
+        loop {
+            if shared(&app).config().check_updates {
+                check_updates_now(app.clone(), false);
+            }
+            std::thread::sleep(Duration::from_secs(24 * 60 * 60));
+        }
+    });
+}
+
+/// Runs a check off the UI thread; `asked` means the user clicked, so "up to date" is worth saying.
+pub fn check_updates_now(app: AppHandle, asked: bool) {
+    std::thread::spawn(move || {
+        let result = crate::update::check();
+        let s = shared(&app);
+        match result {
+            Ok(info) => {
+                let skipped = !asked && info.latest == s.config().skip_update;
+                *lock(&s.update) = Some(info.clone());
+                refresh_update_menu(&app);
+                if info.available && !skipped {
+                    let _ = app.emit("update-available", &info);
+                } else if asked {
+                    show_main(&app);
+                    let message = format!("local-stt {} is up to date.", info.current);
+                    let _ = app.emit("notice", json!({ "message": message }));
+                }
+            }
+            Err(e) if asked => {
+                show_main(&app);
+                let _ = app.emit("notice", json!({ "message": e }));
+            }
+            Err(_) => {}
+        }
+    });
+}
+
 // Waits briefly for the worker to drop the whisper context, so exit-time destructors find nothing to free.
 fn shutdown_engine(app: &AppHandle) {
     let (tx, rx) = mpsc::channel();
@@ -1066,6 +1144,19 @@ pub fn start_download(app: AppHandle, id: ModelId) -> Result<(), String> {
         }
     });
     Ok(())
+}
+
+/// Starts the freshly installed copy and quits this one (the exit handler frees the engine first).
+pub fn restart_into_installed(app: &AppHandle) {
+    if let Some(exe) = crate::install::installed_exe().filter(|p| p.is_file()) {
+        if std::process::Command::new(exe).spawn().is_ok() {
+            let app = app.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_millis(400));
+                app.exit(0);
+            });
+        }
+    }
 }
 
 pub fn ctrl_send(app: &AppHandle, msg: Msg) {

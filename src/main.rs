@@ -10,6 +10,7 @@ USAGE:
   local-stt                      start the app (menu bar / tray)
   local-stt doctor               show your hardware and which models fit
   local-stt fetch-model <id>     download a model: small, medium or large-v3
+  local-stt check-update         see whether a newer release is available
   local-stt install              add local-stt to Applications / Start menu and your terminal
   local-stt uninstall            remove what install added (settings and history are kept)
   local-stt --autostart on|off   start local-stt when you log in
@@ -25,6 +26,7 @@ fn main() -> ExitCode {
         Some("fetch-model") => fetch_model(args.get(1).map(String::as_str)),
         Some("--autostart") => set_autostart(args.get(1).map(String::as_str)),
         Some("install") => install(),
+        Some("check-update") => check_update(),
         Some("uninstall") => uninstall(),
         Some("--version") | Some("-V") => {
             println!("local-stt {}", env!("CARGO_PKG_VERSION"));
@@ -136,6 +138,18 @@ fn fetch_model(id: Option<&str>) -> Result<(), String> {
         info.label,
         dest.display()
     );
+    Ok(())
+}
+
+fn check_update() -> Result<(), String> {
+    let info = local_stt::update::check()?;
+    match (info.available, info.latest.as_deref()) {
+        (true, Some(latest)) => println!(
+            "local-stt {latest} is available (you have {}).\nRelease notes: {}\nUpdate: uvx local-stt@{latest} install",
+            info.current, info.notes_url
+        ),
+        _ => println!("local-stt {} is up to date.", info.current),
+    }
     Ok(())
 }
 

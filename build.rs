@@ -70,6 +70,10 @@ fn main() {
         "move_overlay",
         "copy_text",
         "install_app",
+        "check_for_updates",
+        "install_update",
+        "skip_update",
+        "open_release_notes",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri build step failed");
