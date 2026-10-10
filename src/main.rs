@@ -10,6 +10,8 @@ USAGE:
   local-stt                      start the app (menu bar / tray)
   local-stt doctor               show your hardware and which models fit
   local-stt fetch-model <id>     download a model: small, medium or large-v3
+  local-stt install              add local-stt to Applications / Start menu and your terminal
+  local-stt uninstall            remove what install added (settings and history are kept)
   local-stt --autostart on|off   start local-stt when you log in
   local-stt --version            print the version
   local-stt --help               print this help
@@ -22,6 +24,8 @@ fn main() -> ExitCode {
         Some("doctor") => doctor(),
         Some("fetch-model") => fetch_model(args.get(1).map(String::as_str)),
         Some("--autostart") => set_autostart(args.get(1).map(String::as_str)),
+        Some("install") => install(),
+        Some("uninstall") => uninstall(),
         Some("--version") | Some("-V") => {
             println!("local-stt {}", env!("CARGO_PKG_VERSION"));
             Ok(())
@@ -131,6 +135,27 @@ fn fetch_model(id: Option<&str>) -> Result<(), String> {
         "\rDownloaded and verified {} -> {}",
         info.label,
         dest.display()
+    );
+    Ok(())
+}
+
+fn install() -> Result<(), String> {
+    let exe = autostart::current_exe()?;
+    let (_installed, notes) = local_stt::install::install(&exe)?;
+    for note in notes {
+        println!("{note}");
+    }
+    Ok(())
+}
+
+fn uninstall() -> Result<(), String> {
+    println!("{}", autostart::set(false)?);
+    for note in local_stt::install::uninstall()? {
+        println!("{note}");
+    }
+    println!(
+        "Settings, history and models are kept in {}.",
+        without_home(&paths::data_dir())
     );
     Ok(())
 }

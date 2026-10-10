@@ -123,6 +123,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::reset_overlay_position,
             crate::commands::move_overlay,
             crate::commands::copy_text,
+            crate::commands::install_app,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]

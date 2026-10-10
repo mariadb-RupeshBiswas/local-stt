@@ -179,6 +179,13 @@ pub fn move_overlay(app: AppHandle, on: bool) {
 }
 
 #[tauri::command]
+pub fn install_app() -> Result<String, String> {
+    let exe = crate::autostart::current_exe()?;
+    let (_installed, notes) = crate::install::install(&exe)?;
+    Ok(notes.join(" "))
+}
+
+#[tauri::command]
 pub fn copy_text(text: String) -> Result<(), String> {
     if text.chars().count() > MAX_COPY_CHARS {
         return Err("text too long".into());

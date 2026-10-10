@@ -69,6 +69,7 @@ fn main() {
         "reset_overlay_position",
         "move_overlay",
         "copy_text",
+        "install_app",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri build step failed");
