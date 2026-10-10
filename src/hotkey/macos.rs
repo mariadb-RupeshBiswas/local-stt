@@ -20,9 +20,10 @@ type CGEventRef = *mut c_void;
 type CGEventTapProxy = *mut c_void;
 type TapCallback = extern "C" fn(CGEventTapProxy, u32, CGEventRef, *mut c_void) -> CGEventRef;
 
-// kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionListenOnly.
+// kCGSessionEventTap, kCGHeadInsertEventTap, kCGEventTapOptionDefault, kCGEventTapOptionListenOnly.
 const TAP_LOCATION_SESSION: u32 = 1;
 const TAP_PLACEMENT_HEAD: u32 = 0;
+const TAP_OPTION_DEFAULT: u32 = 0;
 const TAP_OPTION_LISTEN_ONLY: u32 = 1;
 // kCGEventKeyDown, kCGEventKeyUp, kCGEventFlagsChanged.
 const EVENT_KEY_DOWN: u32 = 10;
@@ -161,13 +162,13 @@ extern "C" {
     fn AXIsProcessTrustedWithOptions(options: CFDictionaryRef) -> u8;
 }
 
-fn tap_create(mask: u64, user: *mut c_void) -> CFMachPortRef {
+fn tap_create(mask: u64, user: *mut c_void, option: u32) -> CFMachPortRef {
     // SAFETY: plain call; the callback is a valid extern "C" fn and `user` outlives the tap.
     unsafe {
         CGEventTapCreate(
             TAP_LOCATION_SESSION,
             TAP_PLACEMENT_HEAD,
-            TAP_OPTION_LISTEN_ONLY,
+            option,
             mask,
             on_event,
             user,
@@ -339,20 +340,21 @@ struct Ctx {
 }
 
 impl Ctx {
-    fn handle(&mut self, event_type: u32, event: CGEventRef) {
+    // Returns true when the event should be dropped (only the hands-free key).
+    fn handle(&mut self, event_type: u32, event: CGEventRef) -> bool {
         if event_type == EVENT_TAP_DISABLED_BY_TIMEOUT
             || event_type == EVENT_TAP_DISABLED_BY_USER_INPUT
         {
             tap_enable(self.tap, true);
             // Key-ups may have been missed while disabled, so start from a clean slate.
             self.keys = MacKeys::default();
-            dispatch(&self.core, &self.tx, &KeyState::nothing_held());
-            return;
+            dispatch(&self.core, &self.tx, &KeyState::nothing_held(), None);
+            return false;
         }
-        let state = self
-            .keys
-            .update(event_type, event_flags(event), event_keycode(event));
-        dispatch(&self.core, &self.tx, &state);
+        let keycode = event_keycode(event);
+        let state = self.keys.update(event_type, event_flags(event), keycode);
+        let key = matches!(event_type, EVENT_KEY_DOWN | EVENT_KEY_UP).then(|| key_name(keycode));
+        dispatch(&self.core, &self.tx, &state, key)
     }
 }
 
@@ -364,7 +366,10 @@ extern "C" fn on_event(
 ) -> CGEventRef {
     // SAFETY: `user` is the Ctx leaked in `run`, only this thread's run loop calls the tap.
     let ctx = unsafe { &mut *user.cast::<Ctx>() };
-    ctx.handle(event_type, event);
+    if ctx.handle(event_type, event) {
+        // Returning NULL from an active tap deletes the event, so the hands-free Space types nothing.
+        return ptr::null_mut();
+    }
     event
 }
 
@@ -386,7 +391,11 @@ fn run(core: Arc<Mutex<Core>>, tx: Sender<HotkeyEvent>, ready: Sender<Result<usi
         tap: ptr::null_mut(),
     }));
     let mask = (1u64 << EVENT_KEY_DOWN) | (1u64 << EVENT_KEY_UP) | (1u64 << EVENT_FLAGS_CHANGED);
-    let tap = tap_create(mask, ctx.cast());
+    // An active tap can drop the hands-free key; without that right, listening still works.
+    let mut tap = tap_create(mask, ctx.cast(), TAP_OPTION_DEFAULT);
+    if tap.is_null() {
+        tap = tap_create(mask, ctx.cast(), TAP_OPTION_LISTEN_ONLY);
+    }
     if tap.is_null() {
         free_ctx(ctx);
         let _ = ready.send(Err(NO_TAP_MESSAGE.into()));

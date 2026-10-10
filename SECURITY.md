@@ -18,7 +18,7 @@ steps to reproduce and the impact you see.
 | Resource | Why | When |
 |---|---|---|
 | Microphone | Record your speech | Only while the push-to-talk shortcut is held, or between the two presses of the hands-free shortcut |
-| Keyboard events | Detect the shortcut | Always while running; only the keys currently held are kept in memory to match the shortcut, never recorded, stored or sent |
+| Keyboard events | Detect the shortcut | Always while running; only the keys currently held are kept in memory to match the shortcut, never recorded, stored or sent. One key is held back from the focused app: the hands-free key (Space by default), and only while its exact modifiers are down |
 | Synthetic paste keystroke | Type the text for you | After each dictation, when Paste is on |
 | Clipboard (write, marked private) | Hand over the text; clipboard managers, Windows clipboard history and cloud clipboard skip it. macOS Universal Clipboard may still share it with your own nearby devices when Handoff is on | After each dictation |
 | Network | Download a model from `huggingface.co` over HTTPS | First run and when you choose another model |

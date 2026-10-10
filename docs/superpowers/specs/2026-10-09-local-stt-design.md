@@ -235,8 +235,10 @@ App:
 - No network except the model download. Hardcoded HTTPS URL per model,
   `curl --fail --proto =https --tlsv1.2`, write to a temp file, verify SHA-256, then rename.
   Mismatch deletes the file. Arguments go to `curl` as an argv list, never through a shell.
-- The hotkey hook compares key events against the configured combo and keeps only a
-  "combo held" flag. It never records, stores or logs any other key.
+- The hotkey hook compares key events against the configured combos and keeps only the keys
+  currently held. It never records, stores or logs any key. It drops exactly one event: the key
+  that completes the hands-free combo, while its exact modifiers are held, so Fn+Shift+Space does
+  not also type a space. macOS uses an active tap for that and falls back to listen-only.
 - Tauri: CSP set explicitly (`default-src 'self'`, no inline script or style); `withGlobalTauri` on because there is no bundler, which is safe only because the CSP admits no script the app did not ship; devtools off in
   release builds; no shell, fs or http plugins. Capabilities grant only events,
   window dragging and clipboard write. Frontend commands take a model id from a fixed list, never a

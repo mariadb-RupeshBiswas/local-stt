@@ -130,25 +130,32 @@ mod imp {
         CTX.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    fn on_key(message: u32, vk_code: u32) {
+    // Returns true when the key should not reach the focused app (only the hands-free key).
+    fn on_key(message: u32, vk_code: u32) -> bool {
         let is_down = match message {
             WM_KEYDOWN | WM_SYSKEYDOWN => true,
             WM_KEYUP | WM_SYSKEYUP => false,
-            _ => return,
+            _ => return false,
         };
         let mut slot = lock_ctx();
-        let Some(ctx) = slot.as_mut() else { return };
+        let Some(ctx) = slot.as_mut() else {
+            return false;
+        };
         let state = ctx.keys.update(vk_code, is_down);
-        dispatch(&ctx.core, &ctx.tx, &state);
+        let key = super::key_name(vk_code);
+        dispatch(&ctx.core, &ctx.tx, &state, Some(&key))
     }
 
     unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if code == HC_ACTION as i32 {
             // SAFETY: for HC_ACTION, lparam points to a KBDLLHOOKSTRUCT valid for this call.
             let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-            on_key(wparam as u32, info.vkCode);
+            if on_key(wparam as u32, info.vkCode) {
+                // A nonzero return stops the hands-free key from reaching the focused app.
+                return 1;
+            }
         }
-        // SAFETY: passes the untouched arguments on, so every key still reaches the next hook.
+        // SAFETY: passes the untouched arguments on, so every other key still reaches the next hook.
         unsafe { CallNextHookEx(ptr::null_mut(), code, wparam, lparam) }
     }
 

@@ -185,6 +185,17 @@ impl Core {
         }
     }
 
+    /// The key that completes the hands-free combo (Space by default) must not also type into the
+    /// focused app; every other key, and that key without the exact modifiers, passes through.
+    fn swallows(&self, event_key: &str, modifiers: &BTreeSet<Modifier>) -> bool {
+        if self.capture.is_some() {
+            return false;
+        }
+        self.toggle
+            .as_ref()
+            .is_some_and(|t| t.key.as_deref() == Some(event_key) && *modifiers == t.modifiers)
+    }
+
     fn set_toggle(&mut self, combo: Option<Combo>) {
         self.toggle = combo.map(Matcher::new);
     }
@@ -248,12 +259,24 @@ fn lock(core: &Mutex<Core>) -> MutexGuard<'_, Core> {
 }
 
 // Called from the OS hook threads: match under the lock, send after releasing it.
+// Returns true when the OS should drop this key event (only the hands-free key, see `swallows`).
 #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
-pub(crate) fn dispatch(core: &Mutex<Core>, tx: &Sender<HotkeyEvent>, state: &KeyState) {
-    let events = lock(core).feed_all(state);
+pub(crate) fn dispatch(
+    core: &Mutex<Core>,
+    tx: &Sender<HotkeyEvent>,
+    state: &KeyState,
+    event_key: Option<&str>,
+) -> bool {
+    let (events, swallow) = {
+        let mut guard = lock(core);
+        let events = guard.feed_all(state);
+        let swallow = event_key.is_some_and(|k| guard.swallows(k, &state.modifiers));
+        (events, swallow)
+    };
     for event in events {
         let _ = tx.send(event);
     }
+    swallow
 }
 
 pub struct Hook {
@@ -435,6 +458,27 @@ mod dual_tests {
             c.feed_all(&st(FS, Some("Space"), false)),
             vec![HotkeyEvent::Toggle, HotkeyEvent::Released]
         );
+    }
+
+    #[test]
+    fn only_the_hands_free_key_with_its_modifiers_is_swallowed() {
+        let c = core();
+        let fs: BTreeSet<Modifier> = FS.iter().copied().collect();
+        assert!(c.swallows("Space", &fs));
+        assert!(!c.swallows("Space", &BTreeSet::new()));
+        assert!(!c.swallows("Space", &[Modifier::Shift].into_iter().collect()));
+        assert!(!c.swallows("A", &fs));
+    }
+
+    #[test]
+    fn nothing_is_swallowed_while_capturing_or_without_a_toggle() {
+        let mut c = core();
+        let fs: BTreeSet<Modifier> = FS.iter().copied().collect();
+        c.set_capture(true);
+        assert!(!c.swallows("Space", &fs));
+        let mut c = core();
+        c.set_toggle(None);
+        assert!(!c.swallows("Space", &fs));
     }
 
     #[test]
