@@ -67,6 +67,7 @@ fn main() {
         "get_history",
         "clear_history",
         "delete_history",
+        "export_diagnostics",
         "reset_overlay_position",
         "move_overlay",
         "copy_text",

@@ -32,15 +32,16 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 
 | Path | Responsibility |
 |---|---|
-| `src/main.rs` | CLI entry: app, `doctor`, `fetch-model`, `--autostart` |
+| `src/main.rs` | CLI entry: the app and its subcommands (`local-stt --help`) |
 | `src/app.rs` | Tauri setup, tray, windows, worker threads |
 | `src/state.rs` | Pure recording state machine (hold / toggle / cancel) |
 | `src/overlay.rs` | Recording pill window and multi-monitor geometry |
 | `src/commands.rs` | Commands the UI may call |
-| `src/engine.rs`, `shim.cpp` | whisper.cpp through a small C ABI shim (C++ only to stop exceptions) |
+| `src/engine.rs`, `shim.cpp` | whisper.cpp through a small C ABI shim (C++ only to stop exceptions), plus the stderr redirect |
 | `src/recorder.rs`, `src/audio.rs`, `src/sound.rs` | Microphone capture, resampling, level, cues |
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
-| `src/output/` | Synthetic paste keystroke |
+| `src/output/` | Synthetic paste keystroke; Windows console detach |
+| `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |
 | `src/hwprobe/` | RAM, CPU, GPU, disk |
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |
 | `src/config.rs`, `src/history.rs`, `src/paths.rs` | Local files |
@@ -52,6 +53,8 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 - Privacy first: the only network use is the pinned model downloads, the daily PyPI version
   check (user can turn it off) and a user-started update through uv. No telemetry; never store
   audio or keystrokes.
+- `diag::log` takes events, never content: no dictated text, audio, keys, clipboard or device
+  names. Report sections are allowlists, and the whole report is masked before it is saved.
 - `unsafe` only in `src/engine.rs` and the `macos.rs` / `windows.rs` platform files, each
   block with a one-line `// SAFETY:` comment.
 - Dependencies: crates from named organizations with a release in the last year. Ask before

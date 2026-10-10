@@ -380,7 +380,7 @@
       config: {
         hotkey: hold,
         toggle_hotkey: toggle,
-        smart_format: true, live_transcription: true, check_updates: true, skip_update: null,
+        smart_format: true, live_transcription: true, check_updates: true, skip_update: null, diagnostic_log: true,
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", autostart: false, model: "small"
@@ -474,6 +474,12 @@
       },
       get_history: function () { return data.history; },
       clear_history: function () { data.history = []; },
+      export_diagnostics: function () {
+        window.__calls.push("export_diagnostics");
+        return new Promise(function (resolve) {
+          setTimeout(function () { resolve("Saved local-stt-diagnostics-2026-10-10-09-30-00.txt. Read it before you share it."); }, 400);
+        });
+      },
       delete_history: function (a) {
         window.__calls.push("delete_history:" + a.ids.length);
         var gone = new Set(a.ids);

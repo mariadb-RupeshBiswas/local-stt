@@ -12,6 +12,7 @@ USAGE:
   local-stt fetch-model <id>     download a model: small, medium or large-v3
   local-stt demo                 a short tour with sample data (nothing is recorded or pasted)
   local-stt check-update         see whether a newer release is available
+  local-stt diagnostics          save a troubleshooting report to share (no audio or dictated text)
   local-stt install              add local-stt to Applications / Start menu and your terminal
   local-stt uninstall            remove what install added (settings and history are kept)
   local-stt --autostart on|off   start local-stt when you log in
@@ -28,6 +29,7 @@ fn main() -> ExitCode {
         Some("--autostart") => set_autostart(args.get(1).map(String::as_str)),
         Some("install") => install(),
         Some("check-update") => check_update(),
+        Some("diagnostics") => diagnostics(),
         Some("demo") => local_stt::demo::prepare().and_then(|()| local_stt::app::run()),
         Some("uninstall") => uninstall(),
         Some("--version") | Some("-V") => {
@@ -47,6 +49,18 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// Works even when the app will not start, which is when a report matters most.
+fn diagnostics() -> Result<(), String> {
+    paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
+    let cfg = local_stt::config::load(&paths::config_path());
+    let hw = hwprobe::probe(&paths::data_dir());
+    let path = local_stt::diag::export(&cfg, &hw)?;
+    println!("Saved {}", without_home(&path));
+    println!("It holds app, system and settings details and recent app logs, never audio or dictated text.");
+    println!("Read it before you share it.");
+    Ok(())
 }
 
 fn dash<T: ToString>(v: Option<T>) -> String {

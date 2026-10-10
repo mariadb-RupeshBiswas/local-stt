@@ -28,6 +28,12 @@ pub fn ensure_dirs() -> std::io::Result<()> {
     restrict_dir(&models_dir())
 }
 
+/// Creates a folder only this user can open (Unix mode 0700).
+pub(crate) fn private_dir(dir: &std::path::Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    restrict_dir(dir)
+}
+
 #[cfg(unix)]
 fn restrict_dir(dir: &std::path::Path) -> std::io::Result<()> {
     use std::os::unix::fs::PermissionsExt;
@@ -58,7 +64,7 @@ fn platform_data_root() -> PathBuf {
         .unwrap_or_else(|| home().join(".local").join("share"))
 }
 
-fn home() -> PathBuf {
+pub(crate) fn home() -> PathBuf {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)

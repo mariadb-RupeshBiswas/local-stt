@@ -34,6 +34,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Daily update check against PyPI (can be turned off), shown as a tray menu item, never a pop-up.
 - Windows end-to-end CI job: installs the wheel, checks the Start menu shortcut and terminal
   command, downloads the model, holds Ctrl + Alt and checks the pill appears, then uninstalls.
+- Troubleshooting: a local event log (no words, audio, keys or device names; home folder and
+  user name masked), error output kept for launches outside a terminal, and Export Report in
+  Settings or `local-stt diagnostics`, a plain-text report with app, system, settings, macOS
+  crash summaries and recent logs, saved locally and shown in Finder or Explorer.
 - History select mode: Select, then pick dictations with checkboxes (a whole day at once,
   Shift-click for a run, Select All, Cmd or Ctrl + A) and delete just those.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
@@ -48,6 +52,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - The live popover's "Formats on paste" tag starts correct when the output is not English.
 - History rewrites are flushed to disk before they replace the file, and keep lines they cannot read.
 - The demo shows a sample machine on the Model tab and holds each state while it is captured.
+- Windows: launching from the Start menu or at login no longer leaves a console window open.
 
 ### Security
 

@@ -3,7 +3,7 @@
 use crate::app::{self, lock, Shared, Slot};
 use crate::config::Config;
 use crate::models::{self, ModelId};
-use crate::{autostart, history, hotkey, paths};
+use crate::{autostart, diag, history, hotkey, paths};
 use serde_json::{json, Value};
 use std::sync::Arc;
 use tauri::{AppHandle, State};
@@ -88,7 +88,9 @@ pub async fn set_config(
         let enable = next.autostart;
         let note = tauri::async_runtime::spawn_blocking(move || autostart::set(enable))
             .await
-            .map_err(|e| format!("start at login failed: {e}"))??;
+            .map_err(|e| format!("start at login failed: {e}"))?
+            .inspect_err(|e| diag::log(&format!("start at login failed: {e}")))?;
+        diag::log(&format!("start at login: {note}"));
         let _ = tauri::Emitter::emit(&app, "notice", json!({ "message": note }));
     }
     if before.save_history && !next.save_history {
@@ -96,6 +98,16 @@ pub async fn set_config(
         history::clear(&paths::history_path())
             .map_err(|e| format!("cannot delete history: {e}"))?;
         let _ = tauri::Emitter::emit(&app, "history-changed", ());
+    }
+    if before.diagnostic_log != next.diagnostic_log {
+        if next.diagnostic_log {
+            diag::set_enabled(true);
+            diag::log("troubleshooting log turned on");
+        } else {
+            // "Off" removes what was kept, like history.
+            diag::set_enabled(false);
+            diag::clear();
+        }
     }
     let saved = state.update_config(|c| *c = next.clone());
     if saved.hotkey != before.hotkey {
@@ -232,9 +244,11 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
         return Err("That version is not newer than this one.".into());
     }
     let target = version.clone();
+    diag::log(&format!("installing update {version}"));
     let notes = tauri::async_runtime::spawn_blocking(move || crate::update::install(&target))
         .await
-        .map_err(|e| format!("update task failed: {e}"))??;
+        .map_err(|e| format!("update task failed: {e}"))?
+        .inspect_err(|e| diag::log(&format!("update install failed: {e}")))?;
     app::restart_into_installed(&app);
     Ok(format!("Updated to {version}. Restarting. {notes}"))
 }
@@ -259,11 +273,32 @@ pub fn open_release_notes(state: State<'_, Arc<Shared>>) -> Result<(), String> {
 pub async fn install_app() -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(|| {
         let exe = crate::autostart::current_exe()?;
-        let (_installed, notes) = crate::install::install(&exe)?;
+        let result = crate::install::install(&exe);
+        diag::log(&match &result {
+            Ok(_) => "install: done".to_string(),
+            Err(e) => format!("install failed: {e}"),
+        });
+        let (_installed, notes) = result?;
         Ok(notes.join(" "))
     })
     .await
     .map_err(|e| format!("install failed: {e}"))?
+}
+
+/// Saves a diagnostic report in the data folder and shows it in Finder or Explorer.
+#[tauri::command]
+pub async fn export_diagnostics(state: State<'_, Arc<Shared>>) -> Result<String, String> {
+    let cfg = state.config();
+    let hardware = state.hardware.clone();
+    let path = tauri::async_runtime::spawn_blocking(move || diag::export(&cfg, &hardware))
+        .await
+        .map_err(|e| format!("report failed: {e}"))??;
+    diag::reveal(&path);
+    let name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    Ok(format!("Saved {name}. Read it before you share it."))
 }
 
 #[tauri::command]

@@ -1122,6 +1122,29 @@ for (const dark of [false, true]) {
   check("no page errors (updates row)", errors.length === 0, errors);
   await ctx.close();
 }
+// ---------- Settings: Troubleshooting ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light", { tall: true });
+  const groups = await page.locator(".group-title").allTextContents();
+  check("Settings ends with a Troubleshooting group", groups[groups.length - 1] === "Troubleshooting", groups);
+  const log = page.getByRole("switch", { name: "Troubleshooting log" });
+  check("Troubleshooting log starts on", (await log.getAttribute("aria-checked")) === "true");
+  const logDesc = await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Troubleshooting log" }) }).locator(".srow-desc").textContent();
+  check("log copy says what is never kept", logDesc.includes("Never your words, audio or key presses") && logDesc.includes("Off deletes it"), logDesc);
+  await log.click();
+  await page.waitForTimeout(250);
+  check("turning the log off sends diagnostic_log false", (await page.evaluate(() => window.__cfg.includes('set_config:{"diagnostic_log":false}'))) && (await log.getAttribute("aria-checked")) === "false");
+  const exportBtn = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Diagnostic report" }) }).locator(".btn");
+  check("Export Report is an enabled 28 pt button", (await exportBtn.textContent()) === "Export Report" && (await exportBtn.isEnabled()) && (await exportBtn.boundingBox()).height >= 28);
+  await exportBtn.click();
+  await page.waitForTimeout(100);
+  check("export shows Saving... and blocks a second click", (await exportBtn.textContent()) === "Saving..." && (await exportBtn.isDisabled()));
+  await page.waitForTimeout(600);
+  check("export asks the app once and toasts where it went", (await page.evaluate(() => window.__calls.filter((c) => c === "export_diagnostics").length)) === 1 && (await page.locator(".toast").textContent()).startsWith("Saved local-stt-diagnostics-"));
+  check("Export Report is ready again", (await exportBtn.textContent()) === "Export Report" && (await exportBtn.isEnabled()));
+  check("no page errors (troubleshooting)", errors.length === 0, errors);
+  await ctx.close();
+}
 {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200&checkfinds=1", { tall: true });
   const button = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Updates" }) }).locator(".btn");

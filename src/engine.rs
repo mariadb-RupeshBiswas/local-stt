@@ -33,6 +33,30 @@ extern "C" {
     ) -> c_int;
     fn lstt_free(ctx: *mut c_void);
     fn lstt_set_abort(on: c_int);
+    #[cfg(unix)]
+    fn lstt_redirect_stderr(path: *const c_char) -> c_int;
+    #[cfg(windows)]
+    fn lstt_redirect_stderr(path: *const u16) -> c_int;
+}
+
+/// Sends error output to this file for the rest of the run; false when it could not be opened.
+pub fn redirect_stderr(path: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        let Ok(c) = CString::new(path.as_os_str().as_bytes()) else {
+            return false;
+        };
+        // SAFETY: `c` is a NUL-terminated path that outlives the call; the shim only opens and dup2s it.
+        unsafe { lstt_redirect_stderr(c.as_ptr()) == 0 }
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        let wide: Vec<u16> = path.as_os_str().encode_wide().chain([0]).collect();
+        // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call; the shim only reopens stderr on it.
+        unsafe { lstt_redirect_stderr(wide.as_ptr()) == 0 }
+    }
 }
 
 /// Stops any running preview pass (and refuses new ones) until called with false.

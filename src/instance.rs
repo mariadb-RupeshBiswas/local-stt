@@ -8,14 +8,18 @@ const LOCK: &str = "app.lock";
 const SHOW: &str = "show.request";
 
 pub enum Claim {
-    /// This process runs the app; remove the lock at exit.
-    Owner(Option<PathBuf>),
+    /// This process runs the app; remove the lock at exit. `unclean` means the last run never removed its lock.
+    Owner {
+        lock: Option<PathBuf>,
+        unclean: bool,
+    },
     /// Another copy is running and has been asked to show its window.
     Other,
 }
 
 pub fn claim(dir: &Path) -> Claim {
     let path = dir.join(LOCK);
+    let mut unclean = false;
     for _ in 0..2 {
         match std::fs::OpenOptions::new()
             .write(true)
@@ -24,7 +28,10 @@ pub fn claim(dir: &Path) -> Claim {
         {
             Ok(mut f) => {
                 let _ = write!(f, "{}", std::process::id());
-                return Claim::Owner(Some(path));
+                return Claim::Owner {
+                    lock: Some(path),
+                    unclean,
+                };
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
                 let pid = std::fs::read_to_string(&path)
@@ -34,14 +41,23 @@ pub fn claim(dir: &Path) -> Claim {
                     let _ = std::fs::write(dir.join(SHOW), b"");
                     return Claim::Other;
                 }
-                // Left behind by a crash: take it over.
+                // Left behind by a crash or a forced quit: take it over.
+                unclean = true;
                 let _ = std::fs::remove_file(&path);
             }
             // A read-only or odd folder must not stop the app from starting.
-            Err(_) => return Claim::Owner(None),
+            Err(_) => {
+                return Claim::Owner {
+                    lock: None,
+                    unclean,
+                }
+            }
         }
     }
-    Claim::Owner(None)
+    Claim::Owner {
+        lock: None,
+        unclean,
+    }
 }
 
 pub fn release(lock: &Option<PathBuf>) {
@@ -86,9 +102,10 @@ mod tests {
     #[test]
     fn first_claim_owns_and_release_frees() {
         let d = scratch("own");
-        let Claim::Owner(lock) = claim(&d) else {
+        let Claim::Owner { lock, unclean } = claim(&d) else {
             panic!("expected to own the lock");
         };
+        assert!(!unclean);
         assert!(d.join(LOCK).exists());
         release(&lock);
         assert!(!d.join(LOCK).exists());
@@ -98,7 +115,13 @@ mod tests {
     fn stale_lock_from_a_dead_process_is_taken_over() {
         let d = scratch("stale");
         std::fs::write(d.join(LOCK), "999999").unwrap();
-        assert!(matches!(claim(&d), Claim::Owner(Some(_))));
+        assert!(matches!(
+            claim(&d),
+            Claim::Owner {
+                lock: Some(_),
+                unclean: true
+            }
+        ));
     }
 
     #[test]
@@ -106,7 +129,7 @@ mod tests {
         let d = scratch("other-prog");
         // PID 1 is launchd/init, alive but not local-stt.
         std::fs::write(d.join(LOCK), "1").unwrap();
-        assert!(matches!(claim(&d), Claim::Owner(Some(_))));
+        assert!(matches!(claim(&d), Claim::Owner { lock: Some(_), .. }));
     }
 
     #[test]

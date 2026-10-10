@@ -1,4 +1,4 @@
-//! Windows Ctrl+V via SendInput.
+//! Windows Ctrl+V via SendInput, and console detach.
 
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
@@ -80,5 +80,17 @@ mod tests {
                 (VK_CONTROL, true)
             ]
         );
+    }
+}
+
+pub fn detach_own_console() {
+    use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
+    let mut ids = [0u32; 2];
+    // SAFETY: the buffer is a live array of the length passed.
+    let attached = unsafe { GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) };
+    // Only this process on the console means Windows made it for us, not a terminal the user opened.
+    if attached == 1 {
+        // SAFETY: takes no arguments; afterwards this process simply has no console.
+        unsafe { FreeConsole() };
     }
 }

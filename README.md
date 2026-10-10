@@ -89,6 +89,7 @@ Open the app from the menu bar or tray icon.
 | History | Keep a local history of dictations | On |
 | Start at login | Launch quietly when you log in | Off |
 | Check for updates | Looks for a new version once a day; an update shows as a menu item and a banner, never a pop-up | On |
+| Troubleshooting log | Keeps app events (starts, errors, timings) on this computer, never your words, audio or keys | On |
 
 The recording pill can be dragged anywhere, on any monitor. It snaps to corners and edges and remembers where you put it.
 
@@ -112,6 +113,7 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 - The app talks to the network for three things only: downloading a model from Hugging Face over HTTPS (verified against a pinned checksum on download and again when it loads); a once-a-day version check against pypi.org that sends nothing but the request itself (you can turn it off); and, only when you click Install and Restart, uv fetching the new release from PyPI.
 - Text is put on the clipboard marked as private, so clipboard managers, Windows clipboard history and cloud clipboard skip it. On a Mac with Handoff on, Universal Clipboard can still pass it to your own nearby devices.
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
+- The troubleshooting log records events such as "recording stopped: 4.2 s" or "paste blocked", never what you said, audio, key presses, clipboard contents or microphone names. It stays on your computer; turning it off deletes it.
 - History and settings are plain local files readable only by your user account. History can be switched off, cleared, or trimmed to the dictations you pick, at any time.
 - Releases are built in GitHub Actions, published with PyPI Trusted Publishing and carry build provenance attestations.
 
@@ -133,6 +135,18 @@ Yes, Windows 10 and 11 on x64. The default shortcut is Ctrl + Alt.
 
 **How is this different from built-in dictation?**
 It runs a model you choose, entirely on your device, translates to English if you want, keeps a searchable history, and works the same way on Mac and Windows.
+
+## Troubleshooting
+
+Something not working? Open Settings > Troubleshooting and click **Export Report**, or run `local-stt diagnostics` (it works even when the app will not start). You get one text file, shown in Finder or Explorer, with:
+
+- app version, how it was started, and your settings (the microphone shows only as "system default" or "a chosen device");
+- your computer's OS, processor, memory, graphics and free disk;
+- which models are downloaded, and how many dictations history holds (never their text);
+- on macOS, a short summary of any local-stt crash in the last 30 days (the cause and the crashed thread, without device ids or paths);
+- recent error output and the troubleshooting log.
+
+Your home folder shows as `~` and your user name as `<user>`. Nothing is sent anywhere: read the file, then attach it to an issue or send it to whoever is helping you. Plain text also works well pasted into an AI assistant.
 
 ## Updating
 

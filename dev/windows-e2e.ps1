@@ -99,6 +99,19 @@ Check 'installed exe still present after reinstall' (Test-Path $exe)
 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 
+# The troubleshooting report: events from the run above, nothing that names this user.
+& $exe diagnostics
+Check 'diagnostics exits 0' ($LASTEXITCODE -eq 0)
+$report = Get-ChildItem (Join-Path $data 'diagnostics') -Filter '*.txt' -ErrorAction SilentlyContinue | Sort-Object LastWriteTime | Select-Object -Last 1
+Check 'diagnostic report saved' ($null -ne $report)
+if ($report) {
+    $text = Get-Content -Raw $report.FullName
+    Check 'report holds the app log' ($text -match 'keyboard hook started') ''
+    Check 'report leaves out the user name and home folder' (-not ($text.Contains($env:USERNAME) -or $text.Contains($env:USERPROFILE))) ''
+}
+Check 'error output is captured for a Start menu style launch' (Test-Path (Join-Path $data 'logs\stderr.log'))
+Get-Content -ErrorAction SilentlyContinue (Join-Path $data 'logs\local-stt.log')
+
 # Uninstall from outside the installed folder, as a running exe cannot delete itself on Windows.
 uvx --from $Wheel local-stt uninstall
 Check 'uninstall exits 0' ($LASTEXITCODE -eq 0)

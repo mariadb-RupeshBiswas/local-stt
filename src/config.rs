@@ -48,6 +48,8 @@ pub struct Config {
     pub check_updates: bool,
     /// A version the user chose to skip; it is not offered again.
     pub skip_update: Option<String>,
+    /// A local troubleshooting log of app events, never content; see diag.rs.
+    pub diagnostic_log: bool,
     pub model: ModelId,
 }
 
@@ -71,6 +73,7 @@ impl Default for Config {
             autostart: false,
             check_updates: true,
             skip_update: None,
+            diagnostic_log: true,
             model: ModelId::Small,
         }
     }

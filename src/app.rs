@@ -8,7 +8,7 @@ use crate::models::{self, ModelId};
 use crate::overlay::{self, Screen};
 use crate::recorder::{Recorder, Recording};
 use crate::state::{Action, Input, Machine, MAX_RECORDING_MS};
-use crate::{audio, clipboard, download, history, output, paths, sound};
+use crate::{audio, clipboard, diag, download, history, output, paths, sound};
 use serde_json::json;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
@@ -111,14 +111,28 @@ pub fn now_ms() -> u64 {
 pub fn run() -> Result<(), String> {
     paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
     // A second launch (Spotlight, login item, terminal) asks the running copy to show itself and quits.
-    let lock = match crate::instance::claim(&paths::data_dir()) {
+    let (lock, unclean) = match crate::instance::claim(&paths::data_dir()) {
         crate::instance::Claim::Other => {
             println!("local-stt is already running; showing its window.");
             return Ok(());
         }
-        crate::instance::Claim::Owner(lock) => lock,
+        crate::instance::Claim::Owner { lock, unclean } => (lock, unclean),
     };
     let cfg = config::load(&paths::config_path());
+    output::detach_own_console();
+    diag::set_enabled(cfg.diagnostic_log);
+    diag::install_panic_hook();
+    diag::capture_stderr();
+    diag::log(&format!(
+        "start: local-stt {} on {} {}{}",
+        env!("CARGO_PKG_VERSION"),
+        std::env::consts::OS,
+        std::env::consts::ARCH,
+        if crate::demo::active() { " (demo)" } else { "" }
+    ));
+    if unclean {
+        diag::log("the previous run did not quit normally (crash or forced quit)");
+    }
     let hardware = if crate::demo::active() {
         crate::demo::sample_hardware()
     } else {
@@ -154,6 +168,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::get_history,
             crate::commands::clear_history,
             crate::commands::delete_history,
+            crate::commands::export_diagnostics,
             crate::commands::reset_overlay_position,
             crate::commands::move_overlay,
             crate::commands::copy_text,
@@ -200,6 +215,7 @@ pub fn run() -> Result<(), String> {
         // Closing the main window must not quit a menu-bar app.
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
         RunEvent::Exit => {
+            diag::log("quit");
             shutdown_engine(app);
             crate::instance::release(&lock);
             crate::demo::cleanup();
@@ -639,7 +655,12 @@ fn start_hotkey(app: &AppHandle) {
     let s = shared(app);
     // LOCAL_STT_NO_PERMISSION_PROMPTS lets developers and CI start the app without a system dialog.
     let prompt = std::env::var_os("LOCAL_STT_NO_PERMISSION_PROMPTS").is_none();
-    if !hotkey::accessibility_ok(prompt) {
+    let allowed = hotkey::accessibility_ok(prompt);
+    diag::log(&format!(
+        "accessibility: {}",
+        if allowed { "allowed" } else { "not allowed" }
+    ));
+    if !allowed {
         set_tray_problem(
             app,
             "allow Accessibility in System Settings, then restart local-stt",
@@ -649,10 +670,14 @@ fn start_hotkey(app: &AppHandle) {
     let cfg = s.config();
     match hotkey::start(cfg.hotkey, tx) {
         Ok(hook) => {
+            diag::log("keyboard hook started");
             hook.set_toggle(cfg.toggle_hotkey);
             *lock(&s.hook) = Some(hook);
         }
-        Err(e) => set_tray_problem(app, &format!("shortcut unavailable: {e}")),
+        Err(e) => {
+            diag::log(&format!("keyboard hook failed: {e}"));
+            set_tray_problem(app, &format!("shortcut unavailable: {e}"));
+        }
     }
     let ctrl = lock(&s.ctrl).clone();
     std::thread::spawn(move || {
@@ -837,9 +862,16 @@ fn apply(
                     } else {
                         "Recording"
                     };
+                    diag::log(&format!("recording started ({label})"));
                     show_overlay(app, "recording", label, Some(now));
                 }
                 Err(e) => {
+                    // The message can name the chosen microphone, which stays out of the log.
+                    let shown = match cfg.microphone.as_deref() {
+                        Some(name) if !name.is_empty() => e.replace(name, "<microphone>"),
+                        _ => e.clone(),
+                    };
+                    diag::log(&format!("recording could not start: {shown}"));
                     machine.on(Input::Cancel, now);
                     // The pill fits about two short lines; long device names fall back to a generic label.
                     let label = if e.chars().count() <= 60 {
@@ -860,6 +892,16 @@ fn apply(
                 sound::play(sound::Cue::Stop);
             }
             let rec: Recording = r.stop();
+            let rms = audio::rms(&rec.samples_16k);
+            diag::log(&format!(
+                "recording stopped: {:.1} s, level {}",
+                rec.duration_ms as f64 / 1000.0,
+                if rms > 0.0 {
+                    format!("{:.0} dBFS", 20.0 * rms.log10())
+                } else {
+                    "silent".into()
+                }
+            ));
             if rec.samples_16k.is_empty() || audio::is_silent(&rec.samples_16k, audio::SILENCE_RMS)
             {
                 machine.on(Input::TranscribeDone, now);
@@ -884,6 +926,7 @@ fn apply(
         Action::CancelRecording => {
             if let Some(r) = recorder.take() {
                 r.cancel();
+                diag::log("recording cancelled");
             }
             hide_overlay_after(app, 0);
         }
@@ -936,8 +979,12 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
     let text = match result {
         // A transcript of only fillers or punctuation is nothing to paste.
         Ok(t) if t.chars().any(char::is_alphanumeric) => t,
-        Ok(_) => return fail(app, "No speech heard", cfg.sounds),
+        Ok(_) => {
+            diag::log("transcript held only fillers or punctuation");
+            return fail(app, "No speech heard", cfg.sounds);
+        }
         Err(e) => {
+            diag::log(&format!("transcription failed: {e}"));
             record(&cfg, &model, "", duration_ms, false);
             return fail(app, &e, cfg.sounds);
         }
@@ -948,13 +995,23 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         None
     };
     if let Err(e) = clipboard::write_private(&text) {
+        diag::log(&format!("clipboard write failed: {e}"));
         return fail(app, &format!("Clipboard unavailable: {e}"), cfg.sounds);
     }
     let mut pasted = !cfg.paste;
     if cfg.paste {
         // Give the clipboard a beat to settle before the target app reads it.
         std::thread::sleep(Duration::from_millis(40));
-        pasted = output::send_paste().is_ok() && hotkey::accessibility_ok(false);
+        let sent = output::send_paste();
+        let allowed = hotkey::accessibility_ok(false);
+        pasted = sent.is_ok() && allowed;
+        diag::log(&match (&sent, allowed) {
+            (Ok(()), true) => "pasted".to_string(),
+            (Ok(()), false) => "copied; paste blocked (Accessibility not allowed)".to_string(),
+            (Err(e), _) => format!("copied; paste failed: {e}"),
+        });
+    } else {
+        diag::log("copied (paste is off)");
     }
     if let Some(prev) = previous {
         let ours = text.clone();
@@ -1015,6 +1072,14 @@ fn spawn_update_checker(app: AppHandle) {
 pub fn check_updates_now(app: AppHandle, asked: bool) {
     std::thread::spawn(move || {
         let result = crate::update::check();
+        diag::log(&match &result {
+            Ok(info) => format!(
+                "update check: latest {}, running {}",
+                info.latest.as_deref().unwrap_or("-"),
+                info.current
+            ),
+            Err(e) => format!("update check failed: {e}"),
+        });
         let s = shared(&app);
         match result {
             Ok(info) => {
@@ -1044,7 +1109,9 @@ fn shutdown_engine(app: &AppHandle) {
     let (tx, rx) = mpsc::channel();
     if lock(&shared(app).worker).send(Job::Shutdown(tx)).is_ok() {
         // Long enough for a large model's checksum pass to finish before the engine can be freed.
-        let _ = rx.recv_timeout(Duration::from_secs(10));
+        if rx.recv_timeout(Duration::from_secs(10)).is_err() {
+            diag::log("speech engine did not stop within 10 s");
+        }
     }
 }
 
@@ -1059,19 +1126,28 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     let _ = done.send(());
                     break;
                 }
-                Job::Load(path, id) => match verify_model(&path, id, &mut verified)
-                    .and_then(|()| Engine::load(&path))
-                {
-                    Ok(e) => {
-                        engine = Some(e);
-                        *lock(&shared(&app).active_model) = Some(id);
-                        let _ = app.emit("model-done", json!({ "id": id, "ok": true }));
+                Job::Load(path, id) => {
+                    let started = Instant::now();
+                    let loaded =
+                        verify_model(&path, id, &mut verified).and_then(|()| Engine::load(&path));
+                    match loaded {
+                        Ok(e) => {
+                            diag::log(&format!(
+                                "model {} loaded in {} ms",
+                                model_name(id),
+                                started.elapsed().as_millis()
+                            ));
+                            engine = Some(e);
+                            *lock(&shared(&app).active_model) = Some(id);
+                            let _ = app.emit("model-done", json!({ "id": id, "ok": true }));
+                        }
+                        Err(e) => {
+                            diag::log(&format!("model {} failed to load: {e}", model_name(id)));
+                            let _ = app
+                                .emit("model-done", json!({ "id": id, "ok": false, "error": e }));
+                        }
                     }
-                    Err(e) => {
-                        let _ =
-                            app.emit("model-done", json!({ "id": id, "ok": false, "error": e }));
-                    }
-                },
+                }
                 Job::Partial { pcm, opts, session } => {
                     let skip = shared(&app).final_pending.load(Ordering::SeqCst);
                     let text = match (skip, engine.as_ref()) {
@@ -1086,12 +1162,22 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     opts,
                     duration_ms,
                 } => {
+                    let started = Instant::now();
                     let result = match engine.as_ref() {
                         Some(e) => e.transcribe(&pcm, &opts),
                         None => {
                             Err("No model loaded yet. Open local-stt to download one.".to_string())
                         }
                     };
+                    // Only sizes and timings; the words themselves never reach the log.
+                    if let Ok(text) = &result {
+                        diag::log(&format!(
+                            "transcribed {:.1} s of audio in {} ms ({} characters)",
+                            duration_ms as f64 / 1000.0,
+                            started.elapsed().as_millis(),
+                            text.chars().count()
+                        ));
+                    }
                     shared(&app).final_pending.store(false, Ordering::SeqCst);
                     let ctrl = lock(&shared(&app).ctrl).clone();
                     let _ = ctrl.send(Msg::Done {
@@ -1164,8 +1250,13 @@ pub fn start_download(app: AppHandle, id: ModelId) -> Result<(), String> {
                 );
             }
         };
+        diag::log(&format!("model {} download started", info.label));
         let result = download::download(&models::url(id), info.sha256, &dest, &progress);
         *lock(&shared(&app).downloading) = None;
+        diag::log(&match &result {
+            Ok(()) => format!("model {} downloaded and verified", info.label),
+            Err(e) => format!("model {} download failed: {e}", info.label),
+        });
         match result {
             Ok(()) => {
                 let _ = app.emit(

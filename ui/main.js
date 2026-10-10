@@ -1249,6 +1249,30 @@
     }
 
     // the button reads Checking... until the app answers with a notice or update-available
+    // saves a report in the app's folder and shows it in Finder or Explorer; nothing is sent anywhere
+    function reportControl() {
+      var busy = false;
+      var button = h("button", { class: "btn", type: "button", onclick: function () {
+        if (busy) return;
+        busy = true;
+        sync();
+        Promise.resolve(invoke("export_diagnostics")).then(function (message) {
+          toast(typeof message === "string" && message !== "" ? message : "Report saved.");
+        }).catch(function (err) {
+          toast("Couldn't save the report: " + errText(err));
+        }).then(function () {
+          busy = false;
+          sync();
+        });
+      } });
+      function sync() {
+        button.disabled = busy;
+        button.textContent = busy ? "Saving..." : "Export Report";
+      }
+      sync();
+      return { el: button, sync: sync };
+    }
+
     function checkControl() {
       var button = h("button", { class: "btn", type: "button", onclick: function () {
         if (S.checkingUpdates) return;
@@ -1510,8 +1534,19 @@
       settingsPanel.appendChild(outputCard);
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Overlay" }));
       settingsPanel.appendChild(overlayCard);
+      var troubleshooting = card([
+        settingRow("Troubleshooting log", "Keeps app events like starts, errors and timings on this computer. Never your words, audio or key presses. Off deletes it.", addSync(toggle({
+          label: "Troubleshooting log",
+          value: function () { return cfg().diagnostic_log !== false; },
+          onChange: function (v) { patchConfig({ diagnostic_log: v }); }
+        }))),
+        settingRow("Diagnostic report", "Saves a text file with app, system and settings details and the log, to share when something goes wrong. Read it before you share it.", addSync(reportControl()))
+      ]);
+
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "General" }));
       settingsPanel.appendChild(general);
+      settingsPanel.appendChild(h("h3", { class: "group-title", text: "Troubleshooting" }));
+      settingsPanel.appendChild(troubleshooting);
       settingsPanel.appendChild(h("p", { class: "footnote", text: "local-stt " + dash(S.version) + ". Audio is processed on this computer and is never uploaded." }));
       syncSettings();
     }

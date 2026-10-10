@@ -409,6 +409,11 @@ fn run(core: Arc<Mutex<Core>>, tx: Sender<HotkeyEvent>, ready: Sender<Result<usi
         return;
     }
     set_tap(ctx, tap, active);
+    crate::diag::log(if active {
+        "keyboard tap: active"
+    } else {
+        "keyboard tap: listen-only, so the hands-free key also reaches the focused app"
+    });
     let source = run_loop_source(tap);
     if source.is_null() {
         invalidate_port(tap);

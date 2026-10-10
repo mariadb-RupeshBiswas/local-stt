@@ -88,3 +88,28 @@ extern "C" int lstt_transcribe(void * ctx, const float * pcm, int n, int transla
 extern "C" void lstt_free(void * ctx) {
     if (ctx) whisper_free(static_cast<struct whisper_context *>(ctx));
 }
+
+// Points this process's error output (fd 2 and C stderr) at a log file, so a native abort's reason is kept.
+#ifdef _WIN32
+#include <cstdio>
+#include <io.h>
+#include <windows.h>
+extern "C" int lstt_redirect_stderr(const wchar_t * path) {
+    FILE * f = nullptr;
+    // A GUI process may start with no stderr at all; reopening sets up both the stream and fd 2.
+    if (_wfreopen_s(&f, path, L"ab", stderr) != 0 || f == nullptr) return -1;
+    setvbuf(stderr, nullptr, _IONBF, 0);
+    SetStdHandle(STD_ERROR_HANDLE, (HANDLE) _get_osfhandle(_fileno(stderr)));
+    return 0;
+}
+#else
+#include <fcntl.h>
+#include <unistd.h>
+extern "C" int lstt_redirect_stderr(const char * path) {
+    int fd = open(path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0600);
+    if (fd < 0) return -1;
+    int ok = dup2(fd, 2);
+    close(fd);
+    return ok < 0 ? -1 : 0;
+}
+#endif
