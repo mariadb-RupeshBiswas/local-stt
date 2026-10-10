@@ -387,9 +387,12 @@
         showTab(tab);
       } else if (event.key === "f" || event.key === "F") {
         event.preventDefault();
-        showTab("history");
-        searchInput.focus();
-        searchInput.select();
+        // searches the list in front: notes on the Notes tab, dictations everywhere else
+        var box = S.tab === "notes" ? notesSearch.input : searchInput;
+        if (S.tab === "notes" && S.openNote) showNotesList();
+        else if (S.tab !== "notes") showTab("history");
+        box.focus();
+        box.select();
       }
     }
 
@@ -1096,8 +1099,8 @@
       var gate = S.notes.supported === false ? (S.notes.reason || "Notes are not available on this computer.") : "";
       notesGate.textContent = gate;
       notesGate.hidden = gate === "";
-      newNoteButton.disabled = gate !== "" || !!S.notes.active;
-      newNoteButton.textContent = S.notes.active ? "Recording..." : "New Note";
+      newNoteButton.disabled = gate !== "";
+      newNoteButton.textContent = S.notes.active ? "Open Recording" : "New Note";
       var needle = S.noteSearch.trim().toLowerCase();
       var rows = S.noteList.filter(function (n) {
         return needle === "" || (noteTitle(n) + " " + (n.firstLine || "")).toLowerCase().indexOf(needle) !== -1;
@@ -1149,13 +1152,15 @@
     }
 
     function turnRow(seg) {
-      return h("div", { class: "turn turn-" + (seg.speaker === "me" ? "me" : "others") },
+      var row = h("div", { class: "turn turn-" + (seg.speaker === "me" ? "me" : "others") },
         h("div", { class: "turn-who" },
           h("span", { class: "turn-name", text: speakerName(seg.speaker) }),
           h("span", { class: "turn-time", text: clock(seg.start_ms) })
         ),
         h("div", { class: "turn-text", text: seg.text })
       );
+      row._start = seg.start_ms;
+      return row;
     }
 
     function renderTranscript(card) {
@@ -1319,7 +1324,12 @@
       var card = noteView._card;
       if (!card) return;
       var atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 40;
-      renderTranscript(card);
+      // one new row in time order, so a screen reader hears only the new line and a long call stays cheap
+      var empty = card.querySelector(".turn-empty");
+      if (empty) card.removeChild(empty);
+      var row = turnRow(p.segment);
+      var after = Array.prototype.find.call(card.children, function (el) { return el._start > p.segment.start_ms; });
+      card.insertBefore(row, after || null);
       if (atEnd) scroller.scrollTop = scroller.scrollHeight; // follow the call unless the reader scrolled up
     }
 

@@ -518,6 +518,13 @@ for (const dark of [false, true]) {
   await page.evaluate(() => window.__emit("note-segment", { id: "someothernote000", segment: { start_ms: 0, end_ms: 1, speaker: "me", text: "stray" } }));
   await page.waitForTimeout(100);
   check("lines for another note are ignored", (await panel.locator(".turn").count()) === 2);
+  await panel.locator(".note-back").click();
+  await page.waitForTimeout(200);
+  const openRec = panel.locator(".history-bar .btn-action");
+  check("while recording, the list offers Open Recording", (await openRec.textContent()) === "Open Recording" && (await openRec.isEnabled()));
+  await openRec.click();
+  await page.waitForTimeout(300);
+  check("Open Recording returns to the live note", (await panel.locator(".note-live").count()) === 1 && (await panel.locator(".note-live .btn", { hasText: "Stop" }).count()) === 1);
   await panel.locator(".note-live .btn", { hasText: "Stop" }).click();
   await page.waitForTimeout(100);
   check("Stop asks the app to stop and shows Tidying", (await page.evaluate(() => window.__calls)).includes("stop_note") && (await panel.locator(".note-meta").textContent()).includes("Tidying"));
@@ -540,6 +547,9 @@ for (const dark of [false, true]) {
   await page.locator("dialog.dlg .btn-danger-solid").click();
   await page.waitForTimeout(300);
   check("with every note gone, Notes shows its empty state", (await panel.locator(".empty-title").textContent()) === "No notes yet");
+  await page.keyboard.press("Meta+f");
+  await page.waitForTimeout(150);
+  check("Cmd+F on Notes searches notes", (await page.evaluate(() => document.activeElement.getAttribute("aria-label"))) === "Search notes" && (await page.locator("#tab-notes").getAttribute("aria-selected")) === "true");
   check("no page errors (notes)", errors.length === 0, errors);
   await ctx.close();
 }

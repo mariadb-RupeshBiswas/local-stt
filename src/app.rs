@@ -1295,14 +1295,15 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     opts,
                 } => {
                     if let Some(e) = engine.as_ref() {
-                        if let Ok(text) = e.transcribe(&pcm, &opts) {
+                        let samples = pcm.len();
+                        // whisper.cpp returns nothing for under a second of audio; quiet padding fixes that.
+                        let mut padded = pcm;
+                        if padded.len() < 17_600 {
+                            padded.resize(17_600, 0.0);
+                        }
+                        if let Ok(text) = e.transcribe(&padded, &opts) {
                             crate::notes::session::add_segment(
-                                &app,
-                                &id,
-                                speaker,
-                                start_ms,
-                                pcm.len(),
-                                &text,
+                                &app, &id, speaker, start_ms, samples, &text,
                             );
                         }
                     }
