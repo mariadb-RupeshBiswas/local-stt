@@ -713,9 +713,16 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         .map(model_name)
         .unwrap_or("-")
         .to_string();
+    let result = result.map(|t| {
+        if cfg.smart_format {
+            crate::format::tidy(&t)
+        } else {
+            t
+        }
+    });
     let text = match result {
-        Ok(t) if !t.trim().is_empty() && cfg.smart_format => crate::format::tidy(&t),
-        Ok(t) if !t.trim().is_empty() => t,
+        // A transcript of only fillers or punctuation is nothing to paste.
+        Ok(t) if t.chars().any(char::is_alphanumeric) => t,
         Ok(_) => return fail(app, "No speech heard", cfg.sounds),
         Err(e) => {
             record(&cfg, &model, "", duration_ms, false);

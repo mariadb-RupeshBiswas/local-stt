@@ -7,7 +7,19 @@ pub fn tidy(text: &str) -> String {
     let without_fillers = remove_fillers(text);
     let spaced = fix_spacing(&without_fillers);
     let listed = numbered_points(&spaced);
-    capitalize_first(listed.trim())
+    let trimmed = listed.trim();
+    // Only re-capitalise when a leading filler was removed; "iPhone works" must stay as spoken.
+    if starts_with_filler(text) {
+        capitalize_first(trimmed)
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn starts_with_filler(text: &str) -> bool {
+    words(text)
+        .first()
+        .is_some_and(|w| FILLERS.contains(&text[w.start..w.end].to_lowercase().as_str()))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -234,7 +246,7 @@ mod tests {
     #[test]
     fn points_out_of_order_are_left_alone() {
         let input = "point two first then point one later";
-        assert_eq!(tidy(input), "Point two first then point one later");
+        assert_eq!(tidy(input), input);
     }
 
     #[test]
@@ -249,6 +261,12 @@ mod tests {
             tidy("Uh, make sure uh, the build, um, passes."),
             "Make sure the build, passes."
         );
+    }
+
+    #[test]
+    fn only_fillers_become_empty() {
+        assert_eq!(tidy("uh, um"), "");
+        assert_eq!(tidy("Uh um."), ".");
     }
 
     #[test]
@@ -271,6 +289,7 @@ mod tests {
     #[test]
     fn empty_and_plain_text() {
         assert_eq!(tidy(""), "");
-        assert_eq!(tidy("  hello world  "), "Hello world");
+        assert_eq!(tidy("  hello world  "), "hello world");
+        assert_eq!(tidy("iPhone works"), "iPhone works");
     }
 }
