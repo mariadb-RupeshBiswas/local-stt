@@ -24,8 +24,18 @@ use tauri::{
 
 pub const OVERLAY: &str = "overlay";
 pub const MAIN: &str = "main";
+pub const LIVE: &str = "live";
+const LIVE_SIZE: (f64, f64) = (380.0, 96.0);
+// Re-transcribing only the recent tail keeps live text cheap even in a five-minute dictation.
+const LIVE_TAIL_SECS: u32 = 18;
+const LIVE_EVERY_MS: u64 = 800;
 
 pub enum Job {
+    Partial {
+        pcm: Vec<f32>,
+        opts: Opts,
+        session: u64,
+    },
     Load(PathBuf, ModelId),
     Transcribe {
         pcm: Vec<f32>,
@@ -36,6 +46,10 @@ pub enum Job {
 
 pub enum Msg {
     Hotkey(HotkeyEvent),
+    Partial {
+        session: u64,
+        text: Option<String>,
+    },
     Done {
         result: Result<String, String>,
         duration_ms: u64,
@@ -62,6 +76,8 @@ pub struct Shared {
     last_user_move_ms: AtomicU64,
     snap_pending: AtomicBool,
     overlay_gen: AtomicU64,
+    // Set while the final transcription waits, so live partials never delay it.
+    final_pending: AtomicBool,
 }
 
 impl Shared {
@@ -108,6 +124,7 @@ pub fn run() -> Result<(), String> {
         last_user_move_ms: AtomicU64::new(0),
         snap_pending: AtomicBool::new(false),
         overlay_gen: AtomicU64::new(0),
+        final_pending: AtomicBool::new(false),
     });
 
     let app = tauri::Builder::default()
@@ -131,6 +148,7 @@ pub fn run() -> Result<(), String> {
             let handle = app.handle().clone();
             build_tray(&handle)?;
             create_overlay(&handle)?;
+            create_live(&handle)?;
             spawn_worker(handle.clone(), worker_rx);
             spawn_controller(handle.clone(), ctrl_rx);
             start_hotkey(&handle);
@@ -263,6 +281,69 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     Ok(window)
 }
 
+fn create_live(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+    let builder = WebviewWindowBuilder::new(app, LIVE, WebviewUrl::App("live.html".into()))
+        .title("local-stt live text")
+        .inner_size(LIVE_SIZE.0, LIVE_SIZE.1)
+        .decorations(false)
+        .transparent(true)
+        .always_on_top(true)
+        .skip_taskbar(true)
+        .resizable(false)
+        .shadow(cfg!(target_os = "macos"))
+        .visible_on_all_workspaces(true)
+        .visible(false)
+        .focused(false)
+        .focusable(false);
+    #[cfg(target_os = "macos")]
+    let builder = {
+        use tauri::window::{Effect, EffectState, EffectsBuilder};
+        builder.effects(
+            EffectsBuilder::new()
+                .effects([Effect::LiquidGlassRegular, Effect::HudWindow])
+                .state(EffectState::Active)
+                .radius(16.0)
+                .build(),
+        )
+    };
+    builder.build()
+}
+
+// Puts the live popover next to the pill in the same desktop units the pill uses.
+fn place_live(
+    app: &AppHandle,
+    screen: &Screen,
+    pill: (f64, f64),
+    pill_size: (f64, f64),
+    scale: f64,
+) {
+    let Some(win) = app.get_webview_window(LIVE) else {
+        return;
+    };
+    let live_size = if cfg!(target_os = "macos") {
+        LIVE_SIZE
+    } else {
+        (LIVE_SIZE.0 * scale, LIVE_SIZE.1 * scale)
+    };
+    let (pos, below) = overlay::live_pos(screen, pill, pill_size, live_size);
+    let _ = win.set_size(tauri::LogicalSize::new(LIVE_SIZE.0, LIVE_SIZE.1));
+    if cfg!(target_os = "macos") {
+        let _ = win.set_position(tauri::LogicalPosition::new(pos.0, pos.1));
+    } else {
+        let _ = win.set_position(tauri::PhysicalPosition::new(
+            pos.0.round() as i32,
+            pos.1.round() as i32,
+        ));
+    }
+    let _ = app.emit("live-place", json!({ "below": below }));
+}
+
+fn hide_live(app: &AppHandle) {
+    if let Some(win) = app.get_webview_window(LIVE) {
+        let _ = win.hide();
+    }
+}
+
 fn units_scale(scale: f64) -> f64 {
     // macOS desktop coordinates are points; Windows uses physical pixels.
     if cfg!(target_os = "macos") {
@@ -354,6 +435,10 @@ fn place_overlay(app: &AppHandle, win: &WebviewWindow) {
     let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
     let pos = overlay::resolve(&plain, cfg.overlay_pos.as_ref(), ptr, size);
     set_overlay_pos(app, win, pos);
+    let centre = (pos.0 + size.0 / 2.0, pos.1 + size.1 / 2.0);
+    if let Some(screen) = overlay::screen_for_point(&plain, centre).cloned() {
+        place_live(app, &screen, pos, size, target_scale);
+    }
 }
 
 pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Option<u64>) {
@@ -376,6 +461,14 @@ pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Op
         json!({ "state": state, "label": label, "startedAtMs": started_at_ms }),
     );
     let _ = win.show();
+    let live_wanted = cfg.live_transcription && matches!(state, "recording" | "transcribing");
+    if live_wanted {
+        if let Some(live) = app.get_webview_window(LIVE) {
+            let _ = live.show();
+        }
+    } else {
+        hide_live(app);
+    }
 }
 
 pub fn hide_overlay_after(app: &AppHandle, delay_ms: u64) {
@@ -389,6 +482,7 @@ pub fn hide_overlay_after(app: &AppHandle, delay_ms: u64) {
         if let Some(win) = app.get_webview_window(OVERLAY) {
             let _ = win.hide();
         }
+        hide_live(&app);
     });
 }
 
@@ -441,6 +535,7 @@ fn snap_and_save(app: &AppHandle) {
     };
     let to = overlay::snap(&screen, from, size);
     animate_to(app, &win, from, to);
+    place_live(app, &screen, to, size, win_scale);
     shared(app).update_config(|c| {
         c.overlay_pos = Some(OverlayPos {
             monitor: screen.name.clone(),
@@ -560,9 +655,29 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
     std::thread::spawn(move || {
         let mut machine = Machine::new();
         let mut recorder: Option<Recorder> = None;
+        let mut partial_in_flight = false;
+        let mut last_partial_ms = 0u64;
         loop {
             let msg = rx.recv_timeout(Duration::from_millis(200));
             let now = now_ms();
+            if let (Some(r), Some(since)) = (recorder.as_ref(), machine.recording_since()) {
+                let cfg = shared(&app).config();
+                let due = now.saturating_sub(last_partial_ms) >= LIVE_EVERY_MS
+                    && now.saturating_sub(since) >= 600;
+                if cfg.live_transcription && cfg.show_overlay && !partial_in_flight && due {
+                    last_partial_ms = now;
+                    let pcm = r.snapshot_tail(LIVE_TAIL_SECS);
+                    // Whisper invents words on silence, so quiet stretches never reach the popover.
+                    if !audio::is_silent(&pcm, audio::SILENCE_RMS) {
+                        let job = Job::Partial {
+                            pcm,
+                            opts: transcribe_opts(&cfg),
+                            session: since,
+                        };
+                        partial_in_flight = lock(&shared(&app).worker).send(job).is_ok();
+                    }
+                }
+            }
             if let Some(since) = machine.recording_since() {
                 if now.saturating_sub(since) >= MAX_RECORDING_MS {
                     let action = machine.on(Input::Timeout, now);
@@ -591,6 +706,15 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                     };
                     let action = machine.on(input, now);
                     apply(&app, action, &mut recorder, &mut machine, now);
+                }
+                Ok(Msg::Partial { session, text }) => {
+                    partial_in_flight = false;
+                    let current = machine.recording_since() == Some(session);
+                    if let Some(text) = text.filter(|t| current && !t.trim().is_empty()) {
+                        let formatted = shared(&app).config().smart_format;
+                        let _ =
+                            app.emit("live-text", json!({ "text": text, "formatted": formatted }));
+                    }
                 }
                 Ok(Msg::Done {
                     result,
@@ -628,6 +752,7 @@ fn apply(
                     let _ = level_app.emit("overlay-level", json!({ "level": level }));
                 }
             });
+            let _ = app.emit("live-reset", json!({}));
             match Recorder::start(cfg.microphone.as_deref(), on_level) {
                 Ok(r) => {
                     *recorder = Some(r);
@@ -666,21 +791,14 @@ fn apply(
                 return;
             }
             show_overlay(app, "transcribing", "Transcribing", None);
-            let threads = std::thread::available_parallelism()
-                .map(|n| n.get() as u32)
-                .unwrap_or(4)
-                .min(8);
-            let opts = Opts {
-                translate: cfg.translate,
-                language: cfg.language.clone(),
-                threads,
-            };
             let job = Job::Transcribe {
                 pcm: rec.samples_16k,
-                opts,
+                opts: transcribe_opts(&cfg),
                 duration_ms: rec.duration_ms,
             };
+            shared(app).final_pending.store(true, Ordering::SeqCst);
             if lock(&shared(app).worker).send(job).is_err() {
+                shared(app).final_pending.store(false, Ordering::SeqCst);
                 machine.on(Input::TranscribeDone, now);
                 fail(app, "Speech engine stopped", cfg.sounds);
             }
@@ -695,6 +813,18 @@ fn apply(
             show_overlay(app, "recording", "Hands-free", machine.recording_since());
         }
         Action::Idle | Action::None => {}
+    }
+}
+
+fn transcribe_opts(cfg: &Config) -> Opts {
+    let threads = std::thread::available_parallelism()
+        .map(|n| n.get() as u32)
+        .unwrap_or(4)
+        .min(8);
+    Opts {
+        translate: cfg.translate,
+        language: cfg.language.clone(),
+        threads,
     }
 }
 
@@ -804,6 +934,15 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                             app.emit("model-done", json!({ "id": id, "ok": false, "error": e }));
                     }
                 },
+                Job::Partial { pcm, opts, session } => {
+                    let skip = shared(&app).final_pending.load(Ordering::SeqCst);
+                    let text = match (skip, engine.as_ref()) {
+                        (false, Some(e)) => e.transcribe(&pcm, &opts).ok(),
+                        _ => None,
+                    };
+                    let ctrl = lock(&shared(&app).ctrl).clone();
+                    let _ = ctrl.send(Msg::Partial { session, text });
+                }
                 Job::Transcribe {
                     pcm,
                     opts,
@@ -815,6 +954,7 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                             Err("No model loaded yet. Open local-stt to download one.".to_string())
                         }
                     };
+                    shared(&app).final_pending.store(false, Ordering::SeqCst);
                     let ctrl = lock(&shared(&app).ctrl).clone();
                     let _ = ctrl.send(Msg::Done {
                         result,

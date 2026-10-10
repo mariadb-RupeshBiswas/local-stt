@@ -1,0 +1,11 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "live",
+  "description": "Live text popover: listen to its own events and read the theme. Nothing else.",
+  "windows": ["live"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-get-state"
+  ]
+}

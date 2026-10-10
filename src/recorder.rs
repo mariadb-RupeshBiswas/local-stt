@@ -80,6 +80,15 @@ impl Recorder {
         finish(interleaved, channels, rate)
     }
 
+    /// The last `secs` seconds as 16 kHz mono, copied without stopping the capture.
+    pub fn snapshot_tail(&self, secs: u32) -> Vec<f32> {
+        let copied: Vec<f32> = {
+            let guard = self.samples.lock().unwrap_or_else(|e| e.into_inner());
+            tail(&guard, self.channels, self.rate, secs).to_vec()
+        };
+        finish(copied, self.channels, self.rate).samples_16k
+    }
+
     pub fn cancel(self) {
         drop(self.end());
     }
@@ -91,6 +100,15 @@ impl Recorder {
         let mut guard = self.samples.lock().unwrap_or_else(|e| e.into_inner());
         std::mem::take(&mut *guard)
     }
+}
+
+// Whole frames only, so channels never shift when the tail is downmixed.
+fn tail(buf: &[f32], channels: u16, rate: u32, secs: u32) -> &[f32] {
+    let channels = channels.max(1) as usize;
+    let want = rate as usize * secs as usize * channels;
+    let mut start = buf.len().saturating_sub(want);
+    start -= start % channels;
+    &buf[start..]
 }
 
 fn finish(interleaved: Vec<f32>, channels: u16, rate: u32) -> Recording {
@@ -244,6 +262,15 @@ mod tests {
         assert_eq!(rec.duration_ms, 1000);
         assert_eq!(rec.samples_16k.len(), 16_000);
         assert!((rec.samples_16k[100] - 0.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn tail_keeps_whole_frames_of_the_last_seconds() {
+        let buf: Vec<f32> = (0..10).map(|i| i as f32).collect();
+        assert_eq!(tail(&buf, 2, 2, 1), &[6.0, 7.0, 8.0, 9.0]);
+        assert_eq!(tail(&buf, 1, 100, 1), &buf[..]);
+        assert_eq!(tail(&buf[..9], 2, 2, 1), &[4.0, 5.0, 6.0, 7.0, 8.0]);
+        assert!(tail(&[], 2, 48_000, 18).is_empty());
     }
 
     #[test]

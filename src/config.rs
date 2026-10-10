@@ -38,6 +38,8 @@ pub struct Config {
     pub microphone: Option<String>,
     pub theme: Theme,
     pub show_overlay: bool,
+    /// Live text above the pill while speaking (a preview; the pasted text is the final pass).
+    pub live_transcription: bool,
     pub overlay_pos: Option<OverlayPos>,
     pub sounds: bool,
     pub save_history: bool,
@@ -58,6 +60,7 @@ impl Default for Config {
             microphone: None,
             theme: Theme::Pill,
             show_overlay: true,
+            live_transcription: true,
             overlay_pos: None,
             sounds: true,
             save_history: true,

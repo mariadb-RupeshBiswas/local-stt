@@ -79,6 +79,28 @@ fn snap_axis(pos: f64, len: f64, start: f64, extent: f64) -> f64 {
     pos
 }
 
+pub const LIVE_GAP: f64 = 8.0;
+
+/// Where the live popover goes: centred over the pill, or under it when there is no room above.
+/// Returns the popover's top-left and whether it sits below the pill.
+pub fn live_pos(
+    screen: &Screen,
+    pill: (f64, f64),
+    pill_size: (f64, f64),
+    live_size: (f64, f64),
+) -> ((f64, f64), bool) {
+    let centred = pill.0 + pill_size.0 / 2.0 - live_size.0 / 2.0;
+    let min_x = screen.x + LIVE_GAP;
+    let max_x = screen.x + screen.w - LIVE_GAP - live_size.0;
+    let x = centred.clamp(min_x, max_x.max(min_x));
+    let above = pill.1 - LIVE_GAP - live_size.1;
+    if above >= screen.y + LIVE_GAP {
+        ((x, above), false)
+    } else {
+        ((x, pill.1 + pill_size.1 + LIVE_GAP), true)
+    }
+}
+
 /// Critically damped spring (no overshoot), starting at rest, after `t` seconds.
 pub fn spring(from: f64, to: f64, t: f64) -> f64 {
     let omega = 2.0 * std::f64::consts::PI / SPRING_RESPONSE_S;
@@ -197,6 +219,24 @@ mod tests {
     fn clamped_inside_work_area() {
         let s = mon("A", 0.0, 25.0, 1440.0, 875.0);
         assert_eq!(snap(&s, (-50.0, 0.0), (220.0, 44.0)), (24.0, 49.0));
+    }
+
+    #[test]
+    fn live_popover_sits_centred_above_the_pill() {
+        let s = mon("A", 0.0, 0.0, 1440.0, 900.0);
+        let ((x, y), below) = live_pos(&s, (1196.0, 832.0), (220.0, 44.0), (380.0, 96.0));
+        assert!(!below);
+        assert_eq!(y, 832.0 - 8.0 - 96.0);
+        // Centred would overflow the right edge, so it is clamped inside the screen.
+        assert_eq!(x, 1440.0 - 8.0 - 380.0);
+    }
+
+    #[test]
+    fn live_popover_goes_below_a_pill_at_the_top() {
+        let s = mon("A", 0.0, 25.0, 1440.0, 875.0);
+        let ((_, y), below) = live_pos(&s, (600.0, 49.0), (220.0, 44.0), (380.0, 96.0));
+        assert!(below);
+        assert_eq!(y, 49.0 + 44.0 + 8.0);
     }
 
     #[test]
