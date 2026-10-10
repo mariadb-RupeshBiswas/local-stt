@@ -98,6 +98,7 @@
     ["Overlay over vivid", "?view=overlays&wall=vivid"],
     ["Live transcript", "?view=live"],
     ["History", "?view=main&tab=history&scheme=both"],
+    ["Notes", "?view=main&tab=notes&scheme=both"],
     ["Model", "?view=main&tab=model&scheme=both"],
     ["Settings", "?view=main&tab=settings&scheme=both"]
   ];
@@ -380,7 +381,7 @@
       config: {
         hotkey: hold,
         toggle_hotkey: toggle,
-        smart_format: true, live_transcription: true, check_updates: true, skip_update: null, diagnostic_log: true,
+        smart_format: true, live_transcription: true, check_updates: true, skip_update: null, diagnostic_log: true, notes_consent_seen: params.get("consent") === "seen",
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", autostart: false, model: "small"
@@ -406,6 +407,19 @@
       toggleDisplay: toggle ? comboText(toggle) : null,
       installed: params.get("installed") === "1",
       update: params.get("update") === "1" ? { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" } : null,
+      notes: params.get("notes") === "old-macos"
+        ? { supported: false, reason: "Notes need macOS 14.6 or later.", active: null }
+        : { supported: true, reason: null, active: null },
+      noteFiles: params.get("notes") === "none" ? [] : [
+        { id: "a1b2c3d4e5f60718", title: "", started_ms: now - 2 * hour, ended_ms: now - 2 * hour + 42 * minute, source: "Zoom", status: "done", segments: [
+          { start_ms: 4000, end_ms: 9000, speaker: "others", text: "Let's start with the September numbers. Revenue is up eight percent." },
+          { start_ms: 10000, end_ms: 14000, speaker: "me", text: "Great. Can we split that by region before Friday?" },
+          { start_ms: 15500, end_ms: 19000, speaker: "others", text: "Yes, I'll send the breakdown tomorrow." }
+        ] },
+        { id: "0f1e2d3c4b5a6978", title: "Design review", started_ms: now - day - 3 * hour, ended_ms: now - day - 3 * hour + 25 * minute, source: null, status: "done", segments: [
+          { start_ms: 1000, end_ms: 5000, speaker: "me", text: "The new pill reads well in dark mode." }
+        ] }
+      ],
       history: empty ? [] : entries
     };
   }
@@ -479,6 +493,52 @@
         return new Promise(function (resolve) {
           setTimeout(function () { resolve("Saved local-stt-diagnostics-2026-10-10-09-30-00.txt. Read it before you share it."); }, 400);
         });
+      },
+      list_notes: function () {
+        return data.noteFiles.map(function (n) {
+          return { id: n.id, title: n.title, startedMs: n.started_ms, endedMs: n.ended_ms, source: n.source, status: n.status, firstLine: n.segments.length ? n.segments[0].text : "" };
+        }).sort(function (a, b) { return b.startedMs - a.startedMs; });
+      },
+      get_note: function (a) {
+        var found = data.noteFiles.filter(function (n) { return n.id === a.id; })[0];
+        if (!found) throw "This note could not be opened.";
+        return JSON.parse(JSON.stringify(found));
+      },
+      start_note: function () {
+        window.__calls.push("start_note");
+        if (data.notes.active) throw "A note is already recording.";
+        var id = "feedfacecafe0001";
+        var started = Date.now();
+        data.noteFiles.push({ id: id, title: "", started_ms: started, ended_ms: null, source: null, status: "recording", segments: [] });
+        data.notes.active = { id: id, startedMs: started };
+        return id;
+      },
+      stop_note: function () {
+        window.__calls.push("stop_note");
+        var active = data.notes.active;
+        if (!active) throw "No note is recording.";
+        data.notes.active = null;
+        bus.emit("note-state", { id: active.id, status: "tidying" });
+        setTimeout(function () {
+          data.noteFiles.forEach(function (n) {
+            if (n.id === active.id) { n.status = "done"; n.ended_ms = Date.now(); }
+          });
+          bus.emit("note-state", { id: active.id, status: "done" });
+          bus.emit("notes-changed", {});
+        }, 300);
+      },
+      rename_note: function (a) {
+        window.__calls.push("rename_note:" + a.title);
+        var found = data.noteFiles.filter(function (n) { return n.id === a.id; })[0];
+        found.title = a.title;
+        return JSON.parse(JSON.stringify(found));
+      },
+      delete_notes: function (a) {
+        window.__calls.push("delete_notes:" + a.ids.length);
+        var gone = new Set(a.ids);
+        var before = data.noteFiles.length;
+        data.noteFiles = data.noteFiles.filter(function (n) { return !gone.has(n.id) || (data.notes.active && data.notes.active.id === n.id); });
+        return before - data.noteFiles.length;
       },
       delete_history: function (a) {
         window.__calls.push("delete_history:" + a.ids.length);
