@@ -229,7 +229,7 @@ for (const dark of [false, true]) {
   check(mode + ": text is a polite status region", (await empty.getAttribute("role")) === "status" && (await empty.getAttribute("aria-live")) === "polite");
   const card = await box(cell("short").locator(".lv-card"));
   check(mode + ": card fills the 380 x 96 window", Math.round(card.width) === 380 && Math.round(card.height) === 96, card);
-  check(mode + ": initial smart_format from get_state shows the tag before any text", await cell("listening").locator(".lv-tag").isVisible());
+  check(mode + ": initial smartFormatActive from get_state shows the tag before any text", await cell("listening").locator(".lv-tag").isVisible());
 
   // replacement, not delta
   await emit("live-text", { text: "hello wor", formatted: true });
@@ -400,6 +400,89 @@ for (const dark of [false, true]) {
   check("Cmd+F opens History and focuses the search box", (await page.locator("#tab-history").getAttribute("aria-selected")) === "true" && (await page.evaluate(() => document.activeElement.className)) === "search-input");
   check("no page errors (history)", errors.length === 0, errors);
   await ctx.close();
+}
+
+// ---------- main: History select and delete ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light");
+  const rows = () => page.locator(".hrow").count();
+  const count = () => page.locator(".select-count").textContent();
+  const total = await rows();
+  check("select bar and checkboxes stay hidden until Select", (await page.locator(".select-bar").isHidden()) && (await page.locator(".hrow-check").count()) === 0);
+  await page.locator(".history-bar > .btn", { hasText: "Select" }).click();
+  check("Select shows a checkbox per row and hides Clear History", (await page.locator(".hrow-check").count()) === total && (await page.getByText("Clear History", { exact: true }).isHidden()));
+  check("Select turns into Done and copy buttons go away", (await page.locator(".history-bar > .btn").first().textContent()) === "Done" && (await page.locator(".hrow .copy").count()) === 0);
+  check("Delete is off while nothing is picked", (await count()) === "None selected" && (await page.locator(".select-bar .btn-danger").isDisabled()));
+
+  await page.locator(".hrow-text").first().click();
+  check("clicking a row picks it", (await count()) === "1 selected" && (await page.locator(".hrow").first().getAttribute("class")).includes("is-selected"));
+  await page.locator(".hrow-check").nth(2).click();
+  check("a checkbox adds to the pick and shows its tick", (await count()) === "2 selected" && (await page.locator(".hrow-check").nth(2).isChecked()));
+  await page.locator(".hrow-check").nth(5).click({ modifiers: ["Shift"] });
+  const ticks = await page.locator(".hrow-check").evaluateAll((els) => els.map((e) => e.checked));
+  check("Shift-click picks the run between, ticks included", (await count()) === "5 selected" && ticks.slice(0, 6).join() === "true,false,true,true,true,true", ticks);
+  check("the day box shows a mixed state", await page.locator(".group-check").first().evaluate((b) => b.indeterminate || b.checked));
+
+  await page.locator("#select-all").click();
+  check("Select All picks every row shown", (await count()) === total + " selected");
+  await page.locator("#select-all").click();
+  check("Select All again clears the pick", (await count()) === "None selected" && (await page.locator(".select-bar .btn-danger").isDisabled()));
+
+  await page.locator(".hrow-check").first().focus();
+  await page.keyboard.press("Meta+a");
+  check("Cmd+A picks every row shown", (await count()) === total + " selected");
+  await page.fill(".search-input", "domain");
+  await page.waitForTimeout(100);
+  check("search drops picks it hides, so Delete never removes unseen rows", (await count()) === "1 selected");
+  await page.fill(".search-input", "");
+  await page.waitForTimeout(100);
+
+  await page.locator(".hrow-check").first().focus();
+  await page.keyboard.press("Delete");
+  await page.waitForTimeout(250);
+  check("Delete key asks first, naming one dictation", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Delete this dictation?");
+  check("delete dialog says it is permanent", (await page.locator("dialog.dlg[open] .dlg-body").textContent()) === "It will be removed from this Mac. This can't be undone.");
+  await page.locator("dialog.dlg .btn", { hasText: "Cancel" }).click();
+  check("cancel keeps every row", (await rows()) === total);
+
+  await page.locator(".hrow-check").first().focus();
+  await page.keyboard.press("Escape");
+  check("Esc leaves select mode", (await page.locator(".select-bar").isHidden()) && (await page.locator(".hrow-check").count()) === 0);
+
+  await page.locator(".history-bar > .btn", { hasText: "Select" }).click();
+  const dayRows = await page.locator(".card").first().locator(".hrow").count();
+  await page.locator(".group-check").first().click();
+  check("the day box picks that whole day", (await count()) === dayRows + " selected");
+  await page.locator(".select-bar .btn-danger").click();
+  await page.waitForTimeout(250);
+  const title = dayRows === 1 ? "Delete this dictation?" : "Delete " + dayRows + " dictations?";
+  check("delete dialog counts the pick", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === title);
+  await page.locator("dialog.dlg .btn-danger-solid").click();
+  await page.waitForTimeout(400);
+  check("confirm deletes exactly the picked rows", (await rows()) === total - dayRows);
+  check("the app is asked to delete them by id", (await page.evaluate(() => window.__calls)).includes("delete_history:" + dayRows));
+  check("select mode ends after a delete", await page.locator(".select-bar").isHidden());
+  const said = await page.locator(".sr-only[role=status]").textContent();
+  check("the delete is announced", said === "Deleted " + (dayRows === 1 ? "1 dictation" : dayRows + " dictations") + ".", said);
+  check("no page errors (history select)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- README images carry no metadata ----------
+{
+  // Lists a PNG's chunk types; anything beyond what is needed to draw (text, time, profile, EXIF) is metadata.
+  const chunks = (buf) => {
+    const types = [];
+    for (let at = 8; at < buf.length; at += 12 + buf.readUInt32BE(at)) types.push(buf.toString("latin1", at + 4, at + 8));
+    return types;
+  };
+  const dir = path.join(ROOT, "docs/screenshots");
+  const extra = {};
+  for (const name of fs.readdirSync(dir).filter((n) => n.endsWith(".png"))) {
+    const odd = chunks(fs.readFileSync(path.join(dir, name))).filter((t) => !["IHDR", "PLTE", "IDAT", "IEND"].includes(t));
+    if (odd.length) extra[name] = [...new Set(odd)];
+  }
+  check("README screenshots hold only image data, no metadata chunks", Object.keys(extra).length === 0, extra);
 }
 
 // ---------- main: Model ----------
@@ -1026,6 +1109,8 @@ for (const dark of [false, true]) {
   await button.click();
   await page.waitForTimeout(250);
   check("Check for Updates asks the app and shows Checking...", (await page.evaluate(() => window.__cfg.includes("check_for_updates"))) && (await button.textContent()) === "Checking..." && (await button.isDisabled()));
+  await page.evaluate(() => window.__emit("notice", { message: "Start at login is off." }));
+  check("an unrelated notice leaves the check running", (await button.textContent()) === "Checking..." && (await button.isDisabled()));
   await page.waitForTimeout(900);
   check("a notice ends the check, toasts it and restores the button", (await page.locator(".toast").textContent()) === "local-stt 0.1.0 is up to date." && (await button.textContent()) === "Check for Updates" && (await button.isEnabled()));
   const auto = page.getByRole("switch", { name: "Check automatically" });

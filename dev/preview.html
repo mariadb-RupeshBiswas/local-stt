@@ -293,7 +293,7 @@
     wall.appendChild(glass);
     cell.appendChild(wall);
     parent.appendChild(cell);
-    var bus = makeBus({ get_state: function () { return { config: { smart_format: true } }; } });
+    var bus = makeBus({ get_state: function () { return { config: { smart_format: true }, smartFormatActive: true }; } });
     window.mountLive(mount, bus.tauri);
     bus.emit("overlay-theme", { theme: "pill", reducedMotion: reduce, solid: false });
     setup(bus, glass, cell);
@@ -445,7 +445,7 @@
             data.update = { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" };
             bus.emit("update-available", data.update);
           } else {
-            bus.emit("notice", { message: "local-stt 0.1.0 is up to date." });
+            bus.emit("notice", { message: "local-stt 0.1.0 is up to date.", kind: "update" });
           }
         }, 700);
       },
@@ -474,6 +474,13 @@
       },
       get_history: function () { return data.history; },
       clear_history: function () { data.history = []; },
+      delete_history: function (a) {
+        window.__calls.push("delete_history:" + a.ids.length);
+        var gone = new Set(a.ids);
+        var before = data.history.length;
+        data.history = data.history.filter(function (e) { return !gone.has(e.ts_ms); });
+        return before - data.history.length;
+      },
       copy_text: function (a) {
         try { if (navigator.clipboard) navigator.clipboard.writeText(a.text).catch(function () {}); } catch (e) { /* preview only */ }
       },

@@ -66,6 +66,7 @@ fn main() {
         "choose_model",
         "get_history",
         "clear_history",
+        "delete_history",
         "reset_overlay_position",
         "move_overlay",
         "copy_text",

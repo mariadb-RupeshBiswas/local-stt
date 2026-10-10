@@ -373,6 +373,53 @@ body {
 
 .hrow-actions { flex: none; padding-top: 1px; }
 
+/* select mode: a sticky bar so Delete stays in reach on a long list */
+.select-bar {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  margin-bottom: var(--s2);
+  padding: 6px 8px 6px var(--s4);
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+}
+
+.select-bar[hidden] { display: none; }
+.select-all,
+.group-pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s2);
+}
+
+.select-all { font-weight: 500; }
+.select-count { flex: 1; color: var(--label-2); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.check {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.hrow-check { margin-top: 2px; }
+.group-pick { margin-left: 12px; } /* lines the day box up with the row boxes */
+.hrow.selecting { cursor: default; }
+.hrow.is-selected { background: var(--blue-tint); }
+
+.btn-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-icon .ic { width: 14px; height: 14px; }
+
 .empty {
   padding: 72px 24px;
   text-align: center;

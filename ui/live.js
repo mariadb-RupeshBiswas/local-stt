@@ -142,7 +142,7 @@
     // the first events can fire before this page listens, so read the setting once
     if (tauri && tauri.core && tauri.core.invoke) {
       Promise.resolve(tauri.core.invoke("get_state")).then(function (state) {
-        if (!formattedSeen && state && state.config && typeof state.config.smart_format === "boolean") setFormatted(state.config.smart_format);
+        if (!formattedSeen && state && typeof state.smartFormatActive === "boolean") setFormatted(state.smartFormatActive);
       }).catch(function () {});
     }
 

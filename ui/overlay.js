@@ -392,6 +392,7 @@
     if (tauri && tauri.core && tauri.core.invoke) {
       Promise.resolve(tauri.core.invoke("get_state")).then(function (state) {
         if (state && state.config) applyTheme(state.config.theme);
+        if (state && state.demo === true) autoHide = false; // the tour holds "done" until it hides the pill itself
       }).catch(function () {});
     }
 

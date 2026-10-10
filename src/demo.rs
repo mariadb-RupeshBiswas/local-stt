@@ -4,13 +4,40 @@ use crate::app;
 use crate::{history, paths};
 use serde_json::json;
 use std::io::Write;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
-const ENV: &str = "LOCAL_STT_DEMO";
+// Set only by prepare() in this process, so no inherited variable can turn a real launch into a tour.
+static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 pub fn active() -> bool {
-    std::env::var_os(ENV).is_some()
+    ACTIVE.load(Ordering::Relaxed)
+}
+
+/// A made-up machine for the Model tab, so screenshots never show the real one.
+pub fn sample_hardware() -> crate::hwprobe::Hardware {
+    let windows = cfg!(windows);
+    crate::hwprobe::Hardware {
+        os: if windows { "Windows 11" } else { "macOS 15.1" }.into(),
+        arch: if windows { "x86_64" } else { "aarch64" }.into(),
+        cpu: if windows {
+            "Intel Core i7-1260P"
+        } else {
+            "Apple M2"
+        }
+        .into(),
+        threads: if windows { 16 } else { 8 },
+        ram_gb: Some(16),
+        gpu: if windows {
+            "Intel Iris Xe Graphics"
+        } else {
+            "Apple M2 GPU (Metal)"
+        }
+        .into(),
+        gpu_accel: !windows,
+        free_disk_gb: Some(212.4),
+    }
 }
 
 fn demo_dir() -> std::path::PathBuf {
@@ -39,7 +66,7 @@ pub fn prepare() -> Result<(), String> {
     let dir = demo_dir();
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("LOCAL_STT_DATA_DIR", &dir);
-    std::env::set_var(ENV, "1");
+    ACTIVE.store(true, Ordering::Relaxed);
     paths::ensure_dirs().map_err(|e| e.to_string())?;
     let now = app::now_ms();
     for (i, (text, duration_ms)) in SAMPLE_HISTORY.iter().enumerate() {
@@ -85,17 +112,23 @@ fn levels(app: &AppHandle, ms: u64) {
     }
 }
 
+// Each cue goes out once its state has settled, then the state holds while the script captures it.
+const HOLD_MS: u64 = 2_000;
+
 pub fn spawn(app: AppHandle) {
+    let shared = app.state::<std::sync::Arc<app::Shared>>().inner().clone();
+    *app::lock(&shared.active_model) = Some(shared.config().model);
     std::thread::spawn(move || {
+        step(&format!("pid {}", std::process::id()));
         wait(1_500);
         app::show_main(&app);
         for tab in ["history", "model", "settings"] {
-            wait(1_500);
             let _ = app.emit("show-tab", json!({ "tab": tab }));
-            wait(2_500);
+            wait(1_500);
             step(tab);
+            wait(HOLD_MS);
         }
-        if let Some(main) = tauri::Manager::get_webview_window(&app, app::MAIN) {
+        if let Some(main) = app.get_webview_window(app::MAIN) {
             let _ = main.hide();
         }
         let started = app::now_ms();
@@ -108,20 +141,22 @@ pub fn spawn(app: AppHandle) {
             levels(&app, 220);
         }
         step("recording");
-        levels(&app, 2_000);
+        levels(&app, HOLD_MS);
         app::show_overlay(&app, "recording", "Hands-free", Some(started));
-        levels(&app, 1_500);
+        levels(&app, 600);
         step("hands-free");
-        levels(&app, 1_500);
+        levels(&app, HOLD_MS);
         app::show_overlay(&app, "transcribing", "Transcribing", None);
-        wait(1_200);
+        wait(600);
         step("transcribing");
+        wait(HOLD_MS);
+        // The pill keeps "done" on screen in the tour (get_state says demo), so it holds like the rest.
         app::show_overlay(&app, "done", "Pasted", None);
-        // The pill fades itself about 450 ms after "done", so the capture cue goes out early.
-        wait(120);
+        wait(600);
         step("done");
-        app::hide_overlay_after(&app, 600);
-        wait(1_500);
+        wait(HOLD_MS);
+        app::hide_overlay_after(&app, 0);
+        wait(800);
         step("end");
         app.exit(0);
     });

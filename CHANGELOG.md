@@ -34,6 +34,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Daily update check against PyPI (can be turned off), shown as a tray menu item, never a pop-up.
 - Windows end-to-end CI job: installs the wheel, checks the Start menu shortcut and terminal
   command, downloads the model, holds Ctrl + Alt and checks the pill appears, then uninstalls.
+- History select mode: Select, then pick dictations with checkboxes (a whole day at once,
+  Shift-click for a run, Select All, Cmd or Ctrl + A) and delete just those.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
 
@@ -42,6 +44,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Quitting no longer aborts with a Metal assertion: the speech engine is freed before exit.
 - Words from consecutive speech segments no longer run together ("hereSo").
 - A transcript of only "uh" or "um" is reported as no speech instead of pasting nothing.
+- Check for Updates stays in its Checking state until the check itself answers.
+- The live popover's "Formats on paste" tag starts correct when the output is not English.
+- History rewrites are flushed to disk before they replace the file, and keep lines they cannot read.
+- The demo shows a sample machine on the Model tab and holds each state while it is captured.
 
 ### Security
 
@@ -50,3 +56,5 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Models are re-verified against their pinned checksum when first loaded.
 - Each window can call only the commands it needs.
 - History is capped at 2,000 entries and deleted when history is turned off.
+- README screenshots are captured window by window (never a screen region), land in a
+  gitignored review folder, and are stripped of PNG metadata; a check rejects metadata chunks.

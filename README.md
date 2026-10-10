@@ -41,7 +41,7 @@ uvx local-stt
 
 **Hands-free:** press **Fn + Shift + Space** (Windows: **Ctrl + Alt + Space**) to start listening, and press it again to stop. Already holding push-to-talk? Add Space to switch to hands-free without stopping. **Esc** cancels either way. A single recording stops and pastes after 5 minutes.
 
-Every dictation is kept in a local history you can search and copy from, or you can switch history off.
+Every dictation is kept in a local history you can search and copy from. Click Select to tick the ones you no longer need (one, a whole day, or all of them) and delete them, or switch history off.
 
 ## Install
 
@@ -112,7 +112,7 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 - The app talks to the network for three things only: downloading a model from Hugging Face over HTTPS (verified against a pinned checksum on download and again when it loads); a once-a-day version check against pypi.org that sends nothing but the request itself (you can turn it off); and, only when you click Install and Restart, uv fetching the new release from PyPI.
 - Text is put on the clipboard marked as private, so clipboard managers, Windows clipboard history and cloud clipboard skip it. On a Mac with Handoff on, Universal Clipboard can still pass it to your own nearby devices.
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
-- History and settings are plain local files readable only by your user account. History can be switched off or cleared at any time.
+- History and settings are plain local files readable only by your user account. History can be switched off, cleared, or trimmed to the dictations you pick, at any time.
 - Releases are built in GitHub Actions, published with PyPI Trusted Publishing and carry build provenance attestations.
 
 See [SECURITY.md](SECURITY.md) to report a vulnerability privately.

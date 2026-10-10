@@ -281,6 +281,9 @@
       historyLoaded: false,
       historyStale: false,
       search: "",
+      selecting: false, // History select mode: checkboxes and a Delete bar
+      selected: new Set(), // ts_ms of the chosen dictations
+      anchor: null, // last toggled ts_ms, where a Shift-click range starts
       progress: {},
       modelErrors: {},
       activeModel: null, // the model actually loaded, which config.model may not be
@@ -356,6 +359,7 @@
       TABS.forEach(function (t) { panels[t.value].hidden = t.value !== name; });
       tabs.sync();
       scroller.scrollTop = 0;
+      if (name !== "history" && S.selecting) setSelecting(false);
       if (name === "history" && S.historyStale) loadHistory();
     }
 
@@ -627,14 +631,133 @@
       onSearch();
       searchInput.focus();
     } }, icon("close"));
+    var selectButton = h("button", { class: "btn", type: "button", text: "Select", onclick: function () { setSelecting(!S.selecting); } });
     var clearButton = h("button", { class: "btn btn-danger", type: "button", text: "Clear History", onclick: askClearHistory });
     var historyList = h("div", { class: "history-list" });
     var historyBar = h("div", { class: "history-bar" },
       h("div", { class: "search" }, icon("search"), searchInput, searchClear),
+      selectButton,
       clearButton
     );
+    var selectAll = h("input", { type: "checkbox", class: "check", id: "select-all" });
+    selectAll.addEventListener("change", function () {
+      var all = allVisibleSelected();
+      S.visibleIds.forEach(function (id) {
+        if (all) S.selected.delete(id);
+        else S.selected.add(id);
+      });
+      S.anchor = null;
+      syncSelection();
+    });
+    var selectCount = h("span", { class: "select-count", "aria-live": "polite" });
+    var deleteButton = h("button", { class: "btn btn-danger btn-icon", type: "button", onclick: askDeleteSelected }, icon("trash"), h("span", { text: "Delete" }));
+    var selectBar = h("div", { class: "select-bar", role: "toolbar", "aria-label": "Selected dictations", hidden: true },
+      h("label", { class: "select-all", for: "select-all" }, selectAll, h("span", { text: "Select All" })),
+      selectCount,
+      deleteButton
+    );
     historyPanel.appendChild(historyBar);
+    historyPanel.appendChild(selectBar);
     historyPanel.appendChild(historyList);
+    S.visibleIds = [];
+
+    function setSelecting(on) {
+      S.selecting = on;
+      S.selected.clear();
+      S.anchor = null;
+      selectButton.textContent = on ? "Done" : "Select";
+      selectButton.classList.toggle("btn-action", on);
+      clearButton.hidden = on;
+      selectBar.hidden = !on;
+      renderHistoryList();
+      if (on) selectAll.focus();
+      else selectButton.focus();
+    }
+
+    function allVisibleSelected() {
+      return S.visibleIds.length > 0 && S.visibleIds.every(function (id) { return S.selected.has(id); });
+    }
+
+    // a tri-state box: checked when all of ids are chosen, mixed when some are
+    function syncBox(box, ids) {
+      var chosen = ids.filter(function (id) { return S.selected.has(id); }).length;
+      box.checked = chosen > 0 && chosen === ids.length;
+      box.indeterminate = chosen > 0 && chosen < ids.length;
+    }
+
+    // repaint the checks in place, so the focused checkbox keeps focus
+    function syncSelection() {
+      historyList.querySelectorAll(".hrow").forEach(function (row) {
+        var on = S.selected.has(row._id);
+        row.classList.toggle("is-selected", on);
+        if (row._box) row._box.checked = on;
+      });
+      historyList.querySelectorAll(".group-check").forEach(function (box) { syncBox(box, box._ids); });
+      syncBox(selectAll, S.visibleIds);
+      var n = S.selected.size;
+      selectCount.textContent = n === 0 ? "None selected" : n + " selected";
+      deleteButton.disabled = n === 0;
+    }
+
+    // click picks one; Shift-click picks the run from the last one, like Finder
+    function toggleRow(id, shift) {
+      var to = !S.selected.has(id);
+      var from = S.anchor === null ? -1 : S.visibleIds.indexOf(S.anchor);
+      var at = S.visibleIds.indexOf(id);
+      if (shift && from !== -1 && at !== -1) {
+        S.visibleIds.slice(Math.min(from, at), Math.max(from, at) + 1).forEach(function (other) {
+          if (to) S.selected.add(other);
+          else S.selected.delete(other);
+        });
+      } else if (to) {
+        S.selected.add(id);
+      } else {
+        S.selected.delete(id);
+      }
+      S.anchor = id;
+      syncSelection();
+    }
+
+    function plural(n, one, many) {
+      return n === 1 ? one : n + " " + many;
+    }
+
+    function askDeleteSelected() {
+      var ids = Array.from(S.selected);
+      if (ids.length === 0) return;
+      askConfirm({
+        title: ids.length === 1 ? "Delete this dictation?" : "Delete " + ids.length + " dictations?",
+        body: (ids.length === 1 ? "It" : "They") + " will be removed from " + thisDevice() + ". This can't be undone.",
+        confirm: "Delete",
+        danger: true,
+        onConfirm: function () {
+          Promise.resolve(invoke("delete_history", { ids: ids })).then(function () {
+            var gone = new Set(ids);
+            S.history = S.history.filter(function (e) { return !gone.has(e.ts_ms); });
+            setSelecting(false);
+            announce("Deleted " + plural(ids.length, "1 dictation", "dictations") + ".");
+          }).catch(function (err) { toast("Couldn't delete: " + errText(err)); });
+        }
+      });
+    }
+
+    // Esc leaves select mode, Delete asks to delete, Cmd/Ctrl+A picks everything shown
+    historyPanel.addEventListener("keydown", function (event) {
+      if (!S.selecting || dialog.open) return;
+      var typing = event.target === searchInput;
+      var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setSelecting(false);
+      } else if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
+        event.preventDefault();
+        askDeleteSelected();
+      } else if (mod && (event.key === "a" || event.key === "A") && !typing) {
+        event.preventDefault();
+        S.visibleIds.forEach(function (id) { S.selected.add(id); });
+        syncSelection();
+      }
+    });
 
     function onSearch() {
       S.search = searchInput.value;
@@ -685,7 +808,14 @@
         }).catch(function (err) { toast("Couldn't copy: " + errText(err)); });
       });
 
-      var row = h("div", { class: "hrow" + (failed ? " failed" : "") },
+      var id = entry.ts_ms;
+      var box = null;
+      if (S.selecting) {
+        box = h("input", { type: "checkbox", class: "check hrow-check", "aria-label": "Select dictation: " + (snippet || "empty") });
+        box.addEventListener("click", function (event) { toggleRow(id, event.shiftKey); });
+      }
+      var row = h("div", { class: "hrow" + (failed ? " failed" : "") + (S.selecting ? " selecting" : "") },
+        box,
         h("div", { class: "hrow-main" },
           body,
           h("div", { class: "hrow-meta" },
@@ -699,8 +829,17 @@
             more
           )
         ),
-        h("div", { class: "hrow-actions" }, copy)
+        S.selecting ? null : h("div", { class: "hrow-actions" }, copy)
       );
+      if (S.selecting) {
+        row.addEventListener("click", function (event) {
+          if (event.target === box || event.target.closest("button")) return;
+          if (window.getSelection && String(window.getSelection()).length > 0) return; // a text drag is not a pick
+          toggleRow(id, event.shiftKey);
+        });
+      }
+      row._id = id;
+      row._box = box;
       row._body = body;
       row._more = more;
       row._moreDot = moreDot;
@@ -714,6 +853,11 @@
         return needle === "" || String(e.text || "").toLowerCase().indexOf(needle) !== -1;
       });
       clearButton.disabled = S.history.length === 0;
+      selectButton.disabled = S.history.length === 0 && !S.selecting;
+      S.visibleIds = entries.map(function (e) { return e.ts_ms; });
+      var shown = new Set(S.visibleIds);
+      S.selected.forEach(function (id) { if (!shown.has(id)) S.selected.delete(id); }); // never delete what the search hides
+      if (S.selecting) syncSelection();
 
       if (!S.historyLoaded) return;
 
@@ -746,7 +890,26 @@
         var key = date ? dayKey(date) : "unknown";
         if (key !== group) {
           group = key;
-          historyList.appendChild(h("h3", { class: "group-title", text: date ? dayLabel(date) : "-" }));
+          var label = date ? dayLabel(date) : "-";
+          var title = h("h3", { class: "group-title" });
+          if (S.selecting) {
+            var dayBox = h("input", { type: "checkbox", class: "check group-check", "aria-label": "Select all from " + label });
+            dayBox._ids = entries.filter(function (e) {
+              return (typeof e.ts_ms === "number" ? dayKey(new Date(e.ts_ms)) : "unknown") === key;
+            }).map(function (e) { return e.ts_ms; });
+            dayBox.addEventListener("change", function () {
+              var all = dayBox._ids.every(function (id) { return S.selected.has(id); });
+              dayBox._ids.forEach(function (id) {
+                if (all) S.selected.delete(id);
+                else S.selected.add(id);
+              });
+              syncSelection();
+            });
+            title.appendChild(h("label", { class: "group-pick" }, dayBox, h("span", { text: label })));
+          } else {
+            title.textContent = label;
+          }
+          historyList.appendChild(title);
           card = h("div", { class: "card" });
           historyList.appendChild(card);
         }
@@ -754,6 +917,7 @@
         rows.push(row);
         card.appendChild(row);
       });
+      if (S.selecting) syncSelection();
 
       // reveal "Show More" only where the clamp actually hides text
       requestAnimationFrame(function () {
@@ -1417,7 +1581,7 @@
     });
 
     subscribe("notice", function (p) {
-      finishCheck(); // a manual update check ends with a notice when nothing is new
+      if (p && p.kind === "update") finishCheck(); // a manual check ends with this notice when nothing is new
       if (p && typeof p.message === "string" && p.message !== "") toast(p.message);
     });
 

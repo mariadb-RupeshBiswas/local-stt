@@ -9,6 +9,7 @@ use std::sync::Arc;
 use tauri::{AppHandle, State};
 
 const HISTORY_LIMIT: usize = 500;
+const MAX_DELETE_IDS: usize = 10_000;
 const MAX_COPY_CHARS: usize = 100_000;
 
 #[tauri::command]
@@ -28,6 +29,8 @@ pub fn get_state(state: State<'_, Arc<Shared>>) -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "platform": platform,
         "hotkeyDisplay": hotkey::display(&cfg.hotkey),
+        "smartFormatActive": cfg.smart_format && app::english_output(&cfg),
+        "demo": crate::demo::active(),
         "toggleDisplay": cfg.toggle_hotkey.as_ref().map(hotkey::display),
         "installed": crate::install::is_installed(),
         "update": lock(&state.update).clone(),
@@ -171,6 +174,19 @@ pub fn clear_history(app: AppHandle) -> Result<(), String> {
     history::clear(&paths::history_path()).map_err(|e| e.to_string())?;
     let _ = tauri::Emitter::emit(&app, "history-changed", ());
     Ok(())
+}
+
+/// Deletes the chosen dictations, named by their timestamps, and returns how many went.
+#[tauri::command]
+pub fn delete_history(app: AppHandle, ids: Vec<u64>) -> Result<usize, String> {
+    if ids.is_empty() || ids.len() > MAX_DELETE_IDS {
+        return Err("Choose between 1 and 10,000 dictations to delete.".into());
+    }
+    let ids = ids.into_iter().collect();
+    let removed = history::delete(&paths::history_path(), &ids)
+        .map_err(|e| format!("cannot delete dictations: {e}"))?;
+    let _ = tauri::Emitter::emit(&app, "history-changed", ());
+    Ok(removed)
 }
 
 #[tauri::command]

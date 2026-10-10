@@ -119,7 +119,11 @@ pub fn run() -> Result<(), String> {
         crate::instance::Claim::Owner(lock) => lock,
     };
     let cfg = config::load(&paths::config_path());
-    let hardware = hwprobe::probe(&paths::data_dir());
+    let hardware = if crate::demo::active() {
+        crate::demo::sample_hardware()
+    } else {
+        hwprobe::probe(&paths::data_dir())
+    };
     let (worker_tx, worker_rx) = mpsc::channel::<Job>();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<Msg>();
     let shared = Arc::new(Shared {
@@ -149,6 +153,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::choose_model,
             crate::commands::get_history,
             crate::commands::clear_history,
+            crate::commands::delete_history,
             crate::commands::reset_overlay_position,
             crate::commands::move_overlay,
             crate::commands::copy_text,
@@ -890,7 +895,7 @@ fn apply(
 }
 
 /// Translation always yields English; otherwise only an explicit English setting guarantees it.
-fn english_output(cfg: &Config) -> bool {
+pub(crate) fn english_output(cfg: &Config) -> bool {
     cfg.translate || cfg.language == "en"
 }
 
@@ -1021,12 +1026,12 @@ pub fn check_updates_now(app: AppHandle, asked: bool) {
                 } else if asked {
                     show_main(&app);
                     let message = format!("local-stt {} is up to date.", info.current);
-                    let _ = app.emit("notice", json!({ "message": message }));
+                    let _ = app.emit("notice", json!({ "message": message, "kind": "update" }));
                 }
             }
             Err(e) if asked => {
                 show_main(&app);
-                let _ = app.emit("notice", json!({ "message": e }));
+                let _ = app.emit("notice", json!({ "message": e, "kind": "update" }));
             }
             Err(_) => {}
         }
