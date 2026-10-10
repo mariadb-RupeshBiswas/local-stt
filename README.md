@@ -67,6 +67,20 @@ macOS asks for two permissions. Both are needed and both stay on your Mac:
 
 If the emoji picker opens when you press Fn, set **System Settings > Keyboard > Press fn key to** "Do Nothing".
 
+## Meeting notes
+
+Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call starts. local-stt records your microphone as **Me** and what your computer plays as **Others**, and turns both into a transcript on your computer while the call runs. Click **Stop** and the note is tidied: "uh" and "um" go, spacing is fixed, spoken lists are numbered, and back-to-back lines from one side are joined.
+
+- Works with Zoom, Google Meet, Teams, Slack, or any app that plays sound. No bot joins the call.
+- Audio is never saved. Each few seconds of speech is transcribed and then dropped.
+- Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
+- Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat.
+- macOS 14.6 or later (macOS asks once for System Audio Recording), or Windows 10 and 11.
+
+**Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
+
+Coming next: a prompt when a call starts, a local meeting summary, and telling speakers apart.
+
 ## Settings
 
 Open the app from the menu bar or tray icon.
@@ -114,6 +128,7 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 - Text is put on the clipboard marked as private, so clipboard managers, Windows clipboard history and cloud clipboard skip it. On a Mac with Handoff on, Universal Clipboard can still pass it to your own nearby devices.
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
 - The troubleshooting log records events such as "recording stopped: 4.2 s" or "paste blocked", never what you said, audio, key presses, clipboard contents or microphone names. It stays on your computer; turning it off deletes it.
+- Meeting notes record what your computer plays only between New Note and Stop. Audio is never written to disk; notes are local files readable only by your user account.
 - History and settings are plain local files readable only by your user account. History can be switched off, cleared, or trimmed to the dictations you pick, at any time.
 - Releases are built in GitHub Actions, published with PyPI Trusted Publishing and carry build provenance attestations.
 
