@@ -50,6 +50,24 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 | `ui/` | Plain HTML/CSS/JS for the pill and the main window (no bundler); everything here ships |
 | `dev/` | Browser preview with a mock Tauri bus, and the UI checks; never shipped |
 
+## Design principles
+
+- **Standard Cargo layout** ([Cargo guide](https://doc.rust-lang.org/cargo/guide/project-layout.html)):
+  the app is a library (`src/lib.rs`) with a thin binary (`src/main.rs`, CLI only), so tests reach
+  every module; integration tests live in `tests/`, examples in `examples/`, native builds in `build.rs`.
+- **One Cargo project at the root**, not Tauri's usual `src-tauri/`
+  ([Tauri layout](https://v2.tauri.app/start/project-structure/)): there is no JavaScript build
+  (`ui/` is static files) and maturin builds the wheel from the root crate.
+- **Pure core, thin OS edges.** Decisions are plain functions with unit tests (`state.rs`,
+  `format.rs`, hotkey matching, overlay geometry, the notes segmenter and tidy pass). OS calls sit
+  in `macos.rs` / `windows.rs` files or behind a small trait (`notes::session::Feed`).
+- **Feature folders own their files** (`hotkey/`, `hwprobe/`, `output/`, `notes/`) and expose a
+  few functions; a new feature gets its own module, not more lines in `app.rs`.
+- **Least privilege by construction:** every command is listed in `build.rs` and granted per
+  window in `capabilities/`; child processes go through `proc::command`.
+- **Known debt:** `app.rs` is the integration hub (tray, windows, controller, worker). Split it
+  into `app/{tray,windows,worker}.rs` the next time it grows, in a change of its own.
+
 ## Rules
 
 - Privacy first: the only network use is the pinned model downloads, the daily PyPI version

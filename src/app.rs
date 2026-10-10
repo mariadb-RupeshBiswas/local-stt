@@ -248,6 +248,9 @@ pub fn run() -> Result<(), String> {
     app.run(move |app, event| match event {
         // Closing the main window must not quit a menu-bar app.
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+        // Opening the app again (Spotlight, Finder, `local-stt` in a terminal) shows its window.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main(app),
         RunEvent::Exit => {
             if crate::notes::session::active(app).is_some() {
                 diag::log("quit during a note; it is saved at the next start");

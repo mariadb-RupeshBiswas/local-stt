@@ -58,6 +58,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - History rewrites are flushed to disk before they replace the file, and keep lines they cannot read.
 - The demo shows a sample machine on the Model tab and holds each state while it is captured.
 - Windows: launching from the Start menu or at login no longer leaves a console window open.
+- Started from a terminal (`uvx local-stt` or `local-stt`), the app installs or refreshes its
+  standalone copy and opens that instead: macOS asks for permissions as local-stt, not as the
+  terminal, and closing the terminal no longer quits it. Opening it again shows its window.
 - Windows: background tools (download, update check, Start at login, install) no longer open console windows.
 - Install and Restart starts the new version reliably: it waits for the old copy to quit instead of handing back to it.
 

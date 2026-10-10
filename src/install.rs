@@ -7,6 +7,10 @@ const EXE_NAME: &str = if cfg!(windows) {
 } else {
     "local-stt"
 };
+// Names the build an installed copy came from; macOS re-signs the copy, so its own hash never matches the build's.
+const STAMP: &str = "local-stt.source";
+/// Set on a copy started by the hand-off, so it runs where it is instead of handing off again.
+pub const IN_PROCESS: &str = "LOCAL_STT_IN_PROCESS";
 
 /// Where the installed binary lives on this platform.
 pub fn installed_exe() -> Option<PathBuf> {
@@ -19,7 +23,8 @@ pub fn is_installed() -> bool {
 
 /// Installs from `exe` (usually the running binary) and returns the installed binary plus notes.
 pub fn install(exe: &Path) -> Result<(PathBuf, Vec<String>), String> {
-    let target = platform::install(exe)?;
+    let source = crate::download::sha256_file(exe).unwrap_or_default();
+    let target = platform::install(exe, &source)?;
     let mut notes = vec![platform::installed_note(&target)];
     if let Some(bin) = user_bin_dir() {
         let path_env = std::env::var_os("PATH").unwrap_or_default();
@@ -29,6 +34,64 @@ pub fn install(exe: &Path) -> Result<(PathBuf, Vec<String>), String> {
         }
     }
     Ok((target, notes))
+}
+
+fn stamp_path(installed: &Path) -> Option<PathBuf> {
+    let dir = installed.parent()?;
+    if cfg!(target_os = "macos") {
+        Some(dir.parent()?.join("Resources").join(STAMP))
+    } else {
+        Some(dir.join(STAMP))
+    }
+}
+
+/// True when the installed copy was made from this very build.
+fn installed_from(exe: &Path, installed: &Path) -> bool {
+    if same_file(exe, installed) {
+        return true;
+    }
+    let stamp = stamp_path(installed).and_then(|p| std::fs::read_to_string(p).ok());
+    let source = crate::download::sha256_file(exe).ok();
+    installed.is_file() && stamp.is_some() && stamp == source
+}
+
+/// Typed in a terminal, `local-stt` hands over to the installed app so it runs on its own: macOS then
+/// asks for permissions as local-stt, not as the terminal, and closing the terminal leaves it running.
+/// Returns what to tell the user, or None to run right here (already standalone, a test run, or the hand-off failed).
+pub fn hand_off() -> Option<String> {
+    let test_run = [
+        IN_PROCESS,
+        "LOCAL_STT_EXIT_AFTER_MS",
+        "LOCAL_STT_DATA_DIR",
+        "LOCAL_STT_NO_PERMISSION_PROMPTS",
+    ]
+    .iter()
+    .any(|v| std::env::var_os(v).is_some());
+    if test_run || !platform::started_by_a_terminal() {
+        return None;
+    }
+    let exe = std::env::current_exe().ok()?;
+    let installed = match installed_exe() {
+        Some(p) if installed_from(&exe, &p) => p,
+        _ => match install(&exe) {
+            Ok((p, _)) => p,
+            Err(e) => {
+                eprintln!(
+                    "local-stt: could not install the app, so it runs from this terminal: {e}"
+                );
+                return None;
+            }
+        },
+    };
+    match platform::open_app(&installed) {
+        Ok(()) => Some(platform::handed_off_note()),
+        Err(e) => {
+            eprintln!(
+                "local-stt: could not open the installed app, so it runs from this terminal: {e}"
+            );
+            None
+        }
+    }
 }
 
 /// Removes everything `install` created, but never a command file it did not create.
@@ -217,7 +280,30 @@ mod platform {
             .is_ok_and(|plist| plist.contains("<string>io.github.localstt</string>"))
     }
 
-    pub fn install(exe: &Path) -> Result<PathBuf, String> {
+    // Launched by LaunchServices or launchd (Finder, Spotlight, login item, `open`), the parent is launchd.
+    pub fn started_by_a_terminal() -> bool {
+        std::os::unix::process::parent_id() != 1
+    }
+
+    // Through LaunchServices the app is its own process, so macOS shows its name in prompts and indicators.
+    pub fn open_app(_installed: &Path) -> Result<(), String> {
+        let app = app_dir().ok_or("HOME is not set")?;
+        let status = crate::proc::command("/usr/bin/open")
+            .arg(&app)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("open exited with {status}"))
+        }
+    }
+
+    pub fn handed_off_note() -> String {
+        "local-stt is running from your Applications folder; look for it in the menu bar. You can close this terminal.".into()
+    }
+
+    pub fn install(exe: &Path, source: &str) -> Result<PathBuf, String> {
         let app = app_dir().ok_or("HOME is not set")?;
         if app.exists() && !is_ours(&app) {
             return Err(format!(
@@ -236,6 +322,9 @@ mod platform {
         .map_err(|e| format!("cannot write Info.plist: {e}"))?;
         std::fs::write(resources.join("icon.icns"), ICON)
             .map_err(|e| format!("cannot write the app icon: {e}"))?;
+        // Written before signing, so the seal covers it.
+        std::fs::write(resources.join(super::STAMP), source)
+            .map_err(|e| format!("cannot write the build stamp: {e}"))?;
         let exe = super::copy_binary(exe, &contents.join("MacOS"))?;
         // Ad-hoc signing binds Info.plist to the binary so macOS treats it as one app.
         let _ = std::process::Command::new("/usr/bin/codesign")
@@ -337,7 +426,28 @@ mod platform {
             .is_ok_and(|found| std::path::Path::new(&found) == target)
     }
 
-    pub fn install(exe: &Path) -> Result<PathBuf, String> {
+    // A Start menu or login launch gets a console of its own; a terminal shares one with the shell.
+    pub fn started_by_a_terminal() -> bool {
+        crate::output::console_is_shared()
+    }
+
+    // The installed copy starts with no console, so it does not belong to this terminal.
+    pub fn open_app(installed: &Path) -> Result<(), String> {
+        crate::proc::command(installed)
+            .env(super::IN_PROCESS, "1")
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
+    pub fn handed_off_note() -> String {
+        "local-stt is running from the Start menu copy; look for it in the system tray. You can close this terminal.".into()
+    }
+
+    pub fn install(exe: &Path, source: &str) -> Result<PathBuf, String> {
         let dir = program_dir().ok_or("LOCALAPPDATA is not set")?;
         if dir.exists()
             && !dir.join(MARKER).exists()
@@ -351,6 +461,8 @@ mod platform {
         let target = super::copy_binary(exe, &dir)?;
         std::fs::write(dir.join(MARKER), b"")
             .map_err(|e| format!("cannot mark the install folder: {e}"))?;
+        std::fs::write(dir.join(super::STAMP), source)
+            .map_err(|e| format!("cannot write the build stamp: {e}"))?;
         let lnk = shortcut().ok_or("APPDATA is not set")?;
         if lnk.exists() && !shortcut_is_ours(&lnk, &target) {
             return Ok(target);
@@ -426,8 +538,22 @@ mod platform {
         Some(crate::paths::data_dir().join("bin").join(super::EXE_NAME))
     }
 
-    pub fn install(exe: &Path) -> Result<PathBuf, String> {
-        super::copy_binary(exe, &crate::paths::data_dir().join("bin"))
+    pub fn started_by_a_terminal() -> bool {
+        false
+    }
+
+    pub fn open_app(_installed: &Path) -> Result<(), String> {
+        Err("not supported here".into())
+    }
+
+    pub fn handed_off_note() -> String {
+        String::new()
+    }
+
+    pub fn install(exe: &Path, source: &str) -> Result<PathBuf, String> {
+        let target = super::copy_binary(exe, &crate::paths::data_dir().join("bin"))?;
+        let _ = std::fs::write(target.with_file_name(super::STAMP), source);
+        Ok(target)
     }
 
     pub fn installed_note(exe: &Path) -> String {
@@ -442,6 +568,36 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_installed_copy_counts_as_this_build_only_by_its_stamp() {
+        let root = std::env::temp_dir().join(format!("lstt-stamp-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let bin_dir = if cfg!(target_os = "macos") {
+            root.join("App").join("Contents").join("MacOS")
+        } else {
+            root.join("App")
+        };
+        std::fs::create_dir_all(&bin_dir).unwrap();
+        let installed = bin_dir.join(EXE_NAME);
+        std::fs::write(&installed, b"signed copy").unwrap();
+        let source = root.join("source-build");
+        std::fs::write(&source, b"the build").unwrap();
+        assert!(!installed_from(&source, &installed), "no stamp yet");
+        let stamp = stamp_path(&installed).unwrap();
+        std::fs::create_dir_all(stamp.parent().unwrap()).unwrap();
+        std::fs::write(&stamp, crate::download::sha256_file(&source).unwrap()).unwrap();
+        assert!(installed_from(&source, &installed));
+        std::fs::write(&source, b"a newer build").unwrap();
+        assert!(
+            !installed_from(&source, &installed),
+            "a new build reinstalls"
+        );
+        assert!(
+            installed_from(&installed, &installed),
+            "the installed copy itself"
+        );
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let d = std::env::temp_dir().join(format!("lstt-inst-{name}-{}", std::process::id()));

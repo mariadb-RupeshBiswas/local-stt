@@ -14,6 +14,12 @@ pub fn send_paste() -> Result<(), String> {
     Err("paste is only supported on macOS and Windows".to_string())
 }
 
+/// True when this process shares its console with others, which means a terminal started it.
+#[cfg(windows)]
+pub fn console_is_shared() -> bool {
+    windows::console_process_count() > 1
+}
+
 /// Closes the console Windows opened for a Start menu or login launch; a terminal keeps its own.
 pub fn detach_own_console() {
     #[cfg(windows)]
