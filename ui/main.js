@@ -862,11 +862,19 @@
       syncers.forEach(function (fn) { fn(); });
     }
 
+    // a function description is re-read on every sync, for text that depends on another setting
     function settingRow(title, description, control, extra) {
+      var desc = description ? h("div", { class: "srow-desc" }) : null;
+      if (typeof description === "function") {
+        desc.textContent = description();
+        syncers.push(function () { desc.textContent = description(); });
+      } else if (desc) {
+        desc.textContent = description;
+      }
       return h("div", { class: "srow" },
         h("div", { class: "srow-text" },
           h("div", { class: "srow-title", text: title }),
-          description ? h("div", { class: "srow-desc", text: description }) : null
+          desc
         ),
         h("div", { class: "srow-control" }, control),
         extra || null
@@ -1128,6 +1136,11 @@
           value: function () { return cfg().paste; },
           onChange: function (v) { patchConfig({ paste: v }); }
         }))),
+        settingRow("Smart formatting", "Turns spoken \"point one, point two\" into a numbered list, removes \"uh\" and \"um\", and fixes spacing.", addSync(toggle({
+          label: "Smart formatting",
+          value: function () { return cfg().smart_format; },
+          onChange: function (v) { patchConfig({ smart_format: v }); }
+        }))),
         settingRow("Restore clipboard", "Put back what you had copied before, after pasting.", addSync(toggle({
           label: "Restore clipboard",
           value: function () { return cfg().restore_clipboard; },
@@ -1153,6 +1166,14 @@
           label: "Show overlay",
           value: function () { return cfg().show_overlay; },
           onChange: function (v) { patchConfig({ show_overlay: v }); }
+        }))),
+        settingRow("Live transcription", function () {
+          return cfg().show_overlay === false ? "Needs the overlay. Turn on Show overlay to use it." : "Shows your words above the pill while you speak.";
+        }, addSync(toggle({
+          label: "Live transcription",
+          value: function () { return cfg().live_transcription; },
+          disabled: function () { return cfg().show_overlay === false; },
+          onChange: function (v) { patchConfig({ live_transcription: v }); }
         }))),
         h("div", { class: "srow srow-stack" }, h("div", { class: "srow-title", text: "Theme" }), themes.el),
         settingRow("Pill position", "Show the pill, then drag it where you like. It snaps to the corners.", addSync(pillPositionControl()))
@@ -1243,6 +1264,12 @@
       if (p && p.error && p.error !== "Cancelled") S.hotkeyErrors[slot] = p.error;
       syncSettings();
       if (p && !p.error) reloadState();
+    });
+
+    // the screenshot demo drives the window through this; unknown names are ignored
+    subscribe("show-tab", function (p) {
+      var known = p && TABS.some(function (t) { return t.value === p.tab; });
+      if (known) showTab(p.tab);
     });
 
     subscribe("notice", function (p) {

@@ -19,6 +19,15 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Main window with searchable history, model tab and settings.
 - Clipboard copy and automatic paste, optional clipboard restore, start and stop sounds.
 - `local-stt doctor` hardware report, `local-stt fetch-model`, `--autostart on|off`.
+- Hands-free shortcut: press once to start listening and again to stop, set in Settings
+  next to Push to talk (adding its extra key while holding push to talk switches over).
+  Hands-free can be turned off.
+- Install row in Settings (Applications or Start menu, plus the `local-stt` terminal command),
+  and a notice when turning on Start at login installs the app first.
+- Smart formatting setting: spoken "point one, point two" becomes a numbered list, "uh" and
+  "um" are removed, and spacing is fixed before pasting.
+- Live transcription popover above the pill (below it near the top of the screen) that shows
+  your latest words while you speak, with a Live transcription setting.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
 
