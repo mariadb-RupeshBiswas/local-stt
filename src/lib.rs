@@ -12,6 +12,7 @@ pub mod engine;
 pub mod history;
 pub mod hotkey;
 pub mod hwprobe;
+pub mod install;
 pub mod models;
 pub mod output;
 pub mod overlay;

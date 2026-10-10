@@ -40,7 +40,13 @@ pub enum Msg {
         result: Result<String, String>,
         duration_ms: u64,
     },
-    SetMode(config::Mode),
+}
+
+/// Which shortcut a Settings capture is filling in.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Slot {
+    Hold,
+    Toggle,
 }
 
 pub struct Shared {
@@ -51,6 +57,7 @@ pub struct Shared {
     pub ctrl: Mutex<Sender<Msg>>,
     pub downloading: Mutex<Option<ModelId>>,
     pub active_model: Mutex<Option<ModelId>>,
+    pub capture_slot: Mutex<Option<Slot>>,
     moving_by_code: AtomicBool,
     last_user_move_ms: AtomicU64,
     snap_pending: AtomicBool,
@@ -96,6 +103,7 @@ pub fn run() -> Result<(), String> {
         ctrl: Mutex::new(ctrl_tx),
         downloading: Mutex::new(None),
         active_model: Mutex::new(None),
+        capture_slot: Mutex::new(None),
         moving_by_code: AtomicBool::new(false),
         last_user_move_ms: AtomicU64::new(0),
         snap_pending: AtomicBool::new(false),
@@ -168,10 +176,17 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
 
 fn tray_tooltip(shared: &Shared) -> String {
     let cfg = shared.config();
-    format!(
-        "local-stt: hold {} to dictate",
-        hotkey::display(&cfg.hotkey)
-    )
+    match cfg.toggle_hotkey.as_ref() {
+        Some(t) => format!(
+            "local-stt: hold {} to dictate, {} for hands-free",
+            hotkey::display(&cfg.hotkey),
+            hotkey::display(t)
+        ),
+        None => format!(
+            "local-stt: hold {} to dictate",
+            hotkey::display(&cfg.hotkey)
+        ),
+    }
 }
 
 pub fn refresh_tray(app: &AppHandle) {
@@ -463,8 +478,12 @@ fn start_hotkey(app: &AppHandle) {
         );
     }
     let (tx, rx) = mpsc::channel::<HotkeyEvent>();
-    match hotkey::start(s.config().hotkey, tx) {
-        Ok(hook) => *lock(&s.hook) = Some(hook),
+    let cfg = s.config();
+    match hotkey::start(cfg.hotkey, tx) {
+        Ok(hook) => {
+            hook.set_toggle(cfg.toggle_hotkey);
+            *lock(&s.hook) = Some(hook);
+        }
         Err(e) => set_tray_problem(app, &format!("shortcut unavailable: {e}")),
     }
     let ctrl = lock(&s.ctrl).clone();
@@ -488,33 +507,56 @@ fn on_captured(app: &AppHandle, combo: hotkey::Combo) {
     if let Some(hook) = lock(&s.hook).as_ref() {
         hook.set_capture(false);
     }
-    match hotkey::validate(&combo) {
+    let slot = lock(&s.capture_slot).take().unwrap_or(Slot::Hold);
+    let cfg = s.config();
+    let other = match slot {
+        Slot::Hold => cfg.toggle_hotkey.clone(),
+        Slot::Toggle => Some(cfg.hotkey.clone()),
+    };
+    let checked = hotkey::validate(&combo).and_then(|()| match other {
+        Some(o) if hotkey::same(&o, &combo) => {
+            Err("That shortcut is already used for the other mode.".to_string())
+        }
+        _ => Ok(()),
+    });
+    match checked {
         Ok(()) => {
-            let cfg = s.update_config(|c| c.hotkey = combo.clone());
+            let cfg = s.update_config(|c| match slot {
+                Slot::Hold => c.hotkey = combo.clone(),
+                Slot::Toggle => c.toggle_hotkey = Some(combo.clone()),
+            });
             if let Some(hook) = lock(&s.hook).as_ref() {
                 hook.set_combo(cfg.hotkey.clone());
+                hook.set_toggle(cfg.toggle_hotkey.clone());
             }
             refresh_tray(app);
-            let _ = app.emit(
-                "hotkey-captured",
-                json!({ "combo": cfg.hotkey, "display": hotkey::display(&cfg.hotkey) }),
-            );
+            emit_captured(app, slot, &cfg, None);
         }
-        Err(e) => {
-            let cfg = s.config();
-            let _ = app.emit(
-                "hotkey-captured",
-                json!({ "combo": cfg.hotkey, "display": hotkey::display(&cfg.hotkey), "error": e }),
-            );
-        }
+        Err(e) => emit_captured(app, slot, &cfg, Some(e)),
     }
+}
+
+fn emit_captured(app: &AppHandle, slot: Slot, cfg: &Config, error: Option<String>) {
+    let combo = match slot {
+        Slot::Hold => Some(cfg.hotkey.clone()),
+        Slot::Toggle => cfg.toggle_hotkey.clone(),
+    };
+    let display = combo.as_ref().map(hotkey::display);
+    let slot_name = match slot {
+        Slot::Hold => "hold",
+        Slot::Toggle => "toggle",
+    };
+    let _ = app.emit(
+        "hotkey-captured",
+        json!({ "slot": slot_name, "combo": combo, "display": display, "error": error }),
+    );
 }
 
 // ---------- controller ----------
 
 fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
     std::thread::spawn(move || {
-        let mut machine = Machine::new(shared(&app).config().mode);
+        let mut machine = Machine::new();
         let mut recorder: Option<Recorder> = None;
         loop {
             let msg = rx.recv_timeout(Duration::from_millis(200));
@@ -527,10 +569,21 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
             }
             match msg {
                 Ok(Msg::Hotkey(HotkeyEvent::Captured(combo))) => on_captured(&app, combo),
+                Ok(Msg::Hotkey(HotkeyEvent::Cancel))
+                    if lock(&shared(&app).capture_slot).is_some() =>
+                {
+                    // Esc during shortcut capture ends the capture, not a recording.
+                    let slot = lock(&shared(&app).capture_slot)
+                        .take()
+                        .unwrap_or(Slot::Hold);
+                    let cfg = shared(&app).config();
+                    emit_captured(&app, slot, &cfg, Some("Cancelled".to_string()));
+                }
                 Ok(Msg::Hotkey(ev)) => {
                     let input = match ev {
                         HotkeyEvent::Pressed => Input::Pressed,
                         HotkeyEvent::Released => Input::Released,
+                        HotkeyEvent::Toggle => Input::Toggle,
                         HotkeyEvent::Cancel => Input::Cancel,
                         HotkeyEvent::Captured(_) => continue,
                     };
@@ -544,7 +597,6 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                     machine.on(Input::TranscribeDone, now);
                     deliver(&app, result, duration_ms);
                 }
-                Ok(Msg::SetMode(mode)) => machine.set_mode(mode),
                 Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
@@ -577,7 +629,12 @@ fn apply(
             match Recorder::start(cfg.microphone.as_deref(), on_level) {
                 Ok(r) => {
                     *recorder = Some(r);
-                    show_overlay(app, "recording", "Recording", Some(now));
+                    let label = if machine.is_hands_free() {
+                        "Hands-free"
+                    } else {
+                        "Recording"
+                    };
+                    show_overlay(app, "recording", label, Some(now));
                 }
                 Err(e) => {
                     machine.on(Input::Cancel, now);
@@ -631,6 +688,9 @@ fn apply(
                 r.cancel();
             }
             hide_overlay_after(app, 0);
+        }
+        Action::HandsFree => {
+            show_overlay(app, "recording", "Hands-free", machine.recording_since());
         }
         Action::Idle | Action::None => {}
     }

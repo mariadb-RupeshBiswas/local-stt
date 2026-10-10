@@ -1,6 +1,6 @@
 //! Commands the UI may call. Every input is validated here; the UI is not trusted.
 
-use crate::app::{self, lock, Msg, Shared};
+use crate::app::{self, lock, Shared, Slot};
 use crate::config::Config;
 use crate::models::{self, ModelId};
 use crate::{autostart, history, hotkey, paths};
@@ -28,6 +28,8 @@ pub fn get_state(state: State<'_, Arc<Shared>>) -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "platform": platform,
         "hotkeyDisplay": hotkey::display(&cfg.hotkey),
+        "toggleDisplay": cfg.toggle_hotkey.as_ref().map(hotkey::display),
+        "installed": crate::install::is_installed(),
         "activeModel": *lock(&state.active_model),
         "downloading": *lock(&state.downloading),
         "autostartEnabled": autostart::is_enabled(),
@@ -57,6 +59,12 @@ pub fn merge_patch(current: &Config, patch: &Value) -> Result<Config, String> {
     let next: Config =
         serde_json::from_value(merged).map_err(|e| format!("invalid setting value: {e}"))?;
     hotkey::validate(&next.hotkey)?;
+    if let Some(t) = next.toggle_hotkey.as_ref() {
+        hotkey::validate(t)?;
+        if hotkey::same(t, &next.hotkey) {
+            return Err("Push to talk and hands-free need different shortcuts.".into());
+        }
+    }
     if !valid_language(&next.language) {
         return Err(format!("unknown language code: {}", next.language));
     }
@@ -72,7 +80,8 @@ pub fn set_config(
     let before = state.config();
     let next = merge_patch(&before, &patch)?;
     if next.autostart != before.autostart {
-        autostart::set(next.autostart)?;
+        let note = autostart::set(next.autostart)?;
+        let _ = tauri::Emitter::emit(&app, "notice", json!({ "message": note }));
     }
     if before.save_history && !next.save_history {
         // "Off" means nothing kept on disk, not just nothing new.
@@ -87,8 +96,11 @@ pub fn set_config(
         }
         app::refresh_tray(&app);
     }
-    if saved.mode != before.mode {
-        app::ctrl_send(&app, Msg::SetMode(saved.mode));
+    if saved.toggle_hotkey != before.toggle_hotkey {
+        if let Some(hook) = lock(&state.hook).as_ref() {
+            hook.set_toggle(saved.toggle_hotkey.clone());
+        }
+        app::refresh_tray(&app);
     }
     if saved.theme != before.theme || saved.show_overlay != before.show_overlay {
         app::overlay_theme_changed(&app);
@@ -97,9 +109,18 @@ pub fn set_config(
 }
 
 #[tauri::command]
-pub fn start_hotkey_capture(state: State<'_, Arc<Shared>>) -> Result<(), String> {
+pub fn start_hotkey_capture(
+    state: State<'_, Arc<Shared>>,
+    slot: Option<String>,
+) -> Result<(), String> {
+    let slot = match slot.as_deref() {
+        None | Some("hold") => Slot::Hold,
+        Some("toggle") => Slot::Toggle,
+        Some(other) => return Err(format!("unknown shortcut slot: {other}")),
+    };
     match lock(&state.hook).as_ref() {
         Some(hook) => {
+            *lock(&state.capture_slot) = Some(slot);
             hook.set_capture(true);
             Ok(())
         }
@@ -109,6 +130,7 @@ pub fn start_hotkey_capture(state: State<'_, Arc<Shared>>) -> Result<(), String>
 
 #[tauri::command]
 pub fn cancel_hotkey_capture(state: State<'_, Arc<Shared>>) {
+    *lock(&state.capture_slot) = None;
     if let Some(hook) = lock(&state.hook).as_ref() {
         hook.set_capture(false);
     }
@@ -174,7 +196,7 @@ mod tests {
         let next = merge_patch(&base, &json!({ "paste": false, "theme": "minimal" })).unwrap();
         assert!(!next.paste);
         assert_eq!(next.theme, crate::config::Theme::Minimal);
-        assert_eq!(next.mode, base.mode);
+        assert_eq!(next.toggle_hotkey, base.toggle_hotkey);
     }
 
     #[test]
@@ -192,6 +214,19 @@ mod tests {
     fn invalid_hotkey_rejected() {
         let patch = json!({ "hotkey": { "modifiers": [], "key": "A" } });
         assert!(merge_patch(&Config::default(), &patch).is_err());
+    }
+
+    #[test]
+    fn hands_free_equal_to_push_to_talk_rejected() {
+        let base = Config::default();
+        let patch = json!({ "toggle_hotkey": base.hotkey });
+        assert!(merge_patch(&base, &patch).is_err());
+    }
+
+    #[test]
+    fn hands_free_can_be_turned_off() {
+        let next = merge_patch(&Config::default(), &json!({ "toggle_hotkey": null })).unwrap();
+        assert_eq!(next.toggle_hotkey, None);
     }
 
     #[test]

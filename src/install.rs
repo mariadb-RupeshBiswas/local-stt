@@ -1,0 +1,427 @@
+//! Installs a lasting copy: Spotlight-visible app on macOS, Start menu entry on Windows, terminal command on both.
+
+use std::path::{Path, PathBuf};
+
+const EXE_NAME: &str = if cfg!(windows) {
+    "local-stt.exe"
+} else {
+    "local-stt"
+};
+
+/// Where the installed binary lives on this platform.
+pub fn installed_exe() -> Option<PathBuf> {
+    platform::installed_exe()
+}
+
+pub fn is_installed() -> bool {
+    installed_exe().is_some_and(|p| p.is_file())
+}
+
+/// Installs from `exe` (usually the running binary) and returns the installed binary plus notes.
+pub fn install(exe: &Path) -> Result<(PathBuf, Vec<String>), String> {
+    let target = platform::install(exe)?;
+    let mut notes = vec![platform::installed_note(&target)];
+    if let Some(bin) = user_bin_dir() {
+        let path_env = std::env::var_os("PATH").unwrap_or_default();
+        match link_into(&target, &bin, &path_env) {
+            Ok(note) => notes.push(note),
+            Err(e) => notes.push(format!("The terminal command was not added: {e}")),
+        }
+    }
+    Ok((target, notes))
+}
+
+/// Removes everything `install` created, but never a command file it did not create.
+pub fn uninstall() -> Result<Vec<String>, String> {
+    let mut notes = Vec::new();
+    if let (Some(bin), Some(target)) = (user_bin_dir(), installed_exe()) {
+        if remove_command(&target, &bin)? {
+            notes.push(format!(
+                "Removed the local-stt command from {}.",
+                bin.display()
+            ));
+        }
+    }
+    notes.extend(platform::uninstall()?);
+    Ok(notes)
+}
+
+fn user_bin_dir() -> Option<PathBuf> {
+    let home = std::env::var_os("HOME").or_else(|| std::env::var_os("USERPROFILE"))?;
+    Some(PathBuf::from(home).join(".local").join("bin"))
+}
+
+/// Copies `exe` into `dir` as the app binary, replacing an older copy atomically.
+pub fn copy_binary(exe: &Path, dir: &Path) -> Result<PathBuf, String> {
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    let dest = dir.join(EXE_NAME);
+    if same_file(exe, &dest) {
+        return Ok(dest);
+    }
+    let tmp = dir.join(format!("{EXE_NAME}.new"));
+    let _ = std::fs::remove_file(&tmp);
+    std::fs::copy(exe, &tmp).map_err(|e| format!("cannot copy local-stt: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&tmp, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("cannot set permissions: {e}"))?;
+    }
+    std::fs::rename(&tmp, &dest).map_err(|e| {
+        let _ = std::fs::remove_file(&tmp);
+        format!("cannot install local-stt to {}: {e}", dest.display())
+    })?;
+    Ok(dest)
+}
+
+fn same_file(a: &Path, b: &Path) -> bool {
+    match (a.canonicalize(), b.canonicalize()) {
+        (Ok(x), Ok(y)) => x == y,
+        _ => false,
+    }
+}
+
+/// Puts a `local-stt` command in `bin` that runs `target`; never replaces a file it did not create.
+pub fn link_into(target: &Path, bin: &Path, path_env: &std::ffi::OsStr) -> Result<String, String> {
+    std::fs::create_dir_all(bin).map_err(|e| format!("cannot create {}: {e}", bin.display()))?;
+    let on_path = std::env::split_paths(path_env).any(|p| p == bin);
+    let hint = if on_path {
+        String::new()
+    } else {
+        format!(
+            " Add {} to your PATH to use it in any terminal.",
+            bin.display()
+        )
+    };
+    match command_link(target, bin)? {
+        Some(link) => Ok(format!(
+            "The local-stt command is at {}.{hint}",
+            link.display()
+        )),
+        None => Ok(format!(
+            "A local-stt command already exists in {}, so it was left unchanged.",
+            bin.display()
+        )),
+    }
+}
+
+#[cfg(unix)]
+fn command_link(target: &Path, bin: &Path) -> Result<Option<PathBuf>, String> {
+    let link = bin.join(EXE_NAME);
+    match std::fs::read_link(&link) {
+        Ok(existing) if existing == target => return Ok(Some(link)),
+        Ok(_) => return Ok(None),
+        Err(_) if link.symlink_metadata().is_ok() => return Ok(None),
+        Err(_) => {}
+    }
+    std::os::unix::fs::symlink(target, &link)
+        .map_err(|e| format!("cannot link {}: {e}", link.display()))?;
+    Ok(Some(link))
+}
+
+#[cfg(unix)]
+fn remove_command(target: &Path, bin: &Path) -> Result<bool, String> {
+    let link = bin.join(EXE_NAME);
+    match std::fs::read_link(&link) {
+        Ok(existing) if existing == target => std::fs::remove_file(&link)
+            .map(|()| true)
+            .map_err(|e| format!("cannot remove {}: {e}", link.display())),
+        _ => Ok(false),
+    }
+}
+
+// Marks a Windows command shim as ours, so it may be refreshed or removed but a foreign file never is.
+#[cfg(windows)]
+const SHIM_MARKER: &str = "rem local-stt launcher";
+
+#[cfg(windows)]
+fn command_link(target: &Path, bin: &Path) -> Result<Option<PathBuf>, String> {
+    if bin.join("local-stt.exe").exists() {
+        return Ok(None);
+    }
+    let shim = bin.join("local-stt.cmd");
+    if let Ok(existing) = std::fs::read_to_string(&shim) {
+        if !existing.contains(SHIM_MARKER) {
+            return Ok(None);
+        }
+    }
+    let body = format!(
+        "@echo off\r\n{SHIM_MARKER}\r\n\"{}\" %*\r\n",
+        target.display()
+    );
+    std::fs::write(&shim, body).map_err(|e| format!("cannot write {}: {e}", shim.display()))?;
+    Ok(Some(shim))
+}
+
+#[cfg(windows)]
+fn remove_command(_target: &Path, bin: &Path) -> Result<bool, String> {
+    let shim = bin.join("local-stt.cmd");
+    match std::fs::read_to_string(&shim) {
+        Ok(existing) if existing.contains(SHIM_MARKER) => std::fs::remove_file(&shim)
+            .map(|()| true)
+            .map_err(|e| format!("cannot remove {}: {e}", shim.display())),
+        _ => Ok(false),
+    }
+}
+
+#[cfg(target_os = "macos")]
+mod platform {
+    use std::path::{Path, PathBuf};
+
+    const ICON: &[u8] = include_bytes!("../icons/icon.icns");
+
+    fn app_dir() -> Option<PathBuf> {
+        let home = std::env::var_os("HOME")?;
+        Some(
+            PathBuf::from(home)
+                .join("Applications")
+                .join("local-stt.app"),
+        )
+    }
+
+    pub fn installed_exe() -> Option<PathBuf> {
+        app_dir().map(|a| a.join("Contents").join("MacOS").join(super::EXE_NAME))
+    }
+
+    pub fn bundle_plist(version: &str) -> String {
+        format!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>CFBundleExecutable</key><string>local-stt</string>\n  <key>CFBundleIdentifier</key><string>io.github.localstt</string>\n  <key>CFBundleName</key><string>local-stt</string>\n  <key>CFBundleDisplayName</key><string>local-stt</string>\n  <key>CFBundleIconFile</key><string>icon</string>\n  <key>CFBundlePackageType</key><string>APPL</string>\n  <key>CFBundleShortVersionString</key><string>{version}</string>\n  <key>CFBundleVersion</key><string>{version}</string>\n  <key>LSMinimumSystemVersion</key><string>11.0</string>\n  <key>LSUIElement</key><true/>\n  <key>NSHighResolutionCapable</key><true/>\n  <key>NSMicrophoneUsageDescription</key><string>local-stt listens only while you hold your shortcut, and turns your speech into text on this computer. Audio never leaves your device.</string>\n</dict>\n</plist>\n"
+        )
+    }
+
+    pub fn install(exe: &Path) -> Result<PathBuf, String> {
+        let app = app_dir().ok_or("HOME is not set")?;
+        let contents = app.join("Contents");
+        let resources = contents.join("Resources");
+        std::fs::create_dir_all(&resources)
+            .map_err(|e| format!("cannot create {}: {e}", resources.display()))?;
+        std::fs::write(
+            contents.join("Info.plist"),
+            bundle_plist(env!("CARGO_PKG_VERSION")),
+        )
+        .map_err(|e| format!("cannot write Info.plist: {e}"))?;
+        std::fs::write(resources.join("icon.icns"), ICON)
+            .map_err(|e| format!("cannot write the app icon: {e}"))?;
+        let exe = super::copy_binary(exe, &contents.join("MacOS"))?;
+        // Ad-hoc signing binds Info.plist to the binary so macOS treats it as one app.
+        let _ = std::process::Command::new("/usr/bin/codesign")
+            .args(["--force", "--sign", "-"])
+            .arg(&app)
+            .output();
+        // Ask Spotlight to index it now rather than at its next pass.
+        let _ = std::process::Command::new("/usr/bin/mdimport")
+            .arg(&app)
+            .output();
+        Ok(exe)
+    }
+
+    pub fn installed_note(_exe: &Path) -> String {
+        "Installed local-stt in your Applications folder; Spotlight can find it.".into()
+    }
+
+    pub fn uninstall() -> Result<Vec<String>, String> {
+        let app = app_dir().ok_or("HOME is not set")?;
+        if !app.exists() {
+            return Ok(vec![]);
+        }
+        std::fs::remove_dir_all(&app)
+            .map_err(|e| format!("cannot remove {}: {e}", app.display()))?;
+        Ok(vec![format!("Removed {}.", app.display())])
+    }
+}
+
+#[cfg(windows)]
+mod platform {
+    use std::path::{Path, PathBuf};
+
+    fn program_dir() -> Option<PathBuf> {
+        let local = std::env::var_os("LOCALAPPDATA")?;
+        Some(PathBuf::from(local).join("Programs").join("local-stt"))
+    }
+
+    fn shortcut() -> Option<PathBuf> {
+        let roaming = std::env::var_os("APPDATA")?;
+        Some(
+            PathBuf::from(roaming)
+                .join("Microsoft")
+                .join("Windows")
+                .join("Start Menu")
+                .join("Programs")
+                .join("local-stt.lnk"),
+        )
+    }
+
+    pub fn installed_exe() -> Option<PathBuf> {
+        program_dir().map(|d| d.join(super::EXE_NAME))
+    }
+
+    fn powershell() -> PathBuf {
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        PathBuf::from(root)
+            .join("System32")
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe")
+    }
+
+    pub fn install(exe: &Path) -> Result<PathBuf, String> {
+        let dir = program_dir().ok_or("LOCALAPPDATA is not set")?;
+        let target = super::copy_binary(exe, &dir)?;
+        let lnk = shortcut().ok_or("APPDATA is not set")?;
+        // Paths travel as environment variables, never spliced into the script, so no quoting can break out.
+        let script = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LSTT_LNK); $s.TargetPath = $env:LSTT_TARGET; $s.WorkingDirectory = $env:LSTT_DIR; $s.Description = 'Free, local push-to-talk speech-to-text'; $s.Save()";
+        let out = std::process::Command::new(powershell())
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                script,
+            ])
+            .env("LSTT_LNK", &lnk)
+            .env("LSTT_TARGET", &target)
+            .env("LSTT_DIR", &dir)
+            .output()
+            .map_err(|e| format!("cannot run PowerShell: {e}"))?;
+        if !out.status.success() {
+            return Err(format!(
+                "cannot create the Start menu shortcut: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            ));
+        }
+        Ok(target)
+    }
+
+    pub fn installed_note(_exe: &Path) -> String {
+        "Installed local-stt and added it to the Start menu, so Windows search can find it.".into()
+    }
+
+    pub fn uninstall() -> Result<Vec<String>, String> {
+        let mut notes = Vec::new();
+        if let Some(lnk) = shortcut().filter(|p| p.exists()) {
+            std::fs::remove_file(&lnk)
+                .map_err(|e| format!("cannot remove {}: {e}", lnk.display()))?;
+            notes.push("Removed the Start menu shortcut.".to_string());
+        }
+        if let Some(dir) = program_dir().filter(|p| p.exists()) {
+            std::fs::remove_dir_all(&dir)
+                .map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
+            notes.push(format!("Removed {}.", dir.display()));
+        }
+        Ok(notes)
+    }
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+mod platform {
+    use std::path::{Path, PathBuf};
+
+    pub fn installed_exe() -> Option<PathBuf> {
+        Some(crate::paths::data_dir().join("bin").join(super::EXE_NAME))
+    }
+
+    pub fn install(exe: &Path) -> Result<PathBuf, String> {
+        super::copy_binary(exe, &crate::paths::data_dir().join("bin"))
+    }
+
+    pub fn installed_note(exe: &Path) -> String {
+        format!("Installed local-stt to {}.", exe.display())
+    }
+
+    pub fn uninstall() -> Result<Vec<String>, String> {
+        Ok(vec![])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn scratch(name: &str) -> PathBuf {
+        let d = std::env::temp_dir().join(format!("lstt-inst-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    #[test]
+    fn copy_replaces_older_binary() {
+        let d = scratch("copy");
+        let exe = d.join("source-bin");
+        std::fs::write(&exe, b"v1").unwrap();
+        let dest = copy_binary(&exe, &d.join("bin")).unwrap();
+        assert_eq!(std::fs::read(&dest).unwrap(), b"v1");
+        std::fs::write(&exe, b"v2").unwrap();
+        assert_eq!(copy_binary(&exe, &d.join("bin")).unwrap(), dest);
+        assert_eq!(std::fs::read(&dest).unwrap(), b"v2");
+    }
+
+    #[test]
+    fn copying_onto_itself_is_a_no_op() {
+        let d = scratch("self");
+        let dir = d.join("bin");
+        std::fs::create_dir_all(&dir).unwrap();
+        let installed = dir.join(EXE_NAME);
+        std::fs::write(&installed, b"same").unwrap();
+        assert_eq!(copy_binary(&installed, &dir).unwrap(), installed);
+        assert_eq!(std::fs::read(&installed).unwrap(), b"same");
+    }
+
+    #[test]
+    fn link_is_created_reused_and_removed() {
+        let d = scratch("link");
+        let target = d.join("installed");
+        std::fs::write(&target, b"x").unwrap();
+        let bin = d.join("bin");
+        let path_env = std::env::join_paths([bin.clone()]).unwrap();
+        let first = link_into(&target, &bin, &path_env).unwrap();
+        assert!(first.contains("command is at"), "{first}");
+        assert!(!first.contains("Add "), "{first}");
+        let again = link_into(&target, &bin, &path_env).unwrap();
+        assert!(again.contains("command is at"), "{again}");
+        assert!(remove_command(&target, &bin).unwrap());
+        assert!(!remove_command(&target, &bin).unwrap());
+    }
+
+    #[test]
+    fn foreign_command_is_never_replaced_or_removed() {
+        let d = scratch("foreign");
+        let bin = d.join("bin");
+        std::fs::create_dir_all(&bin).unwrap();
+        let foreign = bin.join(EXE_NAME);
+        std::fs::write(&foreign, b"someone else").unwrap();
+        let target = d.join("installed");
+        std::fs::write(&target, b"x").unwrap();
+        let note = link_into(&target, &bin, std::ffi::OsStr::new("")).unwrap();
+        assert!(note.contains("left unchanged"), "{note}");
+        assert!(!remove_command(&target, &bin).unwrap());
+        assert_eq!(std::fs::read(&foreign).unwrap(), b"someone else");
+    }
+
+    #[test]
+    fn missing_path_entry_is_pointed_out() {
+        let d = scratch("path");
+        let target = d.join("installed");
+        std::fs::write(&target, b"x").unwrap();
+        let note = link_into(&target, &d.join("bin"), std::ffi::OsStr::new("")).unwrap();
+        assert!(note.contains("to your PATH"), "{note}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn bundle_plist_names_the_app_for_spotlight() {
+        let p = platform::bundle_plist("9.9.9");
+        for needle in [
+            "<key>CFBundleExecutable</key><string>local-stt</string>",
+            "<key>CFBundleIdentifier</key><string>io.github.localstt</string>",
+            "<key>CFBundleIconFile</key><string>icon</string>",
+            "<key>CFBundlePackageType</key><string>APPL</string>",
+            "<string>9.9.9</string>",
+            "<key>LSUIElement</key><true/>",
+            "NSMicrophoneUsageDescription",
+        ] {
+            assert!(p.contains(needle), "missing {needle}");
+        }
+    }
+}

@@ -137,14 +137,8 @@ fn fetch_model(id: Option<&str>) -> Result<(), String> {
 
 fn set_autostart(arg: Option<&str>) -> Result<(), String> {
     match arg {
-        Some("on") => {
-            autostart::set(true)?;
-            println!("local-stt will start when you log in.");
-            Ok(())
-        }
-        Some("off") => {
-            autostart::set(false)?;
-            println!("local-stt will no longer start when you log in.");
+        Some("on") | Some("off") => {
+            println!("{}", autostart::set(arg == Some("on"))?);
             Ok(())
         }
         _ => Err("use --autostart on or --autostart off".into()),

@@ -10,13 +10,6 @@ use std::path::{Path, PathBuf};
 
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[serde(rename_all = "kebab-case")]
-pub enum Mode {
-    Hold,
-    Toggle,
-}
-
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[serde(rename_all = "kebab-case")]
 pub enum Theme {
     Pill,
     Waveform,
@@ -34,7 +27,8 @@ pub struct OverlayPos {
 #[serde(default)]
 pub struct Config {
     pub hotkey: Combo,
-    pub mode: Mode,
+    /// Hands-free shortcut: press to start listening, press again to stop. None turns it off.
+    pub toggle_hotkey: Option<Combo>,
     pub translate: bool,
     pub language: String,
     pub paste: bool,
@@ -53,7 +47,7 @@ impl Default for Config {
     fn default() -> Self {
         Config {
             hotkey: crate::hotkey::default_combo(),
-            mode: Mode::Hold,
+            toggle_hotkey: Some(crate::hotkey::default_toggle_combo()),
             translate: true,
             language: "auto".into(),
             paste: true,
@@ -139,6 +133,14 @@ pub fn load(path: &Path) -> Config {
         cfg.hotkey = crate::hotkey::default_combo();
         repaired = true;
     }
+    let toggle_bad = cfg.toggle_hotkey.as_ref().is_some_and(|t| {
+        crate::hotkey::validate(t).is_err() || crate::hotkey::same(t, &cfg.hotkey)
+    });
+    if toggle_bad {
+        let fallback = crate::hotkey::default_toggle_combo();
+        cfg.toggle_hotkey = (!crate::hotkey::same(&fallback, &cfg.hotkey)).then_some(fallback);
+        repaired = true;
+    }
     if repaired {
         backup(path);
     }
@@ -200,7 +202,7 @@ mod tests {
         std::fs::write(&p, r#"{"theme":"minimal","bogus":1}"#).unwrap();
         let c = load(&p);
         assert_eq!(c.theme, Theme::Minimal);
-        assert_eq!(c.mode, Mode::Hold);
+        assert_eq!(c.toggle_hotkey, Some(crate::hotkey::default_toggle_combo()));
     }
     #[test]
     fn invalid_hotkey_replaced_by_default() {
@@ -220,15 +222,27 @@ mod tests {
     #[test]
     fn defaults_match_spec() {
         let c = Config::default();
-        assert_eq!(
-            (c.mode, c.theme, c.model),
-            (Mode::Hold, Theme::Pill, ModelId::Small)
-        );
+        assert_eq!((c.theme, c.model), (Theme::Pill, ModelId::Small));
         assert!(c.translate && c.paste && c.show_overlay && c.sounds && c.save_history);
         assert!(!c.restore_clipboard && !c.autostart);
         assert_eq!(c.language, "auto");
         assert!(c.microphone.is_none() && c.overlay_pos.is_none());
         assert!(c.hotkey.key.is_none() && crate::hotkey::validate(&c.hotkey).is_ok());
+    }
+    #[test]
+    fn toggle_equal_to_hold_is_replaced() {
+        let p = tmp("toggle-same");
+        let hold = crate::hotkey::default_combo();
+        let json = serde_json::json!({ "hotkey": hold, "toggle_hotkey": hold });
+        std::fs::write(&p, json.to_string()).unwrap();
+        let c = load(&p);
+        assert_ne!(c.toggle_hotkey.as_ref(), Some(&c.hotkey));
+    }
+    #[test]
+    fn toggle_can_be_turned_off() {
+        let p = tmp("toggle-off");
+        std::fs::write(&p, r#"{"toggle_hotkey":null}"#).unwrap();
+        assert_eq!(load(&p).toggle_hotkey, None);
     }
     #[cfg(unix)]
     #[test]

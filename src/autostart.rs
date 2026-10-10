@@ -12,12 +12,27 @@ pub fn current_exe() -> Result<PathBuf, String> {
     std::env::current_exe().map_err(|e| format!("cannot locate the local-stt binary: {e}"))
 }
 
-pub fn set(enabled: bool) -> Result<(), String> {
-    let exe = current_exe()?;
-    if enabled && is_ephemeral(&exe) {
-        return Err("local-stt is running from the uvx cache. Run `uv tool install local-stt`, then turn on start at login.".into());
+/// Turns the login item on or off and returns a sentence describing what happened.
+pub fn set(enabled: bool) -> Result<String, String> {
+    if !enabled {
+        platform::set(false, Path::new(""))?;
+        return Ok("local-stt will no longer start when you log in.".into());
     }
-    platform::set(enabled, &exe)
+    let exe = current_exe()?;
+    if !is_ephemeral(&exe) {
+        platform::set(true, &exe)?;
+        return Ok(format!(
+            "local-stt will start when you log in, from {}.",
+            exe.display()
+        ));
+    }
+    // From the uvx cache: install a lasting copy first, then point the login item at it.
+    let (target, notes) = crate::install::install(&exe)?;
+    platform::set(true, &target)?;
+    Ok(format!(
+        "{} It will start when you log in.",
+        notes.join(" ")
+    ))
 }
 
 pub fn is_enabled() -> bool {

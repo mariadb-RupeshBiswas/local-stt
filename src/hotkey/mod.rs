@@ -47,6 +47,8 @@ pub struct Combo {
 pub enum HotkeyEvent {
     Pressed,
     Released,
+    /// The hands-free combo went down: start listening, or stop if already listening.
+    Toggle,
     Cancel,
     Captured(Combo),
 }
@@ -157,29 +159,67 @@ struct Peak {
     key: Option<String>,
 }
 
-// Matcher plus one-shot capture mode, shared between the hook thread and `Hook`.
+// Push-to-talk and hands-free matchers plus one-shot capture mode, shared between the hook thread and `Hook`.
 pub(crate) struct Core {
     matcher: Matcher,
+    toggle: Option<Matcher>,
     capture: Option<Peak>,
+    escape_down: bool,
 }
 
 impl Core {
     fn new(combo: Combo) -> Core {
         Core {
             matcher: Matcher::new(combo),
+            toggle: None,
             capture: None,
+            escape_down: false,
         }
     }
 
     fn set_capture(&mut self, on: bool) {
         self.capture = on.then(Peak::default);
         self.matcher.reset();
+        if let Some(t) = self.toggle.as_mut() {
+            t.reset();
+        }
     }
 
+    fn set_toggle(&mut self, combo: Option<Combo>) {
+        self.toggle = combo.map(Matcher::new);
+    }
+
+    #[cfg(test)]
     fn feed(&mut self, state: &KeyState) -> Option<HotkeyEvent> {
-        let Some(peak) = self.capture.as_mut() else {
-            return self.matcher.update(state);
-        };
+        self.feed_all(state).into_iter().next()
+    }
+
+    // The hands-free event goes first, so a push-to-talk hold that grows into it is converted, not ended.
+    fn feed_all(&mut self, state: &KeyState) -> Vec<HotkeyEvent> {
+        if self.capture.is_some() {
+            return self.capture(state).into_iter().collect();
+        }
+        let mut events = Vec::new();
+        if let Some(t) = self.toggle.as_mut() {
+            if t.update(state) == Some(HotkeyEvent::Pressed) {
+                events.push(HotkeyEvent::Toggle);
+            }
+        }
+        match self.matcher.update(state) {
+            Some(HotkeyEvent::Cancel) | None => {}
+            Some(event) => events.push(event),
+        }
+        // Esc cancels any recording, including hands-free when no combo is held.
+        let escape_pressed = state.escape && !self.escape_down;
+        self.escape_down = state.escape;
+        if escape_pressed {
+            events.push(HotkeyEvent::Cancel);
+        }
+        events
+    }
+
+    fn capture(&mut self, state: &KeyState) -> Option<HotkeyEvent> {
+        let peak = self.capture.as_mut()?;
         if state.escape {
             self.capture = None;
             return Some(HotkeyEvent::Cancel);
@@ -210,8 +250,8 @@ fn lock(core: &Mutex<Core>) -> MutexGuard<'_, Core> {
 // Called from the OS hook threads: match under the lock, send after releasing it.
 #[cfg_attr(not(any(target_os = "macos", windows)), allow(dead_code))]
 pub(crate) fn dispatch(core: &Mutex<Core>, tx: &Sender<HotkeyEvent>, state: &KeyState) {
-    let event = lock(core).feed(state);
-    if let Some(event) = event {
+    let events = lock(core).feed_all(state);
+    for event in events {
         let _ = tx.send(event);
     }
 }
@@ -229,6 +269,10 @@ impl Hook {
     pub fn set_capture(&self, on: bool) {
         lock(&self.core).set_capture(on);
     }
+
+    pub fn set_toggle(&self, combo: Option<Combo>) {
+        lock(&self.core).set_toggle(combo);
+    }
 }
 
 pub fn default_combo() -> Combo {
@@ -243,6 +287,20 @@ pub fn default_combo() -> Combo {
             key: None,
         }
     }
+}
+
+/// True when both combos use the same keys, whatever order the modifiers were listed in.
+pub fn same(a: &Combo, b: &Combo) -> bool {
+    let left: BTreeSet<Modifier> = a.modifiers.iter().copied().collect();
+    let right: BTreeSet<Modifier> = b.modifiers.iter().copied().collect();
+    left == right && a.key == b.key
+}
+
+/// Hands-free default: the push-to-talk combo plus Space.
+pub fn default_toggle_combo() -> Combo {
+    let mut combo = default_combo();
+    combo.key = Some("Space".into());
+    combo
 }
 
 fn is_known_key(key: &str) -> bool {
@@ -328,6 +386,95 @@ pub fn accessibility_ok(prompt: bool) -> bool {
 #[cfg(not(target_os = "macos"))]
 pub fn accessibility_ok(_prompt: bool) -> bool {
     true
+}
+
+#[cfg(test)]
+mod dual_tests {
+    use super::*;
+    fn st(m: &[Modifier], key: Option<&str>, esc: bool) -> KeyState {
+        KeyState {
+            modifiers: m.iter().copied().collect(),
+            key: key.map(String::from),
+            escape: esc,
+        }
+    }
+    fn core() -> Core {
+        let mut c = Core::new(Combo {
+            modifiers: vec![Modifier::Fn, Modifier::Shift],
+            key: None,
+        });
+        c.set_toggle(Some(Combo {
+            modifiers: vec![Modifier::Fn, Modifier::Shift],
+            key: Some("Space".into()),
+        }));
+        c
+    }
+    const FS: &[Modifier] = &[Modifier::Fn, Modifier::Shift];
+
+    #[test]
+    fn hold_then_space_emits_toggle_before_release() {
+        let mut c = core();
+        assert_eq!(c.feed_all(&st(FS, None, false)), vec![HotkeyEvent::Pressed]);
+        assert_eq!(
+            c.feed_all(&st(FS, Some("Space"), false)),
+            vec![HotkeyEvent::Toggle, HotkeyEvent::Released]
+        );
+        // Letting go of Space while still holding Fn+Shift must not start a new hold.
+        assert!(c.feed_all(&st(FS, None, false)).is_empty());
+        assert!(c.feed_all(&st(&[], None, false)).is_empty());
+    }
+
+    #[test]
+    fn second_press_of_hands_free_combo_toggles_again() {
+        let mut c = core();
+        c.feed_all(&st(FS, None, false));
+        c.feed_all(&st(FS, Some("Space"), false));
+        c.feed_all(&st(&[], None, false));
+        assert_eq!(c.feed_all(&st(FS, None, false)), vec![HotkeyEvent::Pressed]);
+        assert_eq!(
+            c.feed_all(&st(FS, Some("Space"), false)),
+            vec![HotkeyEvent::Toggle, HotkeyEvent::Released]
+        );
+    }
+
+    #[test]
+    fn escape_alone_cancels_hands_free() {
+        let mut c = core();
+        assert_eq!(c.feed_all(&st(&[], None, true)), vec![HotkeyEvent::Cancel]);
+        assert!(c.feed_all(&st(&[], None, true)).is_empty());
+        assert!(c.feed_all(&st(&[], None, false)).is_empty());
+    }
+
+    #[test]
+    fn no_toggle_configured_means_no_toggle_events() {
+        let mut c = core();
+        c.set_toggle(None);
+        c.feed_all(&st(FS, None, false));
+        assert_eq!(
+            c.feed_all(&st(FS, Some("Space"), false)),
+            vec![HotkeyEvent::Released]
+        );
+    }
+
+    #[test]
+    fn same_ignores_modifier_order() {
+        let a = Combo {
+            modifiers: vec![Modifier::Fn, Modifier::Shift],
+            key: None,
+        };
+        let b = Combo {
+            modifiers: vec![Modifier::Shift, Modifier::Fn],
+            key: None,
+        };
+        assert!(same(&a, &b));
+        assert!(!same(&a, &default_toggle_combo()) || cfg!(windows));
+    }
+
+    #[test]
+    fn default_toggle_is_valid_and_differs_from_hold() {
+        assert!(validate(&default_toggle_combo()).is_ok());
+        assert_ne!(default_toggle_combo(), default_combo());
+    }
 }
 
 #[cfg(test)]
