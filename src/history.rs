@@ -83,7 +83,7 @@ fn trim_if_large(path: &Path, max_bytes: u64, keep: usize) -> std::io::Result<()
 }
 
 // Writes a private temp file, flushes it to disk, then swaps it in whole, so a power cut leaves old or new.
-fn replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
+pub(crate) fn replace(path: &Path, bytes: &[u8]) -> std::io::Result<()> {
     let mut tmp_name = path.as_os_str().to_owned();
     tmp_name.push(".tmp");
     let tmp = std::path::PathBuf::from(tmp_name);
