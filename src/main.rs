@@ -23,7 +23,13 @@ USAGE:
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
-        None => local_stt::app::run(),
+        None => match local_stt::install::hand_off() {
+            Some(note) => {
+                println!("{note}");
+                Ok(())
+            }
+            None => local_stt::app::run(),
+        },
         Some("doctor") => doctor(),
         Some("fetch-model") => fetch_model(args.get(1).map(String::as_str)),
         Some("--autostart") => set_autostart(args.get(1).map(String::as_str)),

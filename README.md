@@ -50,17 +50,17 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/), the fast
 > The first release is not on PyPI yet. Until it is, build from source in a minute or two: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ```bash
-uvx local-stt                # try it right now
-uvx local-stt install        # add it to Applications (Spotlight) or the Start menu, plus a terminal command
+uvx local-stt                # installs the app (Applications or Start menu, plus a terminal command) and opens it
+uvx local-stt install        # install without opening
 local-stt --autostart on     # start it when you log in
 uvx local-stt demo           # a 30-second tour with sample data; nothing is recorded or pasted
 ```
 
-On first start local-stt downloads the default speech model (181 MB, checked against a pinned SHA-256 checksum) and puts a microphone icon in your menu bar or system tray. **Settings > General > Install** does the same as `install`, and turning on **Start at login** installs it first if needed.
+Started from a terminal, local-stt runs as its own app, not as part of the terminal: you can close the terminal, and macOS asks for permissions in local-stt's name. On first start it downloads the default speech model (181 MB, checked against a pinned SHA-256 checksum) and puts a microphone icon in your menu bar or system tray. **Settings > General > Install** does the same as `install`, and turning on **Start at login** installs it first if needed.
 
 ### First run on macOS
 
-macOS asks for two permissions. Both are needed and both stay on your Mac:
+macOS asks for two permissions, in local-stt's name. Both are needed and both stay on your Mac:
 
 - **Microphone**: to hear you while you hold the shortcut.
 - **Accessibility**: to notice the shortcut and to paste the text for you.

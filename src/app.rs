@@ -214,6 +214,9 @@ pub fn run() -> Result<(), String> {
     app.run(move |app, event| match event {
         // Closing the main window must not quit a menu-bar app.
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+        // Opening the app again (Spotlight, Finder, `local-stt` in a terminal) shows its window.
+        #[cfg(target_os = "macos")]
+        RunEvent::Reopen { .. } => show_main(app),
         RunEvent::Exit => {
             diag::log("quit");
             shutdown_engine(app);

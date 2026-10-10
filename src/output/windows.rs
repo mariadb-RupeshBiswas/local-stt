@@ -51,13 +51,17 @@ pub fn send_paste() -> Result<(), String> {
     ))
 }
 
-pub fn detach_own_console() {
-    use windows_sys::Win32::System::Console::{FreeConsole, GetConsoleProcessList};
+pub fn console_process_count() -> u32 {
+    use windows_sys::Win32::System::Console::GetConsoleProcessList;
     let mut ids = [0u32; 2];
     // SAFETY: the buffer is a live array of the length passed.
-    let attached = unsafe { GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) };
+    unsafe { GetConsoleProcessList(ids.as_mut_ptr(), ids.len() as u32) }
+}
+
+pub fn detach_own_console() {
+    use windows_sys::Win32::System::Console::FreeConsole;
     // Only this process on the console means Windows made it for us, not a terminal the user opened.
-    if attached == 1 {
+    if console_process_count() == 1 {
         // SAFETY: takes no arguments; afterwards this process simply has no console.
         unsafe { FreeConsole() };
     }

@@ -112,6 +112,21 @@ if ($report) {
 Check 'error output is captured for a Start menu style launch' (Test-Path (Join-Path $data 'logs\stderr.log'))
 Get-Content -ErrorAction SilentlyContinue (Join-Path $data 'logs\local-stt.log')
 
+# Typed in a terminal, local-stt hands over to the installed copy (no console of its own) and returns at once.
+$savedData = $env:LOCAL_STT_DATA_DIR
+Remove-Item Env:LOCAL_STT_DATA_DIR, Env:LOCAL_STT_NO_PERMISSION_PROMPTS -ErrorAction SilentlyContinue
+$clock = [Diagnostics.Stopwatch]::StartNew()
+$said = (& $shim) -join ' '
+Check 'a terminal launch returns at once' ($clock.Elapsed.TotalSeconds -lt 60) "$($clock.Elapsed.TotalSeconds) s"
+Check 'a terminal launch says where the app runs' ($said -match 'system tray') $said
+Start-Sleep -Seconds 8
+$handed = @(Get-Process -Name 'local-stt' -ErrorAction SilentlyContinue)
+Check 'the handed-off app keeps running on its own' ($handed.Count -ge 1)
+$handed | Stop-Process -Force -ErrorAction SilentlyContinue
+Start-Sleep -Seconds 1
+$env:LOCAL_STT_DATA_DIR = $savedData
+$env:LOCAL_STT_NO_PERMISSION_PROMPTS = '1'
+
 # Uninstall from outside the installed folder, as a running exe cannot delete itself on Windows.
 uvx --from $Wheel local-stt uninstall
 Check 'uninstall exits 0' ($LASTEXITCODE -eq 0)
