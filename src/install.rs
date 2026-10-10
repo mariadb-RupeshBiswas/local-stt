@@ -305,9 +305,22 @@ mod platform {
             notes.push("Removed the Start menu shortcut.".to_string());
         }
         if let Some(dir) = program_dir().filter(|p| p.exists()) {
-            std::fs::remove_dir_all(&dir)
-                .map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
-            notes.push(format!("Removed {}.", dir.display()));
+            // Windows cannot delete a running program, so the installed copy cannot remove its own folder.
+            let running_from_dir = std::env::current_exe()
+                .ok()
+                .and_then(|e| e.canonicalize().ok())
+                .zip(dir.canonicalize().ok())
+                .is_some_and(|(exe, d)| exe.starts_with(d));
+            if running_from_dir {
+                notes.push(format!(
+                    "Close local-stt, then delete {} to finish.",
+                    dir.display()
+                ));
+            } else {
+                std::fs::remove_dir_all(&dir)
+                    .map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
+                notes.push(format!("Removed {}.", dir.display()));
+            }
         }
         Ok(notes)
     }
