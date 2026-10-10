@@ -6,6 +6,7 @@
 <title>local-stt UI preview</title>
 <link rel="stylesheet" href="../ui/tokens.css">
 <link rel="stylesheet" href="../ui/overlay.css">
+<link rel="stylesheet" href="../ui/live.css">
 <link rel="stylesheet" href="../ui/main.css">
 <!-- Browser-only harness with mock events. It lives outside ui/ so the app never embeds it, and the strict CSP does not apply. -->
 <style>
@@ -46,6 +47,10 @@
   [data-scheme="dark"] .pv-glass { background: rgba(40, 40, 44, 0.4); }
   .pv-glass.theme-minimal { width: 44px; border-radius: 50%; }
   .pv-ov { width: 100%; height: 100%; }
+  .pv-livegrid { display: grid; grid-template-columns: repeat(2, 420px); gap: 8px 16px; align-items: start; }
+  .pv-wall.pv-wall-live { width: 420px; height: 128px; }
+  .pv-glass.pv-glass-live { width: 380px; height: 96px; border-radius: 22px; }
+  .pv-glass.plain { background: none; -webkit-backdrop-filter: none; backdrop-filter: none; box-shadow: none; }
   .pv-live { display: flex; gap: 12px; align-items: center; }
   .pv-live .pv-wall { width: 300px; }
   .pv-btns { display: flex; gap: 8px; }
@@ -61,6 +66,7 @@
 
 <script>window.__LSTT_PREVIEW__ = true;</script>
 <script src="../ui/overlay.js"></script>
+<script src="../ui/live.js"></script>
 <script src="../ui/main.js"></script>
 <script>
 (function () {
@@ -68,7 +74,7 @@
 
   var params = new URLSearchParams(location.search);
   var view = params.get("view") || "overlays";
-  var scheme = params.get("scheme") || (view === "overlays" ? "both" : "light");
+  var scheme = params.get("scheme") || (view === "overlays" || view === "live" ? "both" : "light");
   var reduce = params.get("reduce") === "1";
   var solid = params.get("solid") === "1";
   var platform = params.get("platform") === "windows" ? "windows" : "macos";
@@ -90,6 +96,7 @@
     ["Overlay over black", "?view=overlays&wall=black"],
     ["Overlay over white", "?view=overlays&wall=white"],
     ["Overlay over vivid", "?view=overlays&wall=vivid"],
+    ["Live transcript", "?view=live"],
     ["History", "?view=main&tab=history&scheme=both"],
     ["Model", "?view=main&tab=model&scheme=both"],
     ["Settings", "?view=main&tab=settings&scheme=both"]
@@ -269,6 +276,75 @@
     return panel;
   }
 
+  // ---------- live transcript gallery ----------
+  var LIVE_SHORT = "Please check the September numbers.";
+  var LIVE_LONG = "Here are the notes from the planning call. First, the pricing page needs a clearer comparison between the monthly and annual plans. Second, the onboarding email should mention the free trial limit in the first paragraph. Third, we agreed to review the churn dashboard on Thursday.";
+  var LIVE_SPEECH = "Okay so the first thing on the list is the billing review. Second, we need to update the pricing page. Third, send the deck to the team.".split(" ");
+
+  function liveCell(parent, name, caption, setup) {
+    var cell = el("div", "pv-livecell");
+    cell.dataset.name = name;
+    cell.appendChild(el("p", "pv-cap", caption));
+    var wall = el("div", "pv-wall pv-wall-live");
+    var glass = el("div", "pv-glass pv-glass-live");
+    var mount = el("div", "pv-ov");
+    if (reduce) mount.dataset.forceReduce = "1";
+    glass.appendChild(mount);
+    wall.appendChild(glass);
+    cell.appendChild(wall);
+    parent.appendChild(cell);
+    var bus = makeBus({ get_state: function () { return { config: { smart_format: true } }; } });
+    window.mountLive(mount, bus.tauri);
+    bus.emit("overlay-theme", { theme: "pill", reducedMotion: reduce, solid: false });
+    setup(bus, glass, cell);
+    return { bus: bus, mount: mount };
+  }
+
+  function liveGallery(schemeName) {
+    var panel = el("section", "pv-panel");
+    panel.dataset.scheme = schemeName;
+    panel.appendChild(el("h3", "", "Live transcript: " + (schemeName === "dark" ? "dark" : "light")));
+    var grid = el("div", "pv-livegrid");
+    var demo = liveCell(grid, "demo", "Demo: press Speak (words arrive, one earlier word is revised)", function (bus, glass, cell) {
+      var run = 0;
+      var speak = el("button", "btn", "Speak");
+      speak.addEventListener("click", function () {
+        run += 1;
+        var mine = run;
+        var step = 0;
+        bus.emit("live-reset", {});
+        var timer = setInterval(function () {
+          if (mine !== run || step >= LIVE_SPEECH.length) { clearInterval(timer); return; }
+          step += 1;
+          var text = LIVE_SPEECH.slice(0, step).join(" ");
+          if (step >= 6) text = text.replace("Okay so", "Okay, so");
+          bus.emit("live-text", { text: text, formatted: true });
+        }, 320);
+      });
+      cell.appendChild(speak);
+    });
+    if (!window.__live) window.__live = demo; // the checks drive the first demo
+    liveCell(grid, "listening", "Listening (no words yet)", function (bus) { bus.emit("live-reset", {}); });
+    liveCell(grid, "short", "Short text", function (bus) { bus.emit("live-text", { text: LIVE_SHORT, formatted: true }); });
+    liveCell(grid, "long", "Long text, clipped to the last 3 lines", function (bus) { bus.emit("live-text", { text: LIVE_LONG, formatted: true }); });
+    liveCell(grid, "unformatted", "Smart formatting off (no tag)", function (bus) { bus.emit("live-text", { text: LIVE_SHORT, formatted: false }); });
+    liveCell(grid, "below", "Below the pill", function (bus) {
+      bus.emit("live-place", { below: true });
+      bus.emit("live-text", { text: LIVE_LONG, formatted: true });
+    });
+    liveCell(grid, "below-short", "Below the pill, short text", function (bus) {
+      bus.emit("live-place", { below: true });
+      bus.emit("live-text", { text: LIVE_SHORT, formatted: true });
+    });
+    liveCell(grid, "solid", "Solid (Windows, no glass)", function (bus, glass) {
+      glass.classList.add("plain");
+      bus.emit("overlay-theme", { theme: "pill", reducedMotion: reduce, solid: true });
+      bus.emit("live-text", { text: LIVE_LONG, formatted: true });
+    });
+    panel.appendChild(grid);
+    return panel;
+  }
+
   // ---------- main window mock ----------
   // the app's display text for a combo, as src/hotkey builds it
   function comboText(combo) {
@@ -299,11 +375,12 @@
     }
     var winReasons = platform === "windows";
     var hold = platform === "windows" ? { modifiers: ["Ctrl", "Alt"], key: null } : { modifiers: ["Fn", "Shift"], key: null };
-    var toggle = params.get("toggle") === "off" ? null : { modifiers: hold.modifiers.slice(), key: "Space" };
+    var toggle = params.get("toggle") === "off" ? null : params.get("toggle") === "custom" ? { modifiers: ["Ctrl", "Alt"], key: "H" } : { modifiers: hold.modifiers.slice(), key: "Space" };
     return {
       config: {
         hotkey: hold,
         toggle_hotkey: toggle,
+        smart_format: true, live_transcription: true, check_updates: true, skip_update: null,
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", autostart: false, model: "small"
@@ -328,6 +405,7 @@
       hotkeyDisplay: comboText(hold),
       toggleDisplay: toggle ? comboText(toggle) : null,
       installed: params.get("installed") === "1",
+      update: params.get("update") === "1" ? { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" } : null,
       history: empty ? [] : entries
     };
   }
@@ -359,6 +437,34 @@
         if (a.patch.toggle_hotkey !== undefined) data.toggleDisplay = a.patch.toggle_hotkey ? comboText(a.patch.toggle_hotkey) : null;
         return data.config;
       },
+      check_for_updates: function () {
+        window.__cfg.push("check_for_updates");
+        // the app answers in the background: a new version, or a notice that nothing is new
+        setTimeout(function () {
+          if (params.get("checkfinds") === "1") {
+            data.update = { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" };
+            bus.emit("update-available", data.update);
+          } else {
+            bus.emit("notice", { message: "local-stt 0.1.0 is up to date." });
+          }
+        }, 700);
+      },
+      install_update: function () {
+        window.__calls.push("install_update");
+        var failure = window.__installError;
+        window.__installError = "";
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            if (failure) reject(failure);
+            else resolve("Updated to 0.2.0. local-stt will restart in a moment.");
+          }, 600);
+        });
+      },
+      skip_update: function () {
+        window.__calls.push("skip_update");
+        data.config.skip_update = data.update ? data.update.latest : null; // like the app, the offer itself stays in state
+      },
+      open_release_notes: function () { window.__calls.push("open_release_notes"); },
       install_app: function () {
         window.__calls.push("install_app");
         data.installed = true;
@@ -465,6 +571,11 @@
     var live = el("div", "pv-panels");
     schemes.forEach(function (s) { live.appendChild(liveDemo(s)); });
     rootEl.appendChild(live);
+  } else if (view === "live") {
+    rootEl.appendChild(el("h2", "", "Live transcript popover" + (reduce ? " (reduced motion)" : "")));
+    var livePanels = el("div", "pv-panels");
+    schemes.forEach(function (s) { livePanels.appendChild(liveGallery(s)); });
+    rootEl.appendChild(livePanels);
   } else {
     var tab = params.get("tab") || "history";
     var wins = el("div", "pv-windows");

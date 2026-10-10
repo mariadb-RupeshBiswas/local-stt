@@ -32,9 +32,11 @@ body {
 .mw select {
   font: inherit;
   letter-spacing: inherit;
-  color: inherit;
   cursor: default;
 }
+
+/* :where() keeps this at zero specificity so .btn-quiet, .btn-action and the other colour classes win */
+.mw :where(button, input, select) { color: inherit; }
 
 .mw :focus-visible {
   outline: 2px solid var(--focus);
@@ -209,10 +211,9 @@ body {
   align-items: center;
   gap: 4px;
   background: var(--green-tint);
+  color: var(--green-ink);
 }
 
-/* the extra class is needed: ".mw button" sets color: inherit and would win */
-.mw .btn-done { color: var(--green-ink); }
 
 .btn-done:disabled { opacity: 1; }
 .btn-done .ic { width: 12px; height: 12px; stroke-width: 2.4; }
@@ -723,6 +724,71 @@ body {
 
 .mini-minimal .mini-dot { position: relative; width: 7px; height: 7px; }
 
+/* ---------- update banner ---------- */
+
+/* sits under the absolute toolbar, so the first 52 px are left clear */
+.mw-banner {
+  flex: none;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 12px;
+  width: calc(100% - 48px);
+  max-width: 640px;
+  margin: 52px auto 0;
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface);
+  box-shadow: var(--shadow-card);
+  animation: panel-in 180ms var(--ease-out);
+}
+
+/* the banner already clears the toolbar, so the content needs less top room */
+.mw.has-banner .mw-scroll { padding-top: 12px; }
+
+.banner-main {
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.banner-main .ic { color: var(--accent-ink); }
+.banner-text { font-weight: 500; }
+
+.banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.banner-error {
+  flex-basis: 100%;
+  padding: 2px 6px 4px 26px;
+  font-size: 12px;
+  color: var(--red-ink);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.btn-install { display: inline-flex; align-items: center; gap: 6px; }
+.btn-busy:disabled { opacity: 0.8; }
+
+.spin {
+  width: 12px;
+  height: 12px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 700ms linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* ---------- toast and dialog ---------- */
 
 .toast-host {
@@ -818,4 +884,6 @@ body {
 .mw.reduce-motion .track i { transition: none; }
 .mw.reduce-motion .track.indeterminate i { width: 100%; opacity: 0.35; animation: none; }
 .mw.reduce-motion .toast { transform: none; }
+.mw.reduce-motion .spin { animation: none; }
+.mw.reduce-motion .mw-banner { animation: none; }
 .mw.reduce-motion .dlg[open] { animation: panel-fade 150ms linear; }

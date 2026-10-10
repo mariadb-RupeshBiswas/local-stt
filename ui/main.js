@@ -49,7 +49,8 @@
     close: ["M7 7l10 10M17 7 7 17"],
     info: ["M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z", "M12 11v5", "M12 8h.01"],
     trash: ["M5 7h14", "M10 7V5h4v2", "M7 7l1 12h8l1-12", "M10.5 10.5v5M13.5 10.5v5"],
-    chevron: ["M9 6l6 6-6 6"]
+    chevron: ["M9 6l6 6-6 6"],
+    up: ["M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z", "M12 16.5v-8", "M8.6 11.6 12 8.2l3.4 3.4"]
   };
 
   // ---------- small DOM helpers (text always goes through textContent) ----------
@@ -289,12 +290,20 @@
       moving: false,
       capturingSlot: null, // "hold", "toggle" or null: one capture at a time
       hotkeyErrors: { hold: "", toggle: "" },
-      installing: false
+      installing: false,
+      update: null, // { current, latest, available, notesUrl } from the app, or null
+      hiddenUpdate: "", // the version whose banner was dismissed (Later) or just skipped
+      offeredUpdate: "", // a version the app just offered on request, which beats an earlier Skip
+      installingUpdate: false,
+      updateError: "",
+      checkingUpdates: false
     };
     var syncers = []; // settings controls, refreshed after every config change
     var progressRefs = {}; // model id -> { bar, text, track }
     var unlisten = [];
     var toastTimer = 0;
+    var checkTimer = 0;
+    var bannerKey = "";
 
     root.classList.add("mw");
     root.dataset.platform = "macos";
@@ -327,8 +336,10 @@
     var toastHost = h("div", { class: "toast-host", role: "status", "aria-live": "polite" });
     var announcer = h("div", { class: "sr-only", role: "status", "aria-live": "polite" });
     var dialog = h("dialog", { class: "dlg", "aria-labelledby": "dlg-title" });
+    var banner = h("section", { class: "mw-banner", role: "region", "aria-label": "Software update", hidden: true });
 
     root.appendChild(toolbar); // first in the DOM so the tabs lead the Tab order, CSS keeps them on top
+    root.appendChild(banner);
     root.appendChild(scroller);
     root.appendChild(toastHost);
     root.appendChild(announcer);
@@ -416,11 +427,13 @@
       S.activeModel = typeof state.activeModel === "string" ? state.activeModel : null;
       S.downloading = typeof state.downloading === "string" ? state.downloading : null;
       S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
+      S.update = state.update && typeof state.update === "object" ? state.update : null;
       if (S.downloading && !S.progress[S.downloading]) S.progress[S.downloading] = { downloaded: null, total: null };
       if (S.loadingModel && S.loadingModel === S.activeModel) S.loadingModel = "";
       S.loaded = true;
       S.loadError = "";
       root.dataset.platform = S.platform;
+      renderBanner();
     }
 
     function refreshState() {
@@ -492,6 +505,110 @@
       var combo = slotCombo(slot);
       var fresh = S.display[slot] && S.displayFor[slot] === JSON.stringify(combo);
       return fresh ? displayParts(S.display[slot], S.platform) : comboParts(combo, S.platform);
+    }
+
+    // ---------- Update banner ----------
+
+    function updateVisible() {
+      var u = S.update;
+      if (!(u && u.available === true && typeof u.latest === "string" && u.latest !== "" && u.latest !== S.hiddenUpdate)) return false;
+      return S.offeredUpdate === u.latest || !(S.config && S.config.skip_update === u.latest);
+    }
+
+    function installButton() {
+      return banner.querySelector(".btn-install");
+    }
+
+    function renderBanner() {
+      var show = updateVisible();
+      banner.hidden = !show;
+      root.classList.toggle("has-banner", show);
+      if (!show) {
+        var lostFocus = banner.contains(document.activeElement);
+        bannerKey = "";
+        clear(banner);
+        if (lostFocus) document.getElementById("tab-" + S.tab).focus(); // a button that vanished must not drop focus to the page
+        return;
+      }
+      var u = S.update;
+      var key = [u.latest, u.current, S.installingUpdate, S.updateError].join("|");
+      if (key === bannerKey) return; // an unchanged banner keeps its focus
+      bannerKey = key;
+      var hadFocus = banner.contains(document.activeElement);
+      var busy = S.installingUpdate;
+      var install = h("button", { class: "btn btn-action btn-install" + (busy ? " btn-busy" : ""), type: "button", disabled: busy, onclick: installUpdate },
+        busy ? [h("i", { class: "spin", "aria-hidden": "true" }), "Installing..."] : S.updateError ? "Try Again" : "Install and Restart");
+      var notes = h("button", { class: "btn btn-quiet", type: "button", text: "Release Notes", disabled: busy, onclick: openReleaseNotes });
+      var later = h("button", { class: "btn btn-quiet", type: "button", text: "Later", disabled: busy, onclick: dismissUpdate });
+      var skip = h("button", { class: "btn btn-quiet", type: "button", text: "Skip This Version", disabled: busy, onclick: skipUpdate });
+      clear(banner);
+      banner.appendChild(h("div", { class: "banner-main" },
+        icon("up"),
+        h("div", { class: "banner-text", text: "local-stt " + u.latest + " is available. You have " + dash(u.current) + "." })
+      ));
+      banner.appendChild(h("div", { class: "banner-actions" }, install, notes, later, skip));
+      if (S.updateError) banner.appendChild(h("div", { class: "banner-error", role: "alert", text: S.updateError }));
+      if (hadFocus && !busy) install.focus();
+    }
+
+    function installUpdate() {
+      if (S.installingUpdate || !updateVisible()) return;
+      var latest = S.update.latest;
+      S.installingUpdate = true;
+      S.updateError = "";
+      renderBanner();
+      Promise.resolve(invoke("install_update")).then(function (sentence) {
+        S.installingUpdate = false;
+        S.hiddenUpdate = latest; // the app restarts itself, so the banner steps aside
+        renderBanner();
+        toast(typeof sentence === "string" && sentence ? sentence : "Update installed. local-stt will restart.");
+      }).catch(function (err) {
+        S.installingUpdate = false;
+        S.updateError = errText(err);
+        renderBanner();
+        if (installButton()) installButton().focus();
+      });
+    }
+
+    function openReleaseNotes() {
+      Promise.resolve(invoke("open_release_notes")).catch(function (err) { toast(errText(err)); });
+    }
+
+    // Later hides this version for the session only; the app offers it again next launch
+    function dismissUpdate() {
+      if (S.update) S.hiddenUpdate = S.update.latest;
+      renderBanner();
+    }
+
+    function skipUpdate() {
+      if (!S.update) return;
+      S.hiddenUpdate = S.update.latest;
+      S.offeredUpdate = "";
+      renderBanner();
+      Promise.resolve(invoke("skip_update")).then(reloadState).catch(function (err) {
+        S.hiddenUpdate = "";
+        renderBanner();
+        toast("Couldn't skip: " + errText(err));
+      });
+    }
+
+    // the tray's Update item: bring the banner back even after Later, and put focus on Install
+    function showUpdate() {
+      S.hiddenUpdate = "";
+      renderBanner();
+      function focusInstall() {
+        banner.scrollIntoView({ block: "nearest" });
+        if (installButton() && !installButton().disabled) installButton().focus();
+      }
+      if (updateVisible()) focusInstall();
+      else reloadState().then(function () { if (updateVisible()) focusInstall(); });
+    }
+
+    function finishCheck() {
+      clearTimeout(checkTimer);
+      if (!S.checkingUpdates) return;
+      S.checkingUpdates = false;
+      syncSettings();
     }
 
     // ---------- History ----------
@@ -862,11 +979,19 @@
       syncers.forEach(function (fn) { fn(); });
     }
 
+    // a function description is re-read on every sync, for text that depends on another setting
     function settingRow(title, description, control, extra) {
+      var desc = description ? h("div", { class: "srow-desc" }) : null;
+      if (typeof description === "function") {
+        desc.textContent = description();
+        syncers.push(function () { desc.textContent = description(); });
+      } else if (desc) {
+        desc.textContent = description;
+      }
       return h("div", { class: "srow" },
         h("div", { class: "srow-text" },
           h("div", { class: "srow-title", text: title }),
-          description ? h("div", { class: "srow-desc", text: description }) : null
+          desc
         ),
         h("div", { class: "srow-control" }, control),
         extra || null
@@ -957,6 +1082,27 @@
       }
       sync();
       return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset, turnOff), error), sync: sync };
+    }
+
+    // the button reads Checking... until the app answers with a notice or update-available
+    function checkControl() {
+      var button = h("button", { class: "btn", type: "button", onclick: function () {
+        if (S.checkingUpdates) return;
+        S.checkingUpdates = true;
+        syncSettings();
+        clearTimeout(checkTimer);
+        checkTimer = setTimeout(finishCheck, 30000); // an unanswered check must not leave the button stuck
+        Promise.resolve(invoke("check_for_updates")).catch(function (err) {
+          finishCheck();
+          toast("Couldn't check for updates: " + errText(err));
+        });
+      } });
+      function sync() {
+        button.textContent = S.checkingUpdates ? "Checking..." : "Check for Updates";
+        button.disabled = S.checkingUpdates;
+      }
+      sync();
+      return { el: button, sync: sync };
     }
 
     // wording and button follow the app's installed flag and the platform's launcher names
@@ -1128,6 +1274,11 @@
           value: function () { return cfg().paste; },
           onChange: function (v) { patchConfig({ paste: v }); }
         }))),
+        settingRow("Smart formatting", "Turns spoken \"point one, point two\" into a numbered list, removes \"uh\" and \"um\", and fixes spacing.", addSync(toggle({
+          label: "Smart formatting",
+          value: function () { return cfg().smart_format; },
+          onChange: function (v) { patchConfig({ smart_format: v }); }
+        }))),
         settingRow("Restore clipboard", "Put back what you had copied before, after pasting.", addSync(toggle({
           label: "Restore clipboard",
           value: function () { return cfg().restore_clipboard; },
@@ -1154,6 +1305,14 @@
           value: function () { return cfg().show_overlay; },
           onChange: function (v) { patchConfig({ show_overlay: v }); }
         }))),
+        settingRow("Live transcription", function () {
+          return cfg().show_overlay === false ? "Needs the overlay. Turn on Show overlay to use it." : "Shows your words above the pill while you speak.";
+        }, addSync(toggle({
+          label: "Live transcription",
+          value: function () { return cfg().live_transcription; },
+          disabled: function () { return cfg().show_overlay === false; },
+          onChange: function (v) { patchConfig({ live_transcription: v }); }
+        }))),
         h("div", { class: "srow srow-stack" }, h("div", { class: "srow-title", text: "Theme" }), themes.el),
         settingRow("Pill position", "Show the pill, then drag it where you like. It snaps to the corners.", addSync(pillPositionControl()))
       ]);
@@ -1172,6 +1331,12 @@
           label: "Start at login",
           value: function () { return typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfg().autostart; },
           onChange: function (v) { patchConfig({ autostart: v }); }
+        }))),
+        settingRow("Updates", "local-stt " + dash(S.version), addSync(checkControl())),
+        settingRow("Check automatically", "Looks for a new version once a day. Only the request is sent.", addSync(toggle({
+          label: "Check automatically",
+          value: function () { return cfg().check_updates; },
+          onChange: function (v) { patchConfig({ check_updates: v }); }
         })))
       ]);
 
@@ -1245,9 +1410,29 @@
       if (p && !p.error) reloadState();
     });
 
+    // the screenshot demo drives the window through this; unknown names are ignored
+    subscribe("show-tab", function (p) {
+      var known = p && TABS.some(function (t) { return t.value === p.tab; });
+      if (known) showTab(p.tab);
+    });
+
     subscribe("notice", function (p) {
+      finishCheck(); // a manual update check ends with a notice when nothing is new
       if (p && typeof p.message === "string" && p.message !== "") toast(p.message);
     });
+
+    subscribe("update-available", function (p) {
+      if (!p || typeof p !== "object") return;
+      S.update = p;
+      S.hiddenUpdate = "";
+      S.offeredUpdate = typeof p.latest === "string" ? p.latest : ""; // the app only sends this when it wants it shown
+      S.updateError = "";
+      finishCheck();
+      renderBanner();
+      if (updateVisible()) announce("local-stt " + p.latest + " is available.");
+    });
+
+    subscribe("show-update", showUpdate);
 
     subscribe("history-changed", function () {
       if (S.tab === "history") loadHistory();
@@ -1265,6 +1450,7 @@
         unlisten.forEach(function (fn) { fn(); });
         unlisten = [];
         clearTimeout(toastTimer);
+        clearTimeout(checkTimer);
         document.removeEventListener("keydown", onShortcut);
         document.removeEventListener("visibilitychange", onHidden);
         window.removeEventListener("pagehide", stopMoving);

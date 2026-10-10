@@ -213,6 +213,123 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   await ctx.close();
 }
 
+// ---------- live transcript popover ----------
+for (const dark of [false, true]) {
+  const { page, ctx, errors } = await open("?view=live&scheme=" + (dark ? "dark" : "light"), { dark });
+  const mode = dark ? "dark" : "light";
+  const cell = (name) => page.locator(".pv-livecell[data-name=" + name + "]");
+  const emit = (name, payload) => page.evaluate(([n, p]) => window.__live.bus.emit(n, p), [name, payload]);
+  const demoText = cell("demo").locator(".lv-text");
+  const box = (loc) => loc.evaluate((e) => { const r = e.getBoundingClientRect(); return { top: r.top, bottom: r.bottom, left: r.left, right: r.right, width: r.width, height: r.height }; });
+  const lineClamp = (loc) => loc.evaluate((e) => ({ height: e.clientHeight, scrollHeight: e.scrollHeight, atEnd: e.scrollTop + e.clientHeight >= e.scrollHeight - 1, clipped: e.classList.contains("clipped") }));
+
+  // placeholder, live region, window size
+  const empty = cell("listening").locator(".lv-text");
+  check(mode + ": empty state is a quiet Listening... placeholder", (await empty.textContent()) === "Listening..." && (await empty.evaluate((e) => e.classList.contains("is-empty"))));
+  check(mode + ": text is a polite status region", (await empty.getAttribute("role")) === "status" && (await empty.getAttribute("aria-live")) === "polite");
+  const card = await box(cell("short").locator(".lv-card"));
+  check(mode + ": card fills the 380 x 96 window", Math.round(card.width) === 380 && Math.round(card.height) === 96, card);
+  check(mode + ": initial smart_format from get_state shows the tag before any text", await cell("listening").locator(".lv-tag").isVisible());
+
+  // replacement, not delta
+  await emit("live-text", { text: "hello wor", formatted: true });
+  check(mode + ": live-text shows the text", (await demoText.textContent()) === "hello wor");
+  await emit("live-text", { text: "hello world", formatted: true });
+  check(mode + ": next live-text replaces, it does not append", (await demoText.textContent()) === "hello world" && (await demoText.locator(".lv-new").textContent()) === "ld");
+  await emit("live-text", { text: "hallo world", formatted: true });
+  check(mode + ": a revised earlier word replaces the old text", (await demoText.textContent()) === "hallo world" && (await demoText.locator(".lv-new").textContent()) === "allo world");
+  await emit("live-text", { text: "   spaced out", formatted: true });
+  check(mode + ": leading spaces are dropped", (await demoText.textContent()) === "spaced out");
+  await emit("live-text", { text: "one two three four five six", formatted: true });
+  await emit("live-text", { text: "three four five six seven", formatted: true });
+  check(mode + ": when old words drop off the front, only the new tail fades in", (await demoText.textContent()) === "three four five six seven" && (await demoText.locator(".lv-new").textContent()) === " seven", await demoText.textContent());
+  const fade = await demoText.locator(".lv-new").evaluate((e) => { const cs = getComputedStyle(e); return { name: cs.animationName, duration: cs.animationDuration }; });
+  check(mode + ": new words fade in over 120 ms", fade.name === "lv-in" && fade.duration === "0.12s", fade);
+  await emit("live-reset", {});
+  check(mode + ": live-reset clears the text back to the placeholder", (await demoText.textContent()) === "Listening..." && (await demoText.locator(".lv-new").count()) === 0);
+  await emit("live-text", { text: "<img src=x onerror=window.__pwned2=1> & <b>bold</b>", formatted: true });
+  check(mode + ": markup in a transcript is shown as text", (await demoText.textContent()).startsWith("<img src=x onerror") && (await cell("demo").locator(".lv-text img, .lv-text b").count()) === 0 && (await page.evaluate(() => window.__pwned2)) === undefined);
+
+  // three lines, newest in view
+  const short = await lineClamp(cell("short").locator(".lv-text"));
+  check(mode + ": short text takes one line and is not clipped", short.height === 18 && !short.clipped, short);
+  const long = await lineClamp(cell("long").locator(".lv-text"));
+  check(mode + ": long text clamps to 3 lines, clips at the top and keeps the newest line in view", long.height === 54 && long.scrollHeight > long.height && long.atEnd && long.clipped, long);
+  const mask = await cell("long").locator(".lv-text").evaluate((e) => getComputedStyle(e).maskImage || getComputedStyle(e).webkitMaskImage);
+  check(mode + ": clipped text fades at the top", /linear-gradient/.test(mask), mask);
+
+  // the tag is fixed in the corner away from the pill and follows formatted
+  const tagShort = cell("short").locator(".lv-tag");
+  const tagOff = cell("unformatted").locator(".lv-tag");
+  check(mode + ": tag says Formats on paste when formatted is true", (await tagShort.isVisible()) && (await tagShort.textContent()) === "Formats on paste");
+  check(mode + ": tag is hidden when formatted is false", await tagOff.isHidden());
+  const tagBefore = await box(cell("demo").locator(".lv-tag"));
+  await emit("live-text", { text: "one", formatted: true });
+  const tagA = await box(cell("demo").locator(".lv-tag"));
+  await emit("live-text", { text: "one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen seventeen eighteen nineteen twenty", formatted: true });
+  const tagB = await box(cell("demo").locator(".lv-tag"));
+  check(mode + ": tag does not move as the text grows", tagA.top === tagB.top && tagA.right === tagB.right && tagBefore.top === tagA.top, { tagBefore, tagA, tagB });
+  await emit("live-text", { text: "one two", formatted: false });
+  check(mode + ": tag follows each live-text formatted flag", await cell("demo").locator(".lv-tag").isHidden());
+  await emit("live-text", { text: "one two", formatted: true });
+  check(mode + ": tag comes back with formatted true", await cell("demo").locator(".lv-tag").isVisible());
+  const textBox = await box(cell("long").locator(".lv-text"));
+  const tagBox = await box(cell("long").locator(".lv-tag"));
+  check(mode + ": tag never overlaps three lines of text above the pill", tagBox.bottom <= textBox.top, { tagBox, textBox });
+
+  // placement: below class follows live-place and the text sits next to the pill
+  check(mode + ": above-the-pill popover has no below class", (await cell("long").locator(".lv").evaluate((e) => e.classList.contains("below"))) === false);
+  check(mode + ": below variant has the below class", await cell("below").locator(".lv").evaluate((e) => e.classList.contains("below")));
+  await emit("live-place", { below: true });
+  const flipped = await cell("demo").locator(".lv").evaluate((e) => e.classList.contains("below"));
+  await emit("live-place", { below: false });
+  const back = await cell("demo").locator(".lv").evaluate((e) => e.classList.contains("below"));
+  check(mode + ": live-place toggles the below class both ways", flipped === true && back === false, { flipped, back });
+  const aboveCard = await box(cell("short").locator(".lv-card"));
+  const aboveText = await box(cell("short").locator(".lv-text"));
+  const belowCard = await box(cell("below-short").locator(".lv-card"));
+  const belowText = await box(cell("below-short").locator(".lv-text"));
+  check(mode + ": text hugs the pill edge (bottom above, top below)", Math.round(aboveCard.bottom - aboveText.bottom) === 14 && Math.round(belowText.top - belowCard.top) === 14, { aboveCard, aboveText, belowCard, belowText });
+  const belowTag = await box(cell("below").locator(".lv-tag"));
+  const belowLong = await box(cell("below").locator(".lv-text"));
+  check(mode + ": below variant moves the tag to the far corner, clear of the text", belowTag.top >= belowLong.bottom, { belowTag, belowLong });
+
+  // solid card for Windows
+  const solidInfo = await cell("solid").evaluate((c) => {
+    const card = c.querySelector(".lv-card");
+    const parse = (s) => { const m = s.match(/rgba?\(([^)]+)\)/)[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: m[0], g: m[1], b: m[2], a: m[3] === undefined ? 1 : m[3] }; };
+    return { solid: c.querySelector(".lv").classList.contains("solid"), alpha: parse(getComputedStyle(card).backgroundColor).a, radius: getComputedStyle(card).borderRadius };
+  });
+  check(mode + ": solid flag draws an opaque rounded card", solidInfo.solid && solidInfo.alpha === 1 && solidInfo.radius === "22px", solidInfo);
+  await page.evaluate(() => window.__live.bus.emit("overlay-theme", { theme: "pill", solid: true, reducedMotion: false }));
+  await emit("live-reset", {});
+  const contrast = await page.evaluate(() => {
+    const parse = (c) => { const m = c.match(/rgba?\(([^)]+)\)/)[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: m[0], g: m[1], b: m[2], a: m[3] === undefined ? 1 : m[3] }; };
+    const over = (fg, bg) => ({ r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 });
+    const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+    const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+    const ratio = (a, b) => { const l = [lum(a), lum(b)].sort((x, y) => y - x); return +((l[0] + 0.05) / (l[1] + 0.05)).toFixed(2); };
+    const c = document.querySelector(".pv-livecell[data-name=demo]");
+    const cardBg = parse(getComputedStyle(c.querySelector(".lv-card")).backgroundColor);
+    const ph = c.querySelector(".lv-text");
+    const tag = c.querySelector(".lv-tag");
+    const tagBg = over(parse(getComputedStyle(tag).backgroundColor), cardBg);
+    return { placeholder: ratio(over(parse(getComputedStyle(ph).color), cardBg), cardBg), tag: ratio(over(parse(getComputedStyle(tag).color), tagBg), tagBg) };
+  });
+  check(mode + ": placeholder and tag pass 4.5:1 on the solid card", contrast.placeholder >= 4.5 && contrast.tag >= 4.5, contrast);
+  check(mode + ": no page errors (live popover)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=live&scheme=light&reduce=1", { reduced: true });
+  const info = await page.evaluate(() => {
+    const c = document.querySelector(".pv-livecell[data-name=short]");
+    return { cls: c.querySelector(".lv").classList.contains("reduce-motion"), anim: getComputedStyle(c.querySelector(".lv-new")).animationName };
+  });
+  check("live popover: reduced motion turns the word fade off", info.cls && info.anim === "none", info);
+  await ctx.close();
+}
+
 // ---------- main: History ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light&xss=1");
@@ -613,6 +730,40 @@ for (const how of ["visibilitychange", "pagehide"]) {
   await ctx.close();
 }
 
+// ---------- main: Settings, smart formatting and live transcription ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const cfg = () => page.evaluate(() => window.__cfg.slice());
+  const titles = await page.locator(".srow-title").allTextContents();
+  const descOf = (title) => page.locator(".srow", { has: page.locator(".srow-title", { hasText: title }) }).locator(".srow-desc").first().textContent();
+  const smart = page.getByRole("switch", { name: "Smart formatting" });
+  check("Smart formatting sits right after Paste into the focused app", titles.indexOf("Smart formatting") === titles.indexOf("Paste into the focused app") + 1, titles);
+  check("Smart formatting copy", (await descOf("Smart formatting")) === 'Turns spoken "point one, point two" into a numbered list, removes "uh" and "um", and fixes spacing.');
+  check("Smart formatting starts on", (await smart.getAttribute("aria-checked")) === "true");
+  await smart.click();
+  await page.waitForTimeout(250);
+  check("Smart formatting toggle sends smart_format false", (await cfg()).includes('set_config:{"smart_format":false}') && (await smart.getAttribute("aria-checked")) === "false", await cfg());
+
+  const live = page.getByRole("switch", { name: "Live transcription" });
+  const overlay = page.getByRole("switch", { name: "Show overlay" });
+  check("Live transcription sits right after Show overlay", titles.indexOf("Live transcription") === titles.indexOf("Show overlay") + 1, titles);
+  check("Live transcription copy", (await descOf("Live transcription")) === "Shows your words above the pill while you speak.");
+  check("Live transcription starts on and enabled", (await live.getAttribute("aria-checked")) === "true" && (await live.isEnabled()));
+  await live.click();
+  await page.waitForTimeout(250);
+  check("Live transcription toggle sends live_transcription false", (await cfg()).includes('set_config:{"live_transcription":false}') && (await live.getAttribute("aria-checked")) === "false", await cfg());
+  await live.click();
+  await page.waitForTimeout(250);
+  await overlay.click();
+  await page.waitForTimeout(250);
+  check("with the overlay off, Live transcription is disabled and says it needs the overlay", (await live.isDisabled()) && (await descOf("Live transcription")) === "Needs the overlay. Turn on Show overlay to use it.");
+  await overlay.click();
+  await page.waitForTimeout(250);
+  check("turning the overlay back on re-enables Live transcription", (await live.isEnabled()) && (await descOf("Live transcription")) === "Shows your words above the pill while you speak.");
+  check("no page errors (smart formatting and live transcription)", errors.length === 0, errors);
+  await ctx.close();
+}
+
 // ---------- look: tokens, contrast, modes ----------
 function contrastScript() {
   return () => {
@@ -684,9 +835,243 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- button colours ----------
+const inkScript = ([sel, token, surfaceSel]) => {
+  const parse = (c) => { const m = c.match(/rgba?\(([^)]+)\)/)[1].split(/[ ,/]+/).filter(Boolean).map(Number); return { r: m[0], g: m[1], b: m[2], a: m[3] === undefined ? 1 : m[3] }; };
+  const over = (fg, bg) => ({ r: fg.r * fg.a + bg.r * (1 - fg.a), g: fg.g * fg.a + bg.g * (1 - fg.a), b: fg.b * fg.a + bg.b * (1 - fg.a), a: 1 });
+  const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
+  const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
+  const ratio = (a, b) => { const l = [lum(a), lum(b)].sort((x, y) => y - x); return +((l[0] + 0.05) / (l[1] + 0.05)).toFixed(2); };
+  const el = document.querySelector(sel);
+  if (!el) return null;
+  const surface = parse(getComputedStyle(document.querySelector(surfaceSel)).backgroundColor);
+  const cs = getComputedStyle(el);
+  const bg = over(parse(cs.backgroundColor), surface);
+  const probe = document.createElement("span");
+  probe.style.color = token === "white" ? "#fff" : "var(--" + token + ")";
+  el.appendChild(probe);
+  const expected = getComputedStyle(probe).color;
+  probe.remove();
+  return { color: cs.color, expected, ratio: ratio(over(parse(cs.color), bg), bg) };
+};
+for (const dark of [false, true]) {
+  const mode = dark ? "dark" : "light";
+  const scheme = "&scheme=" + mode;
+  const probe = async (query, sel, token, surface, opts = {}) => {
+    const { page, ctx } = await open(query + scheme, { dark, ...opts });
+    if (opts.before) await opts.before(page);
+    const r = await page.evaluate(inkScript, [sel, token, surface]);
+    await ctx.close();
+    return r;
+  };
+  const verdict = (r) => r !== null && r.color === r.expected && r.ratio >= 4.5;
+  const settings = "?view=main&tab=settings&installed=1&toggle=custom&h=1200";
+  const quiet = await probe(settings, ".btn-quiet", "accent-ink", ".card", { tall: true });
+  check(mode + ": Reset gets the accent ink at 4.5:1", verdict(quiet), quiet);
+  const turnOff = await probe(settings, "[aria-label='Turn off hands-free']", "accent-ink", ".card", { tall: true });
+  check(mode + ": Turn off gets the accent ink at 4.5:1", verdict(turnOff), turnOff);
+  const done = await probe(settings, ".btn-done", "green-ink", ".card", { tall: true });
+  check(mode + ": Installed gets the green ink at 4.5:1", verdict(done), done);
+  const action = await probe("?view=main&tab=model", ".btn-action", "accent-ink", ".card");
+  check(mode + ": Download gets the accent ink at 4.5:1", verdict(action), action);
+  const danger = await probe("?view=main&tab=history", ".btn-danger", "red-ink", ".card");
+  check(mode + ": Clear history gets the red ink at 4.5:1", verdict(danger), danger);
+  const link = await probe("?view=main&tab=history", ".linklike:not([hidden])", "accent-ink", ".card");
+  check(mode + ": Show more gets the accent ink at 4.5:1", verdict(link), link);
+  const icon = await probe("?view=main&tab=history", ".hrow .copy", "label-2", ".card");
+  check(mode + ": copy button keeps its secondary ink at 4.5:1", verdict(icon), icon);
+  const solid = await probe("?view=main&tab=history", ".btn-danger-solid", "white", ".dlg", { before: async (page) => { await page.getByText("Clear history", { exact: true }).first().click(); await page.waitForTimeout(300); } });
+  check(mode + ": the red confirm button has white text at 4.5:1", verdict(solid), solid);
+}
+
+// ---------- main: show-tab event ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light");
+  const selected = () => page.evaluate(() => [...document.querySelectorAll("[role=tab]")].filter((t) => t.getAttribute("aria-selected") === "true").map((t) => t.id).join());
+  const visiblePanels = () => page.evaluate(() => [...document.querySelectorAll("[role=tabpanel]")].filter((p) => !p.hidden).map((p) => p.id).join());
+  await page.evaluate(() => window.__emit("show-tab", { tab: "model" }));
+  check("show-tab model switches to the Model tab", (await selected()) === "tab-model" && (await visiblePanels()) === "panel-model");
+  await page.evaluate(() => window.__emit("show-tab", { tab: "settings" }));
+  check("show-tab settings switches to Settings", (await selected()) === "tab-settings" && (await visiblePanels()) === "panel-settings");
+  await page.evaluate(() => { for (const p of [{ tab: "bogus" }, { tab: "" }, { tab: 3 }, { tab: "constructor" }, {}, null, "model"]) window.__emit("show-tab", p); });
+  check("show-tab ignores unknown tabs and bad payloads", (await selected()) === "tab-settings" && (await visiblePanels()) === "panel-settings");
+  await page.evaluate(() => window.__emit("show-tab", { tab: "history" }));
+  check("show-tab history comes back", (await selected()) === "tab-history" && (await visiblePanels()) === "panel-history");
+  check("no page errors (show-tab)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: update banner ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  const btn = (name) => banner.getByRole("button", { name, exact: true });
+  const focusedClass = () => page.evaluate(() => document.activeElement.className);
+  check("update from get_state shows the banner with both versions", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "local-stt 0.2.0 is available. You have 0.1.0.");
+  check("banner is a labelled region", (await banner.getAttribute("role")) === "region" && (await banner.getAttribute("aria-label")) === "Software update");
+  check("banner offers Install and Restart, Release Notes, Later, Skip This Version", (await banner.locator("button").allTextContents()).join("|") === "Install and Restart|Release Notes|Later|Skip This Version");
+  const heights = await banner.locator("button").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
+  check("banner buttons are 28 pt targets", heights.every((h) => h >= 28), heights);
+  const layout = await page.evaluate(() => ({
+    toolbar: document.querySelector(".mw-toolbar").getBoundingClientRect().bottom,
+    banner: document.querySelector(".mw-banner").getBoundingClientRect(),
+    content: document.querySelector(".history-bar").getBoundingClientRect().top,
+  }));
+  check("banner sits under the tabs and above the content, not over either", layout.banner.top >= layout.toolbar && layout.content >= layout.banner.bottom, layout);
+  check("Install and Restart is the primary action", (await btn("Install and Restart").evaluate((e) => e.classList.contains("btn-action"))) && (await btn("Later").evaluate((e) => e.classList.contains("btn-quiet"))));
+
+  await btn("Release Notes").click();
+  await page.waitForTimeout(150);
+  check("Release Notes calls open_release_notes and keeps the banner", (await calls(page)).includes("open_release_notes") && (await banner.isVisible()));
+  await btn("Later").click();
+  await page.waitForTimeout(150);
+  check("Later hides the banner and gives the content its room back", (await banner.isHidden()) && (await page.evaluate(() => !document.querySelector(".mw").classList.contains("has-banner"))));
+  check("Later calls neither skip nor install", !(await calls(page)).some((c) => c === "skip_update" || c === "install_update"));
+  check("focus moves to the tab when the banner closes", (await page.evaluate(() => document.activeElement.id)) === "tab-history");
+  await page.evaluate(() => window.__emit("show-update", {}));
+  await page.waitForTimeout(150);
+  check("show-update brings the banner back and focuses Install and Restart", (await banner.isVisible()) && (await focusedClass()).includes("btn-install"), await focusedClass());
+  await btn("Later").click();
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(150);
+  check("a fresh update-available shows the banner again after Later", await banner.isVisible());
+  check("no page errors (banner)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  await banner.getByRole("button", { name: "Skip This Version", exact: true }).click();
+  await page.waitForTimeout(300);
+  check("Skip This Version calls skip_update and hides the banner", (await calls(page)).includes("skip_update") && (await banner.isHidden()));
+  check("skipping re-reads state", (await page.evaluate(() => window.__cfg.filter((c) => c === "get_state").length)) >= 2);
+  check("a skipped version stays hidden after state is re-read", await banner.isHidden());
+  await page.evaluate(() => window.__emit("show-tab", { tab: "settings" }));
+  await page.getByRole("switch", { name: "Sounds" }).click();
+  await page.waitForTimeout(250);
+  check("a skipped version stays hidden after other settings change", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(150);
+  check("a manual check that finds the skipped version shows the banner again", await banner.isVisible());
+  await banner.getByRole("button", { name: "Skip This Version", exact: true }).click();
+  await page.waitForTimeout(300);
+  check("skipping again hides it again", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.3.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(150);
+  check("a newer version than the skipped one shows the banner", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "local-stt 0.3.0 is available. You have 0.1.0.");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  await banner.getByRole("button", { name: "Install and Restart", exact: true }).click();
+  await page.waitForTimeout(200);
+  const busy = await banner.evaluate((b) => ({ install: b.querySelector(".btn-install").textContent, spinner: b.querySelectorAll(".btn-install .spin").length, disabled: [...b.querySelectorAll("button")].map((x) => x.disabled).join() }));
+  check("Install shows Installing... with a spinner and disables every button", busy.install === "Installing..." && busy.spinner === 1 && busy.disabled === "true,true,true,true", busy);
+  check("Install calls install_update once", (await calls(page)).filter((c) => c === "install_update").length === 1);
+  const spin = await banner.locator(".spin").evaluate((e) => getComputedStyle(e).animationName);
+  check("the spinner turns when motion is allowed", spin === "spin", spin);
+  await page.waitForTimeout(800);
+  check("Install ends with a toast and the banner steps aside", (await page.locator(".toast").textContent()) === "Updated to 0.2.0. local-stt will restart in a moment." && (await banner.isHidden()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1&reduce=1", { reduced: true });
+  await page.locator(".btn-install").click();
+  await page.waitForTimeout(150);
+  const spin = await page.locator(".mw-banner .spin").evaluate((e) => getComputedStyle(e).animationName);
+  check("reduced motion stops the spinner", spin === "none", spin);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  await page.evaluate(() => { window.__installError = "Couldn't download the update. Check your connection."; });
+  await banner.locator(".btn-install").click();
+  await page.waitForTimeout(900);
+  const failed = await banner.evaluate((b) => ({ install: b.querySelector(".btn-install").textContent, error: b.querySelector(".banner-error") && b.querySelector(".banner-error").textContent, role: b.querySelector(".banner-error") && b.querySelector(".banner-error").getAttribute("role"), disabled: [...b.querySelectorAll("button")].map((x) => x.disabled).join(), focus: document.activeElement.className }));
+  check("a failed install shows the error inline with Try Again and re-enables the buttons", failed.install === "Try Again" && failed.error === "Couldn't download the update. Check your connection." && failed.role === "alert" && failed.disabled === "false,false,false,false", failed);
+  check("focus lands on Try Again", failed.focus.includes("btn-install"), failed.focus);
+  await banner.locator(".btn-install").click();
+  await page.waitForTimeout(900);
+  check("Try Again installs and clears the error", (await calls(page)).filter((c) => c === "install_update").length === 2 && (await banner.isHidden()) && (await page.locator(".toast").count()) === 1);
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light");
+  const banner = page.locator(".mw-banner");
+  check("no update means no banner", await banner.isHidden());
+  await page.evaluate(() => { window.__emit("update-available", null); window.__emit("update-available", "x"); window.__emit("update-available", { available: true }); window.__emit("show-update", {}); });
+  await page.waitForTimeout(200);
+  check("bad update payloads and show-update without an offer change nothing", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: false, notesUrl: "https://example.invalid/n" }));
+  check("update-available with available false shows no banner", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(200);
+  check("update-available shows the banner", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "local-stt 0.2.0 is available. You have 0.1.0.");
+  check("the new offer is announced to screen readers", (await page.locator(".sr-only[role=status]").textContent()) === "local-stt 0.2.0 is available.");
+  check("no page errors (update events)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: Settings, updates ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Updates" }) });
+  const button = row.locator(".btn");
+  const titles = await page.locator(".srow-title").allTextContents();
+  check("Settings > General has Updates and Check automatically rows", titles.includes("Updates") && titles.includes("Check automatically"), titles);
+  check("Updates row shows the version", (await row.locator(".srow-desc").textContent()) === "local-stt 0.1.0");
+  check("Check for Updates is an enabled 28 pt button", (await button.textContent()) === "Check for Updates" && (await button.isEnabled()) && (await button.boundingBox()).height >= 28);
+  await button.click();
+  await page.waitForTimeout(250);
+  check("Check for Updates asks the app and shows Checking...", (await page.evaluate(() => window.__cfg.includes("check_for_updates"))) && (await button.textContent()) === "Checking..." && (await button.isDisabled()));
+  await page.waitForTimeout(900);
+  check("a notice ends the check, toasts it and restores the button", (await page.locator(".toast").textContent()) === "local-stt 0.1.0 is up to date." && (await button.textContent()) === "Check for Updates" && (await button.isEnabled()));
+  const auto = page.getByRole("switch", { name: "Check automatically" });
+  check("Check automatically copy", (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Check automatically" }) }).locator(".srow-desc").textContent()) === "Looks for a new version once a day. Only the request is sent.");
+  check("Check automatically starts on", (await auto.getAttribute("aria-checked")) === "true");
+  await auto.click();
+  await page.waitForTimeout(250);
+  check("Check automatically sends check_updates false", (await page.evaluate(() => window.__cfg.includes('set_config:{"check_updates":false}'))) && (await auto.getAttribute("aria-checked")) === "false");
+  check("no page errors (updates row)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200&checkfinds=1", { tall: true });
+  const button = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Updates" }) }).locator(".btn");
+  await button.click();
+  await page.waitForTimeout(250);
+  check("Checking... shows while the app looks", (await button.textContent()) === "Checking...");
+  await page.waitForTimeout(900);
+  check("update-available ends the check and shows the banner", (await button.textContent()) === "Check for Updates" && (await page.locator(".mw-banner").isVisible()));
+  await ctx.close();
+}
+for (const dark of [false, true]) {
+  const mode = dark ? "dark" : "light";
+  const probe = async (query, sel, token, before) => {
+    const { page, ctx } = await open(query + "&scheme=" + mode, { dark });
+    if (before) await before(page);
+    const r = await page.evaluate(inkScript, [sel, token, ".mw-banner"]);
+    await ctx.close();
+    return r;
+  };
+  const verdict = (r) => r !== null && r.color === r.expected && r.ratio >= 4.5;
+  const install = await probe("?view=main&tab=history&update=1", ".btn-install", "accent-ink");
+  check(mode + ": Install and Restart passes 4.5:1", verdict(install), install);
+  const quiet = await probe("?view=main&tab=history&update=1", ".mw-banner .btn-quiet", "accent-ink");
+  check(mode + ": banner quiet buttons pass 4.5:1", verdict(quiet), quiet);
+  const error = await probe("?view=main&tab=history&update=1", ".banner-error", "red-ink", async (page) => {
+    await page.evaluate(() => { window.__installError = "Couldn't download the update."; });
+    await page.locator(".btn-install").click();
+    await page.waitForTimeout(900);
+  });
+  check(mode + ": banner error text passes 4.5:1", verdict(error), error);
+}
+
 // ---------- static hygiene ----------
 {
-  const files = ["main.js", "overlay.js", "main.css", "overlay.css", "tokens.css", "main.html", "overlay.html"].map((f) => [f, fs.readFileSync(ROOT + "/ui/" + f, "utf8")]);
+  const files = ["main.js", "overlay.js", "live.js", "main.css", "overlay.css", "live.css", "tokens.css", "main.html", "overlay.html", "live.html"].map((f) => [f, fs.readFileSync(ROOT + "/ui/" + f, "utf8")]);
   const preview = fs.readFileSync(ROOT + "/dev/preview.html", "utf8");
   const bad = [];
   for (const [name, text] of files) {
@@ -698,7 +1083,7 @@ for (const dark of [false, true]) {
   check("ui/ has no innerHTML, inline style, inline script or em dash", bad.length === 0, bad);
   check("preview lives outside ui/", !fs.existsSync(ROOT + "/ui/preview.html") && fs.existsSync(ROOT + "/dev/preview.html"));
   const refs = [...preview.matchAll(/(?:src|href)="(\.\.\/ui\/[^"]+)"/g)].map((m) => m[1]);
-  check("preview loads ../ui/ files that exist", refs.length === 5 && refs.every((r) => fs.existsSync(ROOT + "/dev/" + r)), refs);
+  check("preview loads ../ui/ files that exist", refs.length === 7 && refs.every((r) => fs.existsSync(ROOT + "/dev/" + r)), refs);
 }
 
 await browser.close();
