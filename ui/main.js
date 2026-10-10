@@ -12,6 +12,15 @@
     macos: { modifiers: ["Fn", "Shift"], key: null },
     windows: { modifiers: ["Ctrl", "Alt"], key: null }
   };
+  var DEFAULT_TOGGLE = {
+    macos: { modifiers: ["Fn", "Shift"], key: "Space" },
+    windows: { modifiers: ["Ctrl", "Alt"], key: "Space" }
+  };
+  // config field and spoken name per shortcut slot
+  var SLOTS = {
+    hold: { field: "hotkey", name: "Push to talk" },
+    toggle: { field: "toggle_hotkey", name: "Hands-free" }
+  };
   var TABS = [
     { value: "history", label: "History" },
     { value: "model", label: "Model" },
@@ -263,8 +272,9 @@
       inputs: [],
       version: "",
       platform: "macos",
-      hotkeyDisplay: "",
-      displayFor: "", // JSON of the combo that hotkeyDisplay describes
+      display: { hold: "", toggle: "" }, // the app's text for each shortcut
+      displayFor: { hold: "", toggle: "" }, // JSON of the combo each display describes
+      installed: false,
       tab: "history",
       history: [],
       historyLoaded: false,
@@ -277,8 +287,9 @@
       loadingModel: "",
       autostartEnabled: null,
       moving: false,
-      capturing: false,
-      hotkeyError: ""
+      capturingSlot: null, // "hold", "toggle" or null: one capture at a time
+      hotkeyErrors: { hold: "", toggle: "" },
+      installing: false
     };
     var syncers = []; // settings controls, refreshed after every config change
     var progressRefs = {}; // model id -> { bar, text, track }
@@ -342,7 +353,7 @@
     // Cmd on macOS, Ctrl on Windows: 1, 2, 3 pick a tab, F searches the history, W closes the window
     function onShortcut(event) {
       var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
-      if (!mod || event.altKey || event.shiftKey || S.capturing || dialog.open) return;
+      if (!mod || event.altKey || event.shiftKey || S.capturingSlot || dialog.open) return;
       var tab = { "1": "history", "2": "model", "3": "settings" }[event.key];
       var win = tauri && tauri.window && tauri.window.getCurrentWindow ? tauri.window.getCurrentWindow() : null;
       if ((event.key === "w" || event.key === "W") && win) {
@@ -385,7 +396,7 @@
       toastTimer = setTimeout(function () {
         node.classList.remove("in");
         setTimeout(function () { if (node.parentNode) node.parentNode.removeChild(node); }, 200);
-      }, 4200);
+      }, Math.min(9000, Math.max(4200, message.length * 55))); // install notes run long, give them reading time
     }
 
     // ---------- data ----------
@@ -397,8 +408,11 @@
       S.inputs = Array.isArray(state.inputs) ? state.inputs : [];
       S.version = state.version || "";
       S.platform = state.platform === "windows" ? "windows" : "macos";
-      S.hotkeyDisplay = state.hotkeyDisplay || "";
-      S.displayFor = JSON.stringify(state.config && state.config.hotkey);
+      S.display.hold = state.hotkeyDisplay || "";
+      S.display.toggle = state.toggleDisplay || "";
+      S.displayFor.hold = JSON.stringify(slotCombo("hold"));
+      S.displayFor.toggle = JSON.stringify(slotCombo("toggle"));
+      S.installed = state.installed === true;
       S.activeModel = typeof state.activeModel === "string" ? state.activeModel : null;
       S.downloading = typeof state.downloading === "string" ? state.downloading : null;
       S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
@@ -434,13 +448,19 @@
       });
     }
 
-    function refreshHotkeyDisplay() {
+    // re-read the app's state and repaint in place, so a focused control keeps focus
+    function reloadState() {
       return Promise.resolve(invoke("get_state")).then(function (state) {
-        S.hotkeyDisplay = state.hotkeyDisplay || "";
-        S.displayFor = JSON.stringify(state.config && state.config.hotkey);
+        applyState(state);
         syncSettings();
         renderHistoryEmptyHint();
       }).catch(function () {});
+    }
+
+    function displaysStale() {
+      return Object.keys(SLOTS).some(function (slot) {
+        return S.displayFor[slot] !== JSON.stringify(slotCombo(slot));
+      });
     }
 
     function patchConfig(change) {
@@ -453,7 +473,8 @@
         if (change.autostart !== undefined) S.autostartEnabled = !!S.config.autostart;
         syncSettings();
         renderHistoryEmptyHint();
-        if (change.hotkey && S.displayFor !== JSON.stringify(S.config.hotkey)) return refreshHotkeyDisplay();
+        // turning Start at login on installs the app first, and a new shortcut needs the app's own text
+        if (change.autostart !== undefined || displaysStale()) return reloadState();
       }).catch(function (err) {
         S.config = before;
         syncSettings();
@@ -462,13 +483,15 @@
       });
     }
 
-    function currentCombo() {
-      return S.config ? S.config.hotkey : null;
+    function slotCombo(slot) {
+      return S.config ? S.config[SLOTS[slot].field] || null : null;
     }
 
-    function hotkeyParts() {
-      var fresh = S.hotkeyDisplay && S.displayFor === JSON.stringify(currentCombo());
-      return fresh ? displayParts(S.hotkeyDisplay, S.platform) : comboParts(currentCombo(), S.platform);
+    // keycap names for a slot: the app's own text while it matches the config, else built locally
+    function slotParts(slot) {
+      var combo = slotCombo(slot);
+      var fresh = S.display[slot] && S.displayFor[slot] === JSON.stringify(combo);
+      return fresh ? displayParts(S.display[slot], S.platform) : comboParts(combo, S.platform);
     }
 
     // ---------- History ----------
@@ -582,11 +605,12 @@
           historyList.appendChild(emptyState("History is off", "Turn on Save history in Settings to keep your dictations here.",
             h("button", { class: "btn", type: "button", text: "Open Settings", onclick: function () { showTab("settings"); } })));
         } else {
-          var keys = hotkeyParts();
-          var toggleMode = S.config && S.config.mode === "toggle";
+          var pushKeys = slotParts("hold");
+          var freeKeys = slotParts("toggle");
           historyList.appendChild(emptyState("No dictations yet", [
-            toggleMode ? "Press " : "Hold ", keys.length ? keycaps(keys) : "your shortcut",
-            toggleMode ? " to start and again to stop. Your text appears here." : " and speak. Your text appears here."
+            "Hold ", pushKeys.length ? keycaps(pushKeys) : "your shortcut", " and speak",
+            freeKeys.length ? [", or press ", keycaps(freeKeys), " for hands-free"] : null, // hands-free can be off
+            ". Your text appears here."
           ]));
         }
         return;
@@ -858,63 +882,118 @@
       return control.el;
     }
 
-    function startCapture() {
-      S.capturing = true;
-      S.hotkeyError = "";
+    function startCapture(slot) {
+      S.capturingSlot = slot;
+      S.hotkeyErrors = { hold: "", toggle: "" };
       syncSettings();
       announce("Press your shortcut now. Escape cancels.");
-      Promise.resolve(invoke("start_hotkey_capture")).catch(function (err) {
-        S.capturing = false;
-        S.hotkeyError = errText(err);
+      Promise.resolve(invoke("start_hotkey_capture", { slot: slot })).catch(function (err) {
+        if (S.capturingSlot === slot) S.capturingSlot = null;
+        S.hotkeyErrors[slot] = errText(err);
         syncSettings();
       });
     }
 
     function stopCapture() {
-      if (!S.capturing) return;
-      S.capturing = false;
+      if (!S.capturingSlot) return;
+      S.capturingSlot = null;
       syncSettings();
       Promise.resolve(invoke("cancel_hotkey_capture")).catch(function () {});
     }
 
-    function hotkeyControl() {
-      var field = h("button", { class: "hk", type: "button" });
-      var reset = h("button", { class: "btn btn-quiet", type: "button", text: "Reset", onclick: function () {
-        patchConfig({ hotkey: DEFAULT_COMBO[S.platform] });
+    // one shortcut field with its own Reset; hands-free also gets Turn off
+    function hotkeyControl(slot) {
+      var info = SLOTS[slot];
+      var defaults = slot === "hold" ? DEFAULT_COMBO : DEFAULT_TOGGLE;
+      var field = h("button", { class: "hk", type: "button", "data-slot": slot });
+      var reset = h("button", { class: "btn btn-quiet", type: "button", text: "Reset", "aria-label": "Reset " + info.name + " shortcut", onclick: function () {
+        var change = {};
+        change[info.field] = defaults[S.platform];
+        patchConfig(change);
       } });
+      var turnOff = slot === "toggle" ? h("button", { class: "btn btn-quiet", type: "button", text: "Turn off", "aria-label": "Turn off hands-free", onclick: function () {
+        patchConfig({ toggle_hotkey: null });
+      } }) : null;
       var error = h("div", { class: "field-error", role: "alert", hidden: true });
 
       field.addEventListener("click", function () {
-        if (S.capturing) {
+        if (S.capturingSlot === slot) {
           stopCapture();
         } else {
           field.focus(); // WebKit does not focus a button on click, and blur is how capture ends
-          startCapture();
+          startCapture(slot);
         }
       });
-      field.addEventListener("blur", stopCapture);
+      field.addEventListener("blur", function () {
+        if (S.capturingSlot === slot) stopCapture(); // another slot's capture is not ours to end
+      });
       field.addEventListener("keydown", function (event) {
-        if (!S.capturing) return;
+        if (S.capturingSlot !== slot) return;
         event.preventDefault(); // keys belong to the OS hook while capturing
         if (event.key === "Escape") stopCapture();
       });
 
+      var drawn = null; // what the field shows now; redrawing an unchanged field would eat a click already under way
       function sync() {
-        clear(field);
-        field.classList.toggle("capturing", S.capturing);
-        field.setAttribute("aria-label", S.capturing ? "Press your shortcut" : "Shortcut: " + hotkeyParts().join(" plus ") + ". Click to change.");
-        if (S.capturing) {
-          field.appendChild(h("span", { class: "hk-prompt" }, h("i", { class: "hk-pulse" }), "Press your shortcut..."));
-        } else {
-          var parts = hotkeyParts();
-          field.appendChild(parts.length ? keycaps(parts) : h("span", { class: "hk-prompt", text: "-" }));
+        var capturing = S.capturingSlot === slot;
+        var parts = slotParts(slot);
+        var off = !slotCombo(slot);
+        var shown = capturing ? "capturing" : parts.join("+") + (off ? "off" : "");
+        field.classList.toggle("capturing", capturing);
+        if (capturing) field.setAttribute("aria-label", info.name + " shortcut: press your shortcut now.");
+        else if (off) field.setAttribute("aria-label", info.name + " shortcut: off. Click to turn on.");
+        else field.setAttribute("aria-label", info.name + " shortcut: " + parts.join(" plus ") + ". Click to change.");
+        if (shown !== drawn) {
+          drawn = shown;
+          clear(field);
+          if (capturing) field.appendChild(h("span", { class: "hk-prompt" }, h("i", { class: "hk-pulse" }), "Press your shortcut..."));
+          else if (parts.length) field.appendChild(keycaps(parts));
+          else field.appendChild(h("span", { class: "hk-prompt", text: slot === "toggle" ? "Off" : "-" }));
         }
-        error.hidden = S.hotkeyError === "";
-        error.textContent = S.hotkeyError;
-        reset.hidden = S.capturing || !S.config || sameCombo(S.config.hotkey, DEFAULT_COMBO[S.platform]);
+        error.hidden = S.hotkeyErrors[slot] === "";
+        error.textContent = S.hotkeyErrors[slot];
+        reset.hidden = capturing || !S.config || sameCombo(slotCombo(slot), defaults[S.platform]);
+        if (turnOff) turnOff.hidden = capturing || off;
       }
       sync();
-      return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset), error), sync: sync };
+      return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset, turnOff), error), sync: sync };
+    }
+
+    // wording and button follow the app's installed flag and the platform's launcher names
+    function installRow() {
+      var desc = h("div", { class: "srow-desc" });
+      var button = h("button", { class: "btn", type: "button", onclick: function () {
+        if (S.installed || S.installing) return;
+        S.installing = true;
+        syncSettings();
+        Promise.resolve(invoke("install_app")).then(function (sentence) {
+          toast(typeof sentence === "string" && sentence ? sentence : "Installed.");
+          return reloadState();
+        }).catch(function (err) {
+          toast("Couldn't install: " + errText(err));
+        }).then(function () {
+          S.installing = false;
+          syncSettings();
+        });
+      } });
+      function sync() {
+        var windows = S.platform === "windows";
+        var where = windows ? "your Start menu" : "your Applications folder";
+        var finder = windows ? "Windows search" : "Spotlight";
+        desc.textContent = S.installed
+          ? "local-stt is in " + where + " (" + finder + " finds it) and the local-stt terminal command is set up."
+          : "Add local-stt to " + (windows ? "the Start menu so Windows search finds it" : "Applications so Spotlight finds it") + ", and add the local-stt terminal command.";
+        clear(button);
+        button.classList.toggle("btn-done", S.installed);
+        button.disabled = S.installed || S.installing;
+        append(button, S.installed ? [icon("check"), "Installed"] : S.installing ? "Installing..." : "Install");
+      }
+      syncers.push(sync);
+      sync();
+      return h("div", { class: "srow" },
+        h("div", { class: "srow-text" }, h("div", { class: "srow-title", text: "Install" }), desc),
+        h("div", { class: "srow-control" }, button)
+      );
     }
 
     function themeControl() {
@@ -1021,15 +1100,10 @@
         return [{ value: "", label: "System default" }].concat(S.inputs.map(function (name) { return { value: name, label: name }; }));
       };
 
-      var hotkey = hotkeyControl();
-      syncers.push(hotkey.sync);
+      var pushKey = hotkeyControl("hold");
+      var freeKey = hotkeyControl("toggle");
+      syncers.push(pushKey.sync, freeKey.sync);
 
-      var mode = segmented({
-        role: "radiogroup", label: "Dictation mode",
-        items: [{ value: "hold", label: "Hold to talk" }, { value: "toggle", label: "Press to start and stop" }],
-        value: function () { return cfg().mode; },
-        onChange: function (v) { patchConfig({ mode: v }); }
-      });
       var output = segmented({
         role: "radiogroup", label: "Output language",
         items: [{ value: "english", label: "English" }, { value: "spoken", label: "Spoken language" }],
@@ -1038,8 +1112,8 @@
       });
 
       var dictation = card([
-        settingRow("Shortcut", "Click, then press the new shortcut.", hotkey.el),
-        settingRow("Mode", null, addSync(mode)),
+        settingRow("Push to talk", "Hold to talk, release to paste.", pushKey.el),
+        settingRow("Hands-free", "Press once to start listening, again to stop. Adding the extra key while holding push to talk switches to hands-free.", freeKey.el),
         settingRow("Output language", "English translates what you say. Spoken language keeps it as spoken.", addSync(output)),
         settingRow("Spoken language", "Auto-detect works for most speech.", addSync(select({
           label: "Spoken language", options: langOptions,
@@ -1093,7 +1167,8 @@
             else askTurnOffHistory();
           }
         }))),
-        settingRow("Start at login", "Opens local-stt when you log in. Works only with an installed copy.", addSync(toggle({
+        installRow(),
+        settingRow("Start at login", "Opens local-stt when you log in. Turning it on installs local-stt first if needed.", addSync(toggle({
           label: "Start at login",
           value: function () { return typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfg().autostart; },
           onChange: function (v) { patchConfig({ autostart: v }); }
@@ -1160,24 +1235,18 @@
       refreshState();
     });
 
+    // the app saves a captured shortcut itself, so this only repaints; "Cancelled" is Escape, not a failure
     subscribe("hotkey-captured", function (p) {
-      S.capturing = false;
-      if (!p) return;
-      if (p.error) {
-        S.hotkeyError = p.error;
-        syncSettings();
-        return;
-      }
-      S.hotkeyError = "";
-      if (p.combo) {
-        if (p.display) {
-          S.hotkeyDisplay = p.display;
-          S.displayFor = JSON.stringify(p.combo);
-        }
-        patchConfig({ hotkey: p.combo });
-      } else {
-        syncSettings();
-      }
+      S.capturingSlot = null;
+      var slot = p && p.slot === "toggle" ? "toggle" : "hold";
+      S.hotkeyErrors = { hold: "", toggle: "" };
+      if (p && p.error && p.error !== "Cancelled") S.hotkeyErrors[slot] = p.error;
+      syncSettings();
+      if (p && !p.error) reloadState();
+    });
+
+    subscribe("notice", function (p) {
+      if (p && typeof p.message === "string" && p.message !== "") toast(p.message);
     });
 
     subscribe("history-changed", function () {

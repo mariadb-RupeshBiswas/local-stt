@@ -225,6 +225,21 @@
       ["Dictate", function () { dictate("done"); }],
       ["Warn", function () { dictate("warning"); }],
       ["Fail", function () { dictate("error"); }],
+      ["Hands-free", function () {
+        run += 1;
+        var mine = run;
+        var started = Date.now();
+        glass.style.opacity = "1";
+        bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: started });
+        var levels = setInterval(function () {
+          if (mine !== run) clearInterval(levels);
+          else bus.emit("overlay-level", { level: speechLevel(Date.now()) });
+        }, 33);
+        // the app resends the same start time when the extra key switches a held recording to hands-free
+        setTimeout(function () {
+          if (mine === run) bus.emit("overlay-state", { state: "recording", label: "Hands-free", startedAtMs: started });
+        }, 1200);
+      }],
       ["Move pill", function () {
         run += 1;
         glass.style.opacity = "1";
@@ -255,6 +270,14 @@
   }
 
   // ---------- main window mock ----------
+  // the app's display text for a combo, as src/hotkey builds it
+  function comboText(combo) {
+    var names = { Fn: "Fn", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift", Meta: platform === "windows" ? "Win" : "Cmd" };
+    var parts = ["Fn", "Ctrl", "Alt", "Shift", "Meta"].filter(function (m) { return combo.modifiers.indexOf(m) !== -1; }).map(function (m) { return names[m]; });
+    if (combo.key) parts.push(combo.key);
+    return parts.join(" + ");
+  }
+
   function mockState() {
     var now = Date.now();
     var minute = 60 * 1000;
@@ -275,10 +298,13 @@
       entries.unshift({ ts_ms: now - minute, text: "<img src=x onerror=window.__pwned=1> & <b>bold</b>", duration_ms: 1000, model: "small", ok: true });
     }
     var winReasons = platform === "windows";
+    var hold = platform === "windows" ? { modifiers: ["Ctrl", "Alt"], key: null } : { modifiers: ["Fn", "Shift"], key: null };
+    var toggle = params.get("toggle") === "off" ? null : { modifiers: hold.modifiers.slice(), key: "Space" };
     return {
       config: {
-        hotkey: platform === "windows" ? { modifiers: ["Ctrl", "Alt"], key: null } : { modifiers: ["Fn", "Shift"], key: null },
-        mode: "hold", translate: true, language: "auto", paste: true, restore_clipboard: false,
+        hotkey: hold,
+        toggle_hotkey: toggle,
+        translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", autostart: false, model: "small"
       },
@@ -299,30 +325,46 @@
       inputs: ["MacBook Air Microphone", "USB Audio Device"],
       version: "0.1.0",
       platform: platform,
-      hotkeyDisplay: platform === "windows" ? "Ctrl + Alt" : "Fn + Shift",
+      hotkeyDisplay: comboText(hold),
+      toggleDisplay: toggle ? comboText(toggle) : null,
+      installed: params.get("installed") === "1",
       history: empty ? [] : entries
     };
   }
 
   window.__calls = [];
+  window.__cfg = []; // get_state, set_config and capture traffic, kept apart from __calls
 
   function mainWindow(schemeName, tab) {
     var data = mockState();
     var bus;
     var captureTimer = 0;
     var commands = {
-      get_state: function () { return data; },
+      get_state: function () {
+        window.__cfg.push("get_state");
+        return data;
+      },
       set_config: function (a) {
-        Object.assign(data.config, a.patch);
+        window.__cfg.push("set_config:" + JSON.stringify(a.patch));
+        var next = Object.assign({}, data.config, a.patch);
+        if (next.toggle_hotkey && comboText(next.toggle_hotkey) === comboText(next.hotkey)) throw "Push to talk and hands-free need different shortcuts.";
+        data.config = next;
         if (a.patch.save_history === false) data.history = []; // the app deletes the file when history goes off
-        if (a.patch.autostart !== undefined) data.autostartEnabled = a.patch.autostart;
-        if (a.patch.hotkey) {
-          var names = { Fn: "Fn", Ctrl: "Ctrl", Alt: "Alt", Shift: "Shift", Meta: platform === "windows" ? "Win" : "Cmd" };
-          var parts = ["Fn", "Ctrl", "Alt", "Shift", "Meta"].filter(function (m) { return a.patch.hotkey.modifiers.indexOf(m) !== -1; }).map(function (m) { return names[m]; });
-          if (a.patch.hotkey.key) parts.push(a.patch.hotkey.key);
-          data.hotkeyDisplay = parts.join(" + ");
+        if (a.patch.autostart !== undefined) {
+          data.autostartEnabled = a.patch.autostart;
+          if (a.patch.autostart) data.installed = true; // turning it on installs the app first
+          bus.emit("notice", { message: a.patch.autostart ? "Installed local-stt and set it to open at login." : "Start at login is off." });
         }
+        if (a.patch.hotkey) data.hotkeyDisplay = comboText(a.patch.hotkey);
+        if (a.patch.toggle_hotkey !== undefined) data.toggleDisplay = a.patch.toggle_hotkey ? comboText(a.patch.toggle_hotkey) : null;
         return data.config;
+      },
+      install_app: function () {
+        window.__calls.push("install_app");
+        data.installed = true;
+        return platform === "windows"
+          ? "Added local-stt to the Start menu and set up the local-stt command."
+          : "Installed local-stt in Applications and set up the local-stt command.";
       },
       get_history: function () { return data.history; },
       clear_history: function () { data.history = []; },
@@ -331,12 +373,28 @@
       },
       reset_overlay_position: function () { window.__calls.push("reset_overlay_position"); },
       move_overlay: function (a) { window.__calls.push("move_overlay:" + a.on); },
-      start_hotkey_capture: function () {
+      // like the app: it saves the captured combo into the slot's config field, then reports it
+      start_hotkey_capture: function (a) {
+        var slot = (a && a.slot) || "hold";
+        window.__cfg.push("start_hotkey_capture:" + slot);
         captureTimer = setTimeout(function () {
-          bus.emit("hotkey-captured", { combo: { modifiers: ["Ctrl", "Alt"], key: "Space" }, display: "Ctrl + Alt + Space" });
+          var field = slot === "toggle" ? "toggle_hotkey" : "hotkey";
+          if (window.__captureError) {
+            var kept = data.config[field];
+            bus.emit("hotkey-captured", { slot: slot, combo: kept, display: kept ? comboText(kept) : null, error: window.__captureError });
+            return;
+          }
+          var combo = slot === "toggle" ? { modifiers: ["Ctrl", "Alt"], key: "H" } : { modifiers: ["Ctrl", "Alt"], key: "Space" };
+          data.config[field] = combo;
+          if (slot === "toggle") data.toggleDisplay = comboText(combo);
+          else data.hotkeyDisplay = comboText(combo);
+          bus.emit("hotkey-captured", { slot: slot, combo: combo, display: comboText(combo), error: null });
         }, 2200);
       },
-      cancel_hotkey_capture: function () { clearTimeout(captureTimer); },
+      cancel_hotkey_capture: function () {
+        window.__cfg.push("cancel_hotkey_capture");
+        clearTimeout(captureTimer);
+      },
       choose_model: function (a) {
         window.__calls.push("choose_model:" + a.id);
         var fit = data.models.filter(function (m) { return m.id === a.id; })[0];
@@ -366,6 +424,7 @@
       }
     };
     bus = makeBus(commands);
+    window.__emit = bus.emit; // lets the checks send app events
 
     var frame = el("div", "pv-window");
     frame.style.height = (parseInt(params.get("h"), 10) || 520) + "px";

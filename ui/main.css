@@ -203,6 +203,20 @@ body {
 .btn-quiet { background: transparent; color: var(--accent-ink); padding: 0 6px; }
 .btn-action { background: var(--blue-tint); color: var(--accent-ink); }
 
+/* a finished state that still reads as a button: check plus label, full ink though disabled */
+.btn-done {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: var(--green-tint);
+}
+
+/* the extra class is needed: ".mw button" sets color: inherit and would win */
+.mw .btn-done { color: var(--green-ink); }
+
+.btn-done:disabled { opacity: 1; }
+.btn-done .ic { width: 12px; height: 12px; stroke-width: 2.4; }
+
 .icon-btn {
   display: grid;
   place-items: center;
@@ -725,10 +739,11 @@ body {
 .toast {
   max-width: 80%;
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: 18px;
   background: var(--surface);
   box-shadow: var(--shadow-pop);
   font-weight: 500;
+  text-align: center;
   opacity: 0;
   transform: translateY(8px) scale(0.97);
   transition: opacity 200ms ease, transform 200ms var(--ease-out);

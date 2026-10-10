@@ -314,7 +314,9 @@
       var previous = status;
       // the app hides the window itself on cancel and on leaving positioning, so JS never saw a hide
       var reopened = (next === "recording" || next === "positioning") && (previous === "recording" || previous === "positioning");
-      if (reopened) visible = false;
+      // the switch to hands-free resends the same recording start, so the pill stays up and only the label changes
+      var sameRecording = next === "recording" && previous === "recording" && startedAtMs !== null && Number(payload.startedAtMs) === startedAtMs;
+      if (reopened && !sameRecording) visible = false;
       status = next;
       root.dataset.state = next;
       var text_ = typeof payload.label === "string" && payload.label !== "" ? payload.label : DEFAULT_LABELS[next];
