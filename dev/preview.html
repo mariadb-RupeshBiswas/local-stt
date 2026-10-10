@@ -380,7 +380,7 @@
       config: {
         hotkey: hold,
         toggle_hotkey: toggle,
-        smart_format: true, live_transcription: true,
+        smart_format: true, live_transcription: true, check_updates: true, skip_update: null,
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", autostart: false, model: "small"
@@ -405,6 +405,7 @@
       hotkeyDisplay: comboText(hold),
       toggleDisplay: toggle ? comboText(toggle) : null,
       installed: params.get("installed") === "1",
+      update: params.get("update") === "1" ? { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" } : null,
       history: empty ? [] : entries
     };
   }
@@ -436,6 +437,34 @@
         if (a.patch.toggle_hotkey !== undefined) data.toggleDisplay = a.patch.toggle_hotkey ? comboText(a.patch.toggle_hotkey) : null;
         return data.config;
       },
+      check_for_updates: function () {
+        window.__cfg.push("check_for_updates");
+        // the app answers in the background: a new version, or a notice that nothing is new
+        setTimeout(function () {
+          if (params.get("checkfinds") === "1") {
+            data.update = { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" };
+            bus.emit("update-available", data.update);
+          } else {
+            bus.emit("notice", { message: "local-stt 0.1.0 is up to date." });
+          }
+        }, 700);
+      },
+      install_update: function () {
+        window.__calls.push("install_update");
+        var failure = window.__installError;
+        window.__installError = "";
+        return new Promise(function (resolve, reject) {
+          setTimeout(function () {
+            if (failure) reject(failure);
+            else resolve("Updated to 0.2.0. local-stt will restart in a moment.");
+          }, 600);
+        });
+      },
+      skip_update: function () {
+        window.__calls.push("skip_update");
+        data.config.skip_update = data.update ? data.update.latest : null; // like the app, the offer itself stays in state
+      },
+      open_release_notes: function () { window.__calls.push("open_release_notes"); },
       install_app: function () {
         window.__calls.push("install_app");
         data.installed = true;

@@ -28,6 +28,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "um" are removed, and spacing is fixed before pasting.
 - Live transcription popover above the pill (below it near the top of the screen) that shows
   your latest words while you speak, with a Live transcription setting.
+- Update banner at the top of the main window (Install and Restart, Release Notes, Later,
+  Skip This Version), plus Check for Updates and Check automatically in Settings.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
 

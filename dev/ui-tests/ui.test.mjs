@@ -901,6 +901,174 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: update banner ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  const btn = (name) => banner.getByRole("button", { name, exact: true });
+  const focusedClass = () => page.evaluate(() => document.activeElement.className);
+  check("update from get_state shows the banner with both versions", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "local-stt 0.2.0 is available. You have 0.1.0.");
+  check("banner is a labelled region", (await banner.getAttribute("role")) === "region" && (await banner.getAttribute("aria-label")) === "Software update");
+  check("banner offers Install and Restart, Release Notes, Later, Skip This Version", (await banner.locator("button").allTextContents()).join("|") === "Install and Restart|Release Notes|Later|Skip This Version");
+  const heights = await banner.locator("button").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
+  check("banner buttons are 28 pt targets", heights.every((h) => h >= 28), heights);
+  const layout = await page.evaluate(() => ({
+    toolbar: document.querySelector(".mw-toolbar").getBoundingClientRect().bottom,
+    banner: document.querySelector(".mw-banner").getBoundingClientRect(),
+    content: document.querySelector(".history-bar").getBoundingClientRect().top,
+  }));
+  check("banner sits under the tabs and above the content, not over either", layout.banner.top >= layout.toolbar && layout.content >= layout.banner.bottom, layout);
+  check("Install and Restart is the primary action", (await btn("Install and Restart").evaluate((e) => e.classList.contains("btn-action"))) && (await btn("Later").evaluate((e) => e.classList.contains("btn-quiet"))));
+
+  await btn("Release Notes").click();
+  await page.waitForTimeout(150);
+  check("Release Notes calls open_release_notes and keeps the banner", (await calls(page)).includes("open_release_notes") && (await banner.isVisible()));
+  await btn("Later").click();
+  await page.waitForTimeout(150);
+  check("Later hides the banner and gives the content its room back", (await banner.isHidden()) && (await page.evaluate(() => !document.querySelector(".mw").classList.contains("has-banner"))));
+  check("Later calls neither skip nor install", !(await calls(page)).some((c) => c === "skip_update" || c === "install_update"));
+  check("focus moves to the tab when the banner closes", (await page.evaluate(() => document.activeElement.id)) === "tab-history");
+  await page.evaluate(() => window.__emit("show-update", {}));
+  await page.waitForTimeout(150);
+  check("show-update brings the banner back and focuses Install and Restart", (await banner.isVisible()) && (await focusedClass()).includes("btn-install"), await focusedClass());
+  await btn("Later").click();
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(150);
+  check("a fresh update-available shows the banner again after Later", await banner.isVisible());
+  check("no page errors (banner)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  await banner.getByRole("button", { name: "Skip This Version", exact: true }).click();
+  await page.waitForTimeout(300);
+  check("Skip This Version calls skip_update and hides the banner", (await calls(page)).includes("skip_update") && (await banner.isHidden()));
+  check("skipping re-reads state", (await page.evaluate(() => window.__cfg.filter((c) => c === "get_state").length)) >= 2);
+  check("a skipped version stays hidden after state is re-read", await banner.isHidden());
+  await page.evaluate(() => window.__emit("show-tab", { tab: "settings" }));
+  await page.getByRole("switch", { name: "Sounds" }).click();
+  await page.waitForTimeout(250);
+  check("a skipped version stays hidden after other settings change", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(150);
+  check("a manual check that finds the skipped version shows the banner again", await banner.isVisible());
+  await banner.getByRole("button", { name: "Skip This Version", exact: true }).click();
+  await page.waitForTimeout(300);
+  check("skipping again hides it again", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.3.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(150);
+  check("a newer version than the skipped one shows the banner", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "local-stt 0.3.0 is available. You have 0.1.0.");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  await banner.getByRole("button", { name: "Install and Restart", exact: true }).click();
+  await page.waitForTimeout(200);
+  const busy = await banner.evaluate((b) => ({ install: b.querySelector(".btn-install").textContent, spinner: b.querySelectorAll(".btn-install .spin").length, disabled: [...b.querySelectorAll("button")].map((x) => x.disabled).join() }));
+  check("Install shows Installing... with a spinner and disables every button", busy.install === "Installing..." && busy.spinner === 1 && busy.disabled === "true,true,true,true", busy);
+  check("Install calls install_update once", (await calls(page)).filter((c) => c === "install_update").length === 1);
+  const spin = await banner.locator(".spin").evaluate((e) => getComputedStyle(e).animationName);
+  check("the spinner turns when motion is allowed", spin === "spin", spin);
+  await page.waitForTimeout(800);
+  check("Install ends with a toast and the banner steps aside", (await page.locator(".toast").textContent()) === "Updated to 0.2.0. local-stt will restart in a moment." && (await banner.isHidden()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1&reduce=1", { reduced: true });
+  await page.locator(".btn-install").click();
+  await page.waitForTimeout(150);
+  const spin = await page.locator(".mw-banner .spin").evaluate((e) => getComputedStyle(e).animationName);
+  check("reduced motion stops the spinner", spin === "none", spin);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&update=1");
+  const banner = page.locator(".mw-banner");
+  await page.evaluate(() => { window.__installError = "Couldn't download the update. Check your connection."; });
+  await banner.locator(".btn-install").click();
+  await page.waitForTimeout(900);
+  const failed = await banner.evaluate((b) => ({ install: b.querySelector(".btn-install").textContent, error: b.querySelector(".banner-error") && b.querySelector(".banner-error").textContent, role: b.querySelector(".banner-error") && b.querySelector(".banner-error").getAttribute("role"), disabled: [...b.querySelectorAll("button")].map((x) => x.disabled).join(), focus: document.activeElement.className }));
+  check("a failed install shows the error inline with Try Again and re-enables the buttons", failed.install === "Try Again" && failed.error === "Couldn't download the update. Check your connection." && failed.role === "alert" && failed.disabled === "false,false,false,false", failed);
+  check("focus lands on Try Again", failed.focus.includes("btn-install"), failed.focus);
+  await banner.locator(".btn-install").click();
+  await page.waitForTimeout(900);
+  check("Try Again installs and clears the error", (await calls(page)).filter((c) => c === "install_update").length === 2 && (await banner.isHidden()) && (await page.locator(".toast").count()) === 1);
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light");
+  const banner = page.locator(".mw-banner");
+  check("no update means no banner", await banner.isHidden());
+  await page.evaluate(() => { window.__emit("update-available", null); window.__emit("update-available", "x"); window.__emit("update-available", { available: true }); window.__emit("show-update", {}); });
+  await page.waitForTimeout(200);
+  check("bad update payloads and show-update without an offer change nothing", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: false, notesUrl: "https://example.invalid/n" }));
+  check("update-available with available false shows no banner", await banner.isHidden());
+  await page.evaluate(() => window.__emit("update-available", { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/n" }));
+  await page.waitForTimeout(200);
+  check("update-available shows the banner", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "local-stt 0.2.0 is available. You have 0.1.0.");
+  check("the new offer is announced to screen readers", (await page.locator(".sr-only[role=status]").textContent()) === "local-stt 0.2.0 is available.");
+  check("no page errors (update events)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: Settings, updates ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Updates" }) });
+  const button = row.locator(".btn");
+  const titles = await page.locator(".srow-title").allTextContents();
+  check("Settings > General has Updates and Check automatically rows", titles.includes("Updates") && titles.includes("Check automatically"), titles);
+  check("Updates row shows the version", (await row.locator(".srow-desc").textContent()) === "local-stt 0.1.0");
+  check("Check for Updates is an enabled 28 pt button", (await button.textContent()) === "Check for Updates" && (await button.isEnabled()) && (await button.boundingBox()).height >= 28);
+  await button.click();
+  await page.waitForTimeout(250);
+  check("Check for Updates asks the app and shows Checking...", (await page.evaluate(() => window.__cfg.includes("check_for_updates"))) && (await button.textContent()) === "Checking..." && (await button.isDisabled()));
+  await page.waitForTimeout(900);
+  check("a notice ends the check, toasts it and restores the button", (await page.locator(".toast").textContent()) === "local-stt 0.1.0 is up to date." && (await button.textContent()) === "Check for Updates" && (await button.isEnabled()));
+  const auto = page.getByRole("switch", { name: "Check automatically" });
+  check("Check automatically copy", (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Check automatically" }) }).locator(".srow-desc").textContent()) === "Looks for a new version once a day. Only the request is sent.");
+  check("Check automatically starts on", (await auto.getAttribute("aria-checked")) === "true");
+  await auto.click();
+  await page.waitForTimeout(250);
+  check("Check automatically sends check_updates false", (await page.evaluate(() => window.__cfg.includes('set_config:{"check_updates":false}'))) && (await auto.getAttribute("aria-checked")) === "false");
+  check("no page errors (updates row)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200&checkfinds=1", { tall: true });
+  const button = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Updates" }) }).locator(".btn");
+  await button.click();
+  await page.waitForTimeout(250);
+  check("Checking... shows while the app looks", (await button.textContent()) === "Checking...");
+  await page.waitForTimeout(900);
+  check("update-available ends the check and shows the banner", (await button.textContent()) === "Check for Updates" && (await page.locator(".mw-banner").isVisible()));
+  await ctx.close();
+}
+for (const dark of [false, true]) {
+  const mode = dark ? "dark" : "light";
+  const probe = async (query, sel, token, before) => {
+    const { page, ctx } = await open(query + "&scheme=" + mode, { dark });
+    if (before) await before(page);
+    const r = await page.evaluate(inkScript, [sel, token, ".mw-banner"]);
+    await ctx.close();
+    return r;
+  };
+  const verdict = (r) => r !== null && r.color === r.expected && r.ratio >= 4.5;
+  const install = await probe("?view=main&tab=history&update=1", ".btn-install", "accent-ink");
+  check(mode + ": Install and Restart passes 4.5:1", verdict(install), install);
+  const quiet = await probe("?view=main&tab=history&update=1", ".mw-banner .btn-quiet", "accent-ink");
+  check(mode + ": banner quiet buttons pass 4.5:1", verdict(quiet), quiet);
+  const error = await probe("?view=main&tab=history&update=1", ".banner-error", "red-ink", async (page) => {
+    await page.evaluate(() => { window.__installError = "Couldn't download the update."; });
+    await page.locator(".btn-install").click();
+    await page.waitForTimeout(900);
+  });
+  check(mode + ": banner error text passes 4.5:1", verdict(error), error);
+}
+
 // ---------- static hygiene ----------
 {
   const files = ["main.js", "overlay.js", "live.js", "main.css", "overlay.css", "live.css", "tokens.css", "main.html", "overlay.html", "live.html"].map((f) => [f, fs.readFileSync(ROOT + "/ui/" + f, "utf8")]);
