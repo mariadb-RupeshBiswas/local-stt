@@ -9,7 +9,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 ### Added
 
 - Push-to-talk dictation for macOS and Windows with a configurable shortcut
-  (default Fn + Shift on macOS, Ctrl + Alt on Windows), hold or toggle mode, Esc to cancel.
+  (default Fn + Shift on macOS, Ctrl + Alt on Windows), Esc to cancel.
 - Local speech recognition with whisper.cpp compiled in; English output by default with
   optional keep-spoken-language mode.
 - Model picker with hardware check (RAM, CPU, GPU, free disk): Whisper Small (default),
@@ -18,7 +18,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   drag anywhere on any monitor with edge and corner snapping, reduced-motion support.
 - Main window with searchable history, model tab and settings.
 - Clipboard copy and automatic paste, optional clipboard restore, start and stop sounds.
-- `local-stt doctor` hardware report, `local-stt fetch-model`, `--autostart on|off`.
+- CLI: `doctor` (hardware report), `fetch-model`, `install`, `uninstall`, `check-update`,
+  `demo` (a scripted tour with sample data), `--autostart on|off`.
 - Hands-free shortcut: press once to start listening and again to stop, set in Settings
   next to Push to talk (adding its extra key while holding push to talk switches over).
   Hands-free can be turned off.
@@ -30,8 +31,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   your latest words while you speak, with a Live transcription setting.
 - Update banner at the top of the main window (Install and Restart, Release Notes, Later,
   Skip This Version), plus Check for Updates and Check automatically in Settings.
+- Daily update check against PyPI (can be turned off), shown as a tray menu item, never a pop-up.
+- Windows end-to-end CI job: installs the wheel, checks the Start menu shortcut and terminal
+  command, downloads the model, holds Ctrl + Alt and checks the pill appears, then uninstalls.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
+
+### Fixed
+
+- Quitting no longer aborts with a Metal assertion: the speech engine is freed before exit.
+- Words from consecutive speech segments no longer run together ("hereSo").
+- A transcript of only "uh" or "um" is reported as no speech instead of pasting nothing.
 
 ### Security
 

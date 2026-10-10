@@ -23,19 +23,23 @@ uvx local-stt
 
 - **Free forever.** MIT licensed open source. No trial, no paid tier, no usage limits.
 - **Private by design.** Your voice is turned into text on your own computer. Audio never leaves your device and is never written to disk.
-- **Works offline.** After a one-time model download, no internet connection is needed.
+- **Works offline.** After a one-time model download, dictation never needs the internet.
 - **Push-to-talk voice typing everywhere.** Mail, Slack, docs, your code editor, the browser: if it has a text cursor, local-stt can type into it.
 - **Speaks your language.** Dictate in English or Hindi (and the other languages Whisper knows). By default everything comes out as English text.
 - **Small and fast.** The default model is 181 MB. On an Apple M4 Pro a short sentence comes back in about half a second.
-- **No telemetry.** No analytics, no crash reporting, no update pings, no account.
+- **Hands-free when you want it.** Hold to talk, or press a second shortcut to keep listening while you think out loud.
+- **Live preview, tidy result.** See your words as you speak; Smart formatting turns "point one, point two" into a numbered list.
+- **No telemetry.** No analytics, no crash reporting, no account. The only optional ping is a once-a-day version check you can switch off.
 
 ## How it works
 
 ![Recording pill in its states](docs/screenshots/overlay-states-light.png)
 
 1. Hold **Fn + Shift** on a Mac, or **Ctrl + Alt** on Windows. Change it any time in Settings.
-2. Speak. A small glass recording pill shows a red dot and your live microphone level.
-3. Let go. Your words are transcribed on your laptop, copied to the clipboard and pasted where your cursor is.
+2. Speak. A small glass recording pill shows a red dot and your live microphone level, with a live preview of your words above it.
+3. Let go. Your words are transcribed on your laptop, tidied, copied to the clipboard and pasted where your cursor is.
+
+**Hands-free:** press **Fn + Shift + Space** (Windows: **Ctrl + Alt + Space**) to start listening, and press it again to stop. Already holding push-to-talk? Add Space to switch to hands-free without stopping. **Esc** cancels either way. A single recording stops and pastes after 5 minutes.
 
 Every dictation is kept in a local history you can search and copy from, or you can switch history off.
 
@@ -47,11 +51,12 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/), the fast
 
 ```bash
 uvx local-stt                # try it right now
-uv tool install local-stt    # keep it installed
-local-stt --autostart on     # start it when you log in (after uv tool install)
+uvx local-stt install        # add it to Applications (Spotlight) or the Start menu, plus a terminal command
+local-stt --autostart on     # start it when you log in
+uvx local-stt demo           # a 30-second tour with sample data; nothing is recorded or pasted
 ```
 
-On first start local-stt downloads the default speech model (181 MB, checked against a pinned SHA-256 checksum) and puts a microphone icon in your menu bar or system tray.
+On first start local-stt downloads the default speech model (181 MB, checked against a pinned SHA-256 checksum) and puts a microphone icon in your menu bar or system tray. **Settings > General > Install** does the same as `install`, and turning on **Start at login** installs it first if needed.
 
 ### First run on macOS
 
@@ -70,17 +75,20 @@ Open the app from the menu bar or tray icon.
 
 | Setting | What it does | Default |
 |---|---|---|
-| Shortcut | Any combo with at least one modifier, for example Fn + Shift or Ctrl + Alt + Space | Fn + Shift (Mac), Ctrl + Alt (Windows) |
-| Mode | Hold to talk, or press once to start and again to stop | Hold to talk |
+| Push to talk | Hold to talk, release to paste. Any combo with at least one modifier | Fn + Shift (Mac), Ctrl + Alt (Windows) |
+| Hands-free | Press once to start listening, again to stop; can be turned off | Fn + Shift + Space (Mac), Ctrl + Alt + Space (Windows) |
 | Output language | English (translate) or keep the language you spoke | English |
 | Spoken language | Auto-detect or a fixed language | Auto-detect |
 | Paste | Paste into the focused app, or only copy to the clipboard | Paste |
+| Smart formatting | Numbered lists from "point one, point two", removes "uh" and "um", fixes spacing | On |
 | Restore clipboard | Put your previous clipboard back after pasting | Off |
 | Microphone | System default or a specific input | System default |
 | Recording style | Pill, Waveform or Minimal | Pill |
+| Live transcription | Shows your words above the pill while you speak (the pasted text is the final, more accurate pass) | On |
 | Sounds | Short start and stop sounds | On |
 | History | Keep a local history of dictations | On |
 | Start at login | Launch quietly when you log in | Off |
+| Check for updates | Looks for a new version once a day; an update shows as a menu item and a banner, never a pop-up | On |
 
 The recording pill can be dragged anywhere, on any monitor. It snaps to corners and edges and remembers where you put it.
 
@@ -101,7 +109,7 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 ## Privacy and security
 
 - Speech recognition runs locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Audio stays in memory and is discarded after each dictation.
-- The only network request the app ever makes is downloading a model from Hugging Face over HTTPS, verified against a pinned checksum on download and again when it loads.
+- The app makes only two kinds of network request: downloading a model from Hugging Face over HTTPS (verified against a pinned checksum on download and again when it loads), and, unless you turn it off, a once-a-day version check against pypi.org that sends nothing but the request itself.
 - Text is put on the clipboard marked as private, so clipboard managers, Windows clipboard history and cloud clipboard skip it. On a Mac with Handoff on, Universal Clipboard can still pass it to your own nearby devices.
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
 - History and settings are plain local files readable only by your user account. History can be switched off or cleared at any time.
@@ -126,10 +134,14 @@ Yes, Windows 10 and 11 on x64. The default shortcut is Ctrl + Alt.
 **How is this different from built-in dictation?**
 It runs a model you choose, entirely on your device, translates to English if you want, keeps a searchable history, and works the same way on Mac and Windows.
 
+## Updating
+
+local-stt checks for a new version once a day (Settings > General > Check automatically). When one is out you see an "Update to ..." item in the menu bar or tray and a banner in the app with **Install and Restart**, **Release Notes**, **Later** and **Skip This Version**. From a terminal: `local-stt check-update`.
+
 ## Uninstall
 
 ```bash
-uv tool uninstall local-stt
+local-stt uninstall          # removes the app, the terminal command and the login item
 ```
 
 Your settings, history and models live in `~/Library/Application Support/local-stt` (macOS) or `%APPDATA%\local-stt` (Windows). Delete that folder to remove everything.

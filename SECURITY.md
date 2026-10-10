@@ -17,14 +17,18 @@ steps to reproduce and the impact you see.
 
 | Resource | Why | When |
 |---|---|---|
-| Microphone | Record your speech | Only while the shortcut is held (or between presses in toggle mode) |
+| Microphone | Record your speech | Only while the push-to-talk shortcut is held, or between the two presses of the hands-free shortcut |
 | Keyboard events | Detect the shortcut | Always while running; only the keys currently held are kept in memory to match the shortcut, never recorded, stored or sent |
 | Synthetic paste keystroke | Type the text for you | After each dictation, when Paste is on |
 | Clipboard (write, marked private) | Hand over the text; clipboard managers, Windows clipboard history and cloud clipboard skip it. macOS Universal Clipboard may still share it with your own nearby devices when Handoff is on | After each dictation |
 | Network | Download a model from `huggingface.co` over HTTPS | First run and when you choose another model |
+| Network | Ask `pypi.org` for the latest version number (nothing else is sent) | 30 s after start, then once a day; Settings > Check automatically turns it off |
+| Running uv | Install a newer release you chose to install | Only when you click Install and Restart |
 | Files in the app data folder | Settings, history, models | Always; created readable only by your user |
+| Install locations | `~/Applications/local-stt.app` and `~/.local/bin/local-stt` (macOS); `%LOCALAPPDATA%\Programs\local-stt`, a Start menu shortcut and `~\.local\bin\local-stt.cmd` (Windows) | Only when you install; uninstall removes exactly these and never a file it did not create |
+| Login item | `~/Library/LaunchAgents/io.github.localstt.plist` (macOS) or a `HKCU\...\Run` value (Windows) | Only when Start at login is on |
 
-The app sends nothing anywhere: no telemetry, no crash reports, no update checks.
+The app sends no telemetry and no crash reports, and has no account.
 
 ## Supply chain
 

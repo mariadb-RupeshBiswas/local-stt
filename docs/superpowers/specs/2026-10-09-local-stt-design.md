@@ -306,6 +306,20 @@ Repository and CI:
 - Search metadata: GitHub topics, PyPI keywords and classifiers in `pyproject.toml`,
   crates.io keywords and categories in `Cargo.toml`.
 
+## Added after the first review (2026-10-10)
+
+Requested by the owner while testing; each is implemented and tested.
+
+| Feature | Design |
+|---|---|
+| Hands-free | Second shortcut (default Fn+Shift+Space / Ctrl+Alt+Space): press to start, press again to stop. The hotkey core emits `Toggle` before `Released`, so adding Space to a push-to-talk hold converts it in place. Esc cancels either. The old "mode" setting is gone. |
+| Install | `local-stt install` / Settings > Install: `~/Applications/local-stt.app` (ad-hoc signed, Spotlight indexes it) and a `~/.local/bin` symlink on macOS; `%LOCALAPPDATA%\Programs\local-stt`, a Start menu shortcut and a `.cmd` shim on Windows. Uninstall removes only what it created. Start at login installs first when run from the uvx cache. |
+| Smart formatting | On by default. Spoken "point one ... point two" becomes a numbered list only when the points count up from one; fillers (uh, um) and their commas are dropped; missing spaces after sentences are fixed. Pure, tested function `format::tidy`. |
+| Live transcription | On by default. While recording, the last 18 s are re-transcribed about every 800 ms (one job in flight, silent tails skipped, never ahead of the final pass) and shown in a second non-focusable window above the pill (below it near the top edge). Typing live into the focused app was rejected: Whisper revises earlier words, which would mean synthetic backspacing into someone else's document. |
+| Updates | Daily PyPI version check (setting, on by default; only the request is sent). Shown as a tray item and an in-app banner (Install and Restart, Release Notes, Later, Skip This Version), never a modal, following Sparkle and Rogue Amoeba guidance. Install runs `uv tool run --from local-stt==X local-stt install` with a validated version string, then restarts. |
+| Demo | `local-stt demo`: scripted tour with sample history in a throwaway data folder; no hook, no network, no recording or pasting. Used for README screenshots. |
+| Clean quit | The whisper context is freed on exit; ggml's Metal backend otherwise asserts at process exit (found in a real run, reproduced and fixed A/B, now a CI step). |
+
 ## Out of scope
 
 More than three models, live streaming text, code signing and
