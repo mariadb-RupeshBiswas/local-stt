@@ -92,12 +92,21 @@ extern "C" void lstt_free(void * ctx) {
 // Points this process's error output (fd 2 and C stderr) at a log file, so a native abort's reason is kept.
 #ifdef _WIN32
 #include <cstdio>
+#include <fcntl.h>
 #include <io.h>
+#include <share.h>
+#include <sys/stat.h>
 #include <windows.h>
 extern "C" int lstt_redirect_stderr(const wchar_t * path) {
+    int fd = -1;
+    // Shared, so the report can read the file and Off can point stderr elsewhere while the app runs.
+    if (_wsopen_s(&fd, path, _O_WRONLY | _O_CREAT | _O_APPEND | _O_BINARY, _SH_DENYNO, _S_IREAD | _S_IWRITE) != 0) return -1;
     FILE * f = nullptr;
-    // A GUI process may start with no stderr at all; reopening sets up both the stream and fd 2.
-    if (_wfreopen_s(&f, path, L"ab", stderr) != 0 || f == nullptr) return -1;
+    // A GUI process may start with no stderr stream; NUL gives it one on fd 2 to point at the file.
+    if (_wfreopen_s(&f, L"NUL", L"ab", stderr) != 0 || f == nullptr) { _close(fd); return -1; }
+    int ok = _dup2(fd, _fileno(stderr));
+    _close(fd);
+    if (ok != 0) return -1;
     setvbuf(stderr, nullptr, _IONBF, 0);
     SetStdHandle(STD_ERROR_HANDLE, (HANDLE) _get_osfhandle(_fileno(stderr)));
     return 0;

@@ -308,7 +308,7 @@ mod platform {
     const MARKER: &str = ".installed-by-local-stt";
 
     fn run_powershell(script: &str, env: &[(&str, &Path)]) -> Result<String, String> {
-        let mut cmd = std::process::Command::new(powershell());
+        let mut cmd = crate::proc::command(powershell());
         cmd.args([
             "-NoProfile",
             "-NonInteractive",
@@ -393,7 +393,7 @@ mod platform {
             if running_from_dir {
                 // Let a detached PowerShell remove the folder once this process has exited.
                 let script = "Start-Sleep -Seconds 3; Remove-Item -LiteralPath $env:LSTT_DIR -Recurse -Force";
-                let spawned = std::process::Command::new(powershell())
+                let spawned = crate::proc::command(powershell())
                     .args([
                         "-NoProfile",
                         "-NonInteractive",

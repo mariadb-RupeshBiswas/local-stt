@@ -8,6 +8,9 @@ use std::sync::Mutex;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct Entry {
+    /// Names the entry for delete; 0 on entries saved before ids existed, which go by ts_ms.
+    #[serde(default)]
+    pub id: u64,
     pub ts_ms: u64,
     pub text: String,
     pub duration_ms: u64,
@@ -29,9 +32,8 @@ fn file_lock() -> std::sync::MutexGuard<'static, ()> {
 pub fn append(path: &Path, e: &Entry) -> std::io::Result<()> {
     let _guard = file_lock();
     let mut e = e.clone();
-    // ts_ms is the id delete() goes by, so it stays unique even when the clock steps back.
-    if let Some(newest) = read_newest_first(path, 1)?.first() {
-        e.ts_ms = e.ts_ms.max(newest.ts_ms + 1);
+    if e.id == 0 {
+        e.id = new_id();
     }
     append_line(path, &e)?;
     trim_if_large(path, TRIM_ABOVE_BYTES, KEEP_ENTRIES)
@@ -39,10 +41,22 @@ pub fn append(path: &Path, e: &Entry) -> std::io::Result<()> {
 
 #[derive(Deserialize)]
 struct Stamp {
+    #[serde(default)]
+    id: u64,
     ts_ms: u64,
 }
 
-/// Removes the entries with these timestamps (their ids) and returns how many went.
+// Random below 2^53, so the UI's JavaScript numbers hold it exactly.
+fn new_id() -> u64 {
+    use std::hash::BuildHasher;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNT: AtomicU64 = AtomicU64::new(0);
+    let seed = (crate::app::now_ms(), COUNT.fetch_add(1, Ordering::Relaxed));
+    let id = std::collections::hash_map::RandomState::new().hash_one(seed) >> 11;
+    id.max(1)
+}
+
+/// Removes the entries with these ids (ts_ms for old entries without one) and returns how many went.
 pub fn delete(path: &Path, ids: &HashSet<u64>) -> std::io::Result<usize> {
     let _guard = file_lock();
     let bytes = match std::fs::read(path) {
@@ -54,7 +68,10 @@ pub fn delete(path: &Path, ids: &HashSet<u64>) -> std::io::Result<usize> {
     let mut kept = Vec::with_capacity(bytes.len());
     let mut removed = 0;
     for line in bytes.split(|b| *b == b'\n').filter(|l| !l.is_empty()) {
-        let chosen = serde_json::from_slice::<Stamp>(line).is_ok_and(|s| ids.contains(&s.ts_ms));
+        let chosen = serde_json::from_slice::<Stamp>(line).is_ok_and(|s| {
+            let key = if s.id != 0 { s.id } else { s.ts_ms };
+            ids.contains(&key)
+        });
         if chosen {
             removed += 1;
         } else {
@@ -151,6 +168,7 @@ mod tests {
     }
     fn e(ts: u64, t: &str) -> Entry {
         Entry {
+            id: 0,
             ts_ms: ts,
             text: t.into(),
             duration_ms: 1000,
@@ -216,7 +234,13 @@ mod tests {
         for i in 1..=5 {
             append(&p, &e(i, &format!("t{i}"))).unwrap();
         }
-        let gone = delete(&p, &HashSet::from([2, 4, 99])).unwrap();
+        let ids: Vec<u64> = read_newest_first(&p, 10)
+            .unwrap()
+            .iter()
+            .map(|x| x.id)
+            .collect();
+        // newest first: ids[3] is ts 2, ids[1] is ts 4
+        let gone = delete(&p, &HashSet::from([ids[3], ids[1], 99])).unwrap();
         assert_eq!(gone, 2);
         let left = read_newest_first(&p, 10).unwrap();
         assert_eq!(
@@ -237,24 +261,37 @@ mod tests {
         )
         .unwrap();
         append(&p, &e(2, "b")).unwrap();
-        assert_eq!(delete(&p, &HashSet::from([1])).unwrap(), 1);
+        let first = read_newest_first(&p, 10).unwrap()[1].id;
+        assert_eq!(delete(&p, &HashSet::from([first])).unwrap(), 1);
         let raw = std::fs::read_to_string(&p).unwrap();
         assert!(raw.contains("{\"torn"), "{raw}");
         assert_eq!(read_newest_first(&p, 10).unwrap().len(), 1);
     }
     #[test]
-    fn stamps_stay_unique_when_the_clock_repeats() {
+    fn same_millisecond_entries_keep_their_time_and_get_their_own_ids() {
         let p = tmp("uniq");
         let _ = clear(&p);
         append(&p, &e(500, "a")).unwrap();
         append(&p, &e(500, "b")).unwrap();
-        append(&p, &e(0, "c")).unwrap();
-        let ts: Vec<u64> = read_newest_first(&p, 10)
-            .unwrap()
+        let both = read_newest_first(&p, 10).unwrap();
+        assert!(both
             .iter()
-            .map(|x| x.ts_ms)
-            .collect();
-        assert_eq!(ts, vec![502, 501, 500]);
+            .all(|x| x.ts_ms == 500 && x.id > 0 && x.id < (1 << 53)));
+        assert_ne!(both[0].id, both[1].id);
+        assert_eq!(delete(&p, &HashSet::from([both[0].id])).unwrap(), 1);
+        assert_eq!(read_newest_first(&p, 10).unwrap()[0].text, "a");
+    }
+    #[test]
+    fn old_entries_without_an_id_are_deleted_by_time() {
+        let p = tmp("legacy");
+        let _ = clear(&p);
+        std::fs::write(
+            &p,
+            "{\"ts_ms\":7,\"text\":\"old\",\"duration_ms\":1,\"model\":\"m\",\"ok\":true}\n",
+        )
+        .unwrap();
+        assert_eq!(read_newest_first(&p, 1).unwrap()[0].id, 0);
+        assert_eq!(delete(&p, &HashSet::from([7])).unwrap(), 1);
     }
     #[test]
     fn delete_on_missing_file_is_zero() {

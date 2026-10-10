@@ -361,8 +361,8 @@
     var day = 24 * hour;
     var empty = params.get("empty") === "1";
     var entries = [
-      { ts_ms: now - 3 * minute, text: "Please check the September billing numbers before the meeting tomorrow.", duration_ms: 3200, model: "small", ok: true },
-      { ts_ms: now - 41 * minute, text: "Here are the notes from the planning call. First, the pricing page needs a clearer comparison between the monthly and annual plans. Second, the onboarding email should mention the free trial limit in the first paragraph. Third, we agreed to review the churn dashboard on Thursday and decide whether to split the Cloud and On-prem views. Finally, please send the updated slide deck to the whole team before the end of the day so everyone can comment.", duration_ms: 27800, model: "small", ok: true },
+      { id: 9001, ts_ms: now - 3 * minute, text: "Please check the September billing numbers before the meeting tomorrow.", duration_ms: 3200, model: "small", ok: true },
+      { id: 9002, ts_ms: now - 41 * minute, text: "Here are the notes from the planning call. First, the pricing page needs a clearer comparison between the monthly and annual plans. Second, the onboarding email should mention the free trial limit in the first paragraph. Third, we agreed to review the churn dashboard on Thursday and decide whether to split the Cloud and On-prem views. Finally, please send the updated slide deck to the whole team before the end of the day so everyone can comment.", duration_ms: 27800, model: "small", ok: true },
       { ts_ms: now - 2 * hour, text: "Remind me to renew the domain before the end of the month.", duration_ms: 2400, model: "small", ok: true },
       { ts_ms: now - 5 * hour, text: "", duration_ms: 1900, model: "small", ok: false },
       { ts_ms: now - day - 2 * hour, text: "The weather is really nice today, let's take the afternoon off.", duration_ms: 2900, model: "small", ok: true },
@@ -484,7 +484,7 @@
         window.__calls.push("delete_history:" + a.ids.length);
         var gone = new Set(a.ids);
         var before = data.history.length;
-        data.history = data.history.filter(function (e) { return !gone.has(e.ts_ms); });
+        data.history = data.history.filter(function (e) { return !gone.has(e.id || e.ts_ms); });
         return before - data.history.length;
       },
       copy_text: function (a) {

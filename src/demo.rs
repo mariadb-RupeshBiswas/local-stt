@@ -71,6 +71,7 @@ pub fn prepare() -> Result<(), String> {
     let now = app::now_ms();
     for (i, (text, duration_ms)) in SAMPLE_HISTORY.iter().enumerate() {
         let entry = history::Entry {
+            id: 0,
             ts_ms: now - (SAMPLE_HISTORY.len() - i) as u64 * 47 * 60 * 1000,
             text: text.to_string(),
             duration_ms: *duration_ms,

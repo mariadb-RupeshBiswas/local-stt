@@ -347,8 +347,11 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .visible(false)
         .focused(false)
         .focusable(false);
+    // The demo draws the pill solid, so a screenshot never shows what sits behind the glass.
     #[cfg(target_os = "macos")]
-    let builder = {
+    let builder = if crate::demo::active() {
+        builder
+    } else {
         use tauri::window::{Effect, EffectState, EffectsBuilder};
         builder.effects(
             EffectsBuilder::new()
@@ -382,8 +385,11 @@ fn create_live(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .visible(false)
         .focused(false)
         .focusable(false);
+    // The demo draws the pill solid, so a screenshot never shows what sits behind the glass.
     #[cfg(target_os = "macos")]
-    let builder = {
+    let builder = if crate::demo::active() {
+        builder
+    } else {
         use tauri::window::{Effect, EffectState, EffectsBuilder};
         builder.effects(
             EffectsBuilder::new()
@@ -575,7 +581,7 @@ pub fn hide_overlay_after(app: &AppHandle, delay_ms: u64) {
 
 fn theme_payload(cfg: &Config) -> serde_json::Value {
     // Windows gets no native glass on a borderless capsule, so the page draws an opaque one.
-    json!({ "theme": cfg.theme, "reducedMotion": false, "solid": cfg!(windows) })
+    json!({ "theme": cfg.theme, "reducedMotion": false, "solid": cfg!(windows) || crate::demo::active() })
 }
 
 fn on_overlay_moved(app: &AppHandle) {
@@ -1040,6 +1046,7 @@ fn record(cfg: &Config, model: &str, text: &str, duration_ms: u64, ok: bool) {
         return;
     }
     let entry = history::Entry {
+        id: 0,
         ts_ms: now_ms(),
         text: text.to_string(),
         duration_ms,
@@ -1276,7 +1283,13 @@ pub fn start_download(app: AppHandle, id: ModelId) -> Result<(), String> {
 /// Starts the freshly installed copy and quits this one (the exit handler frees the engine first).
 pub fn restart_into_installed(app: &AppHandle) {
     if let Some(exe) = crate::install::installed_exe().filter(|p| p.is_file()) {
-        if std::process::Command::new(exe).spawn().is_ok() {
+        let replaced = std::process::id().to_string();
+        // The new copy waits for this one to quit instead of handing its window back to it.
+        if crate::proc::command(exe)
+            .env(crate::instance::REPLACES, replaced)
+            .spawn()
+            .is_ok()
+        {
             let app = app.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(400));

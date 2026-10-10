@@ -1,15 +1,13 @@
 //! Windows probe via windows-sys.
 
 use super::{existing_ancestor, run_capture, Facts, GIB};
-use std::os::windows::{ffi::OsStrExt, process::CommandExt};
+use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
-use std::process::Command;
 use std::time::Duration;
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
 const GPU_TIMEOUT: Duration = Duration::from_secs(3);
-const CREATE_NO_WINDOW: u32 = 0x0800_0000; // no console flash from a GUI app
 
 pub(super) fn facts(dir: &Path) -> Facts {
     Facts {
@@ -71,13 +69,12 @@ fn free_disk_gb(dir: &Path) -> Option<f64> {
 fn gpu_name() -> Option<String> {
     let root = std::env::var("SystemRoot").unwrap_or_else(|_| r"C:\Windows".to_string());
     let exe = Path::new(&root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe");
-    let mut cmd = Command::new(exe);
+    let mut cmd = crate::proc::command(exe);
     cmd.args([
         "-NoProfile",
         "-Command",
         "(Get-CimInstance Win32_VideoController | Select-Object -First 1).Name",
-    ])
-    .creation_flags(CREATE_NO_WINDOW);
+    ]);
     let out = run_capture(&mut cmd, GPU_TIMEOUT)?;
     let name = out.trim();
     if name.is_empty() {

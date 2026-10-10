@@ -55,6 +55,8 @@ fn main() -> ExitCode {
 fn diagnostics() -> Result<(), String> {
     paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
     let cfg = local_stt::config::load(&paths::config_path());
+    // With the log off, saving a report must not start a new log file.
+    local_stt::diag::set_enabled(cfg.diagnostic_log);
     let hw = hwprobe::probe(&paths::data_dir());
     let path = local_stt::diag::export(&cfg, &hw)?;
     println!("Saved {}", without_home(&path));

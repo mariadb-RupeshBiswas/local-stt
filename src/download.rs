@@ -3,7 +3,7 @@
 use sha2::{Digest, Sha256};
 use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 
 const ALLOWED_PREFIX: &str = "https://huggingface.co/";
@@ -104,7 +104,7 @@ fn fetch_and_verify(
     } else {
         "=https"
     };
-    let mut child = Command::new(curl_program())
+    let mut child = crate::proc::command(curl_program())
         // -q must come first: it stops curl reading a user .curlrc.
         .args(["-q", "--max-filesize", MAX_BYTES, "--connect-timeout", "20"])
         .args(["--speed-limit", "1024", "--speed-time", "60"])
