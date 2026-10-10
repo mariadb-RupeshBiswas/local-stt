@@ -78,7 +78,7 @@ pub struct Shared {
     last_user_move_ms: AtomicU64,
     snap_pending: AtomicBool,
     overlay_gen: AtomicU64,
-    // Set while the final transcription waits, so live partials never delay it.
+    // Set while the final transcription waits; with abort_previews a running preview stops at its next step.
     final_pending: AtomicBool,
     pub update: Mutex<Option<crate::update::UpdateInfo>>,
 }
@@ -806,6 +806,7 @@ fn apply(
                     let _ = level_app.emit("overlay-level", json!({ "level": level }));
                 }
             });
+            crate::engine::abort_previews(false);
             let _ = app.emit("live-reset", json!({}));
             match Recorder::start(cfg.microphone.as_deref(), on_level) {
                 Ok(r) => {
@@ -851,6 +852,8 @@ fn apply(
                 duration_ms: rec.duration_ms,
             };
             shared(app).final_pending.store(true, Ordering::SeqCst);
+            // Stop a preview already running, so the final pass starts at once.
+            crate::engine::abort_previews(true);
             if lock(&shared(app).worker).send(job).is_err() {
                 shared(app).final_pending.store(false, Ordering::SeqCst);
                 machine.on(Input::TranscribeDone, now);
@@ -1011,6 +1014,7 @@ pub fn check_updates_now(app: AppHandle, asked: bool) {
 
 // Waits briefly for the worker to drop the whisper context, so exit-time destructors find nothing to free.
 fn shutdown_engine(app: &AppHandle) {
+    crate::engine::abort_previews(true);
     let (tx, rx) = mpsc::channel();
     if lock(&shared(app).worker).send(Job::Shutdown(tx)).is_ok() {
         let _ = rx.recv_timeout(Duration::from_secs(3));
@@ -1044,7 +1048,7 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                 Job::Partial { pcm, opts, session } => {
                     let skip = shared(&app).final_pending.load(Ordering::SeqCst);
                     let text = match (skip, engine.as_ref()) {
-                        (false, Some(e)) => e.transcribe(&pcm, &opts).ok(),
+                        (false, Some(e)) => e.transcribe_preview(&pcm, &opts).ok(),
                         _ => None,
                     };
                     let ctrl = lock(&shared(&app).ctrl).clone();

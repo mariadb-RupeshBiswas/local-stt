@@ -27,10 +27,18 @@ extern "C" {
         translate: c_int,
         lang: *const c_char,
         threads: c_int,
+        abortable: c_int,
         out: *mut c_char,
         out_len: c_int,
     ) -> c_int;
     fn lstt_free(ctx: *mut c_void);
+    fn lstt_set_abort(on: c_int);
+}
+
+/// Stops any running preview pass (and refuses new ones) until called with false.
+pub fn abort_previews(on: bool) {
+    // SAFETY: the shim only stores the flag in an atomic.
+    unsafe { lstt_set_abort(on as c_int) }
 }
 
 fn load_raw(path: &CStr) -> *mut c_void {
@@ -44,6 +52,7 @@ fn transcribe_raw(
     translate: bool,
     lang: &CStr,
     threads: i32,
+    abortable: bool,
 ) -> Result<String, String> {
     let n = c_int::try_from(pcm.len()).map_err(|_| "audio is too long".to_string())?;
     let mut out = vec![0u8; OUT_LEN];
@@ -56,6 +65,7 @@ fn transcribe_raw(
             translate as c_int,
             lang.as_ptr(),
             threads,
+            abortable as c_int,
             out.as_mut_ptr() as *mut c_char,
             OUT_LEN as c_int,
         )
@@ -69,6 +79,7 @@ fn transcribe_raw(
         -2 => Err("transcription failed".to_string()),
         -3 => Err("transcript is too long".to_string()),
         -4 => Err("speech engine hit an internal error".to_string()),
+        -5 => Err("preview stopped".to_string()),
         other => Err(format!("engine error {other}")),
     }
 }
@@ -124,10 +135,19 @@ impl Engine {
     }
 
     pub fn transcribe(&self, pcm_16k: &[f32], opts: &Opts) -> Result<String, String> {
+        self.run(pcm_16k, opts, false)
+    }
+
+    /// A live preview pass that stops early when `abort_previews(true)` is called.
+    pub fn transcribe_preview(&self, pcm_16k: &[f32], opts: &Opts) -> Result<String, String> {
+        self.run(pcm_16k, opts, true)
+    }
+
+    fn run(&self, pcm_16k: &[f32], opts: &Opts, abortable: bool) -> Result<String, String> {
         let lang = CString::new(opts.language.as_str())
             .map_err(|_| "language contains a NUL byte".to_string())?;
         let threads = i32::try_from(opts.threads).unwrap_or(i32::MAX);
-        transcribe_raw(self.ctx, pcm_16k, opts.translate, &lang, threads)
+        transcribe_raw(self.ctx, pcm_16k, opts.translate, &lang, threads, abortable)
     }
 }
 

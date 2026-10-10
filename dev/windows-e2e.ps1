@@ -91,6 +91,11 @@ Start-Sleep -Seconds 4
 Shot '3-after-release'
 Check 'app still running after a dictation attempt' (-not $proc.HasExited)
 
+# An update installs over the copy that is running right now; Windows must allow that.
+uvx --from $Wheel local-stt install
+Check 'reinstall over the running app (update path) exits 0' ($LASTEXITCODE -eq 0)
+Check 'installed exe still present after reinstall' (Test-Path $exe)
+
 Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
 Start-Sleep -Seconds 1
 

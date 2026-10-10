@@ -38,7 +38,10 @@ fn wav_data_to_f32(bytes: &[u8]) -> Vec<f32> {
 
 #[cfg(target_os = "macos")]
 fn speak_to_pcm(text: &str, voice: Option<&str>) -> Vec<f32> {
-    let wav = std::env::temp_dir().join(format!("lstt-{}-{}.wav", std::process::id(), text.len()));
+    // Tests run in parallel and may speak the same sentence, so every file gets its own number.
+    static NEXT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+    let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let wav = std::env::temp_dir().join(format!("lstt-{}-{n}.wav", std::process::id()));
     let mut cmd = std::process::Command::new("say");
     if let Some(v) = voice {
         cmd.args(["-v", v]);
@@ -192,4 +195,32 @@ fn interior_nul_in_language_is_an_error() {
         },
     );
     assert!(r.is_err());
+}
+
+#[test]
+#[cfg(target_os = "macos")]
+fn aborted_preview_stops_but_final_still_runs() {
+    let Some(m) = model() else {
+        eprintln!("skip: LOCAL_STT_TEST_MODEL not set");
+        return;
+    };
+    let e = Engine::load(&m).unwrap();
+    let pcm = speak_to_pcm(
+        "Please check the September billing numbers before the meeting tomorrow.",
+        None,
+    );
+    if !usable(&pcm) {
+        return;
+    }
+    let opts = Opts {
+        translate: true,
+        language: "auto".into(),
+        threads: 4,
+    };
+    local_stt::engine::abort_previews(true);
+    let preview = e.transcribe_preview(&pcm, &opts);
+    let final_pass = e.transcribe(&pcm, &opts);
+    local_stt::engine::abort_previews(false);
+    assert_eq!(preview, Err("preview stopped".to_string()));
+    assert!(final_pass.unwrap().to_lowercase().contains("september"));
 }
