@@ -1,0 +1,39 @@
+[build-system]
+requires = ["maturin>=1.15,<2"]
+build-backend = "maturin"
+
+[project]
+name = "local-stt"
+version = "0.1.0"
+description = "Free, local, private push-to-talk speech-to-text (voice typing) for macOS and Windows. Runs a small Whisper model on your laptop: no cloud, no account, no subscription."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.9"
+keywords = [
+  "speech-to-text", "stt", "dictation", "voice-typing", "whisper", "whisper-cpp",
+  "offline", "local", "privacy", "transcription", "push-to-talk", "free",
+  "macos", "windows", "hindi", "voice-to-text",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: MacOS X",
+  "Environment :: Win32 (MS Windows)",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: MacOS",
+  "Operating System :: Microsoft :: Windows",
+  "Programming Language :: Rust",
+  "Topic :: Multimedia :: Sound/Audio :: Speech",
+  "Topic :: Office/Business",
+  "Topic :: Utilities",
+]
+
+[project.urls]
+Homepage = "https://github.com/mariadb-RupeshBiswas/local-stt"
+Issues = "https://github.com/mariadb-RupeshBiswas/local-stt/issues"
+Changelog = "https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/CHANGELOG.md"
+Security = "https://github.com/mariadb-RupeshBiswas/local-stt/security/policy"
+
+[tool.maturin]
+bindings = "bin"
+strip = true

@@ -1,0 +1,177 @@
+/* Shared design tokens. Light is the base; dark applies via the OS setting or a data-scheme override. */
+:root {
+  color-scheme: light dark;
+
+  --font: system-ui, -apple-system, "Segoe UI Variable", "Segoe UI", sans-serif;
+
+  /* 4 px grid */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 20px;
+  --s6: 24px;
+  --s8: 32px;
+
+  --r-sm: 10px;
+  --r-md: 14px;
+  --r-lg: 22px;
+
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-enter: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+  --red: #ff3b30;
+  --orange: #ff9500;
+  --green: #34c759;
+  --grey: #8e8e93;
+  /* text-safe variants, the base colours fail 4.5:1 on light surfaces */
+  --red-ink: #c20019;
+  --orange-ink: #c93400;
+  --green-ink: #1c7230;
+  --accent: #007aff;
+  --accent-ink: #0040dd;
+
+  --label: rgba(0, 0, 0, 0.85);
+  --label-2: rgba(0, 0, 0, 0.55);
+  --label-3: rgba(0, 0, 0, 0.3);
+  --bg: #f5f5f7;
+  --surface: #ffffff;
+  --separator: rgba(60, 60, 67, 0.14);
+  --fill: rgba(120, 120, 128, 0.12);
+  --fill-2: rgba(120, 120, 128, 0.2);
+  --seg-thumb: #ffffff;
+  --scrim: rgba(0, 0, 0, 0.22);
+  --focus: #007aff;
+  --red-tint: rgba(255, 59, 48, 0.14);
+  --orange-tint: rgba(255, 149, 0, 0.16);
+  --green-tint: rgba(52, 199, 89, 0.16);
+  --blue-tint: rgba(0, 122, 255, 0.12);
+  --shadow-card: 0 0 0 0.5px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-pop: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 12px 32px rgba(0, 0, 0, 0.18);
+
+  /* overlay capsule: the native window supplies the glass, this tint only guards legibility */
+  --ov-tint: rgba(255, 255, 255, 0.42);
+  --ov-border: rgba(0, 0, 0, 0.12);
+  --ov-highlight: rgba(255, 255, 255, 0.55);
+  --ov-bar: rgba(60, 60, 67, 0.62);
+  --ov-bar-track: rgba(60, 60, 67, 0.18);
+  --ov-glow: rgba(255, 59, 48, 0.3);
+  --ov-solid: #f2f2f7;
+  --ov-solid-border: rgba(0, 0, 0, 0.55);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-scheme="light"]) {
+    --red: #ff453a;
+    --orange: #ff9f0a;
+    --green: #30d158;
+    --grey: #98989d;
+    --red-ink: #ff8a84;
+    --orange-ink: #ffb340;
+    --green-ink: #30d158;
+    --accent: #0a84ff;
+    --accent-ink: #6cb2ff;
+    --label: rgba(255, 255, 255, 0.85);
+    --label-2: rgba(255, 255, 255, 0.6);
+    --label-3: rgba(255, 255, 255, 0.3);
+    --bg: #1c1c1e;
+    --surface: #2c2c2e;
+    --separator: rgba(84, 84, 88, 0.5);
+    --fill: rgba(120, 120, 128, 0.24);
+    --fill-2: rgba(120, 120, 128, 0.36);
+    --seg-thumb: #636366;
+    --scrim: rgba(0, 0, 0, 0.45);
+    --focus: #409cff;
+    --red-tint: rgba(255, 69, 58, 0.2);
+    --orange-tint: rgba(255, 159, 10, 0.2);
+    --green-tint: rgba(48, 209, 88, 0.2);
+    --blue-tint: rgba(10, 132, 255, 0.22);
+    --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+    --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 32px rgba(0, 0, 0, 0.5);
+    --ov-tint: rgba(28, 28, 30, 0.46);
+    --ov-border: rgba(255, 255, 255, 0.18);
+    --ov-highlight: rgba(255, 255, 255, 0.14);
+    --ov-bar: rgba(235, 235, 245, 0.7);
+    --ov-bar-track: rgba(235, 235, 245, 0.2);
+    --ov-glow: rgba(255, 69, 58, 0.55);
+    --ov-solid: #1c1c1e;
+    --ov-solid-border: rgba(255, 255, 255, 0.7);
+  }
+}
+
+:root[data-scheme="light"] { color-scheme: light; }
+
+/* explicit override, used by the browser preview to show both schemes side by side */
+[data-scheme="dark"] {
+  color-scheme: dark;
+  --red: #ff453a;
+  --orange: #ff9f0a;
+  --green: #30d158;
+  --grey: #98989d;
+  --red-ink: #ff8a84;
+  --orange-ink: #ffb340;
+  --green-ink: #30d158;
+  --accent: #0a84ff;
+  --accent-ink: #6cb2ff;
+  --label: rgba(255, 255, 255, 0.85);
+  --label-2: rgba(255, 255, 255, 0.6);
+  --label-3: rgba(255, 255, 255, 0.3);
+  --bg: #1c1c1e;
+  --surface: #2c2c2e;
+  --separator: rgba(84, 84, 88, 0.5);
+  --fill: rgba(120, 120, 128, 0.24);
+  --fill-2: rgba(120, 120, 128, 0.36);
+  --seg-thumb: #636366;
+  --scrim: rgba(0, 0, 0, 0.45);
+  --focus: #409cff;
+  --red-tint: rgba(255, 69, 58, 0.2);
+  --orange-tint: rgba(255, 159, 10, 0.2);
+  --green-tint: rgba(48, 209, 88, 0.2);
+  --blue-tint: rgba(10, 132, 255, 0.22);
+  --shadow-card: 0 0 0 0.5px rgba(255, 255, 255, 0.06);
+  --shadow-pop: 0 0 0 0.5px rgba(255, 255, 255, 0.12), 0 12px 32px rgba(0, 0, 0, 0.5);
+  --ov-tint: rgba(28, 28, 30, 0.46);
+  --ov-border: rgba(255, 255, 255, 0.18);
+  --ov-highlight: rgba(255, 255, 255, 0.14);
+  --ov-bar: rgba(235, 235, 245, 0.7);
+  --ov-bar-track: rgba(235, 235, 245, 0.2);
+  --ov-glow: rgba(255, 69, 58, 0.55);
+  --ov-solid: #1c1c1e;
+  --ov-solid-border: rgba(255, 255, 255, 0.7);
+}
+
+/* Increase Contrast: opaque secondary text and firmer hairlines */
+@media (prefers-contrast: more) {
+  :root {
+    --label: #000000;
+    --label-2: #3c3c43;
+    --label-3: #6c6c70;
+    --separator: rgba(60, 60, 67, 0.6);
+    --fill: rgba(120, 120, 128, 0.2);
+    --fill-2: rgba(120, 120, 128, 0.32);
+  }
+}
+
+@media (prefers-contrast: more) and (prefers-color-scheme: dark) {
+  :root:not([data-scheme="light"]) {
+    --label: #ffffff;
+    --label-2: #ebebf5;
+    --label-3: #aeaeb2;
+    --separator: rgba(235, 235, 245, 0.5);
+    --fill: rgba(120, 120, 128, 0.36);
+    --fill-2: rgba(120, 120, 128, 0.48);
+  }
+}
+
+/* the browser preview pins a scheme on a nested element, so mirror the dark contrast tokens there */
+@media (prefers-contrast: more) {
+  [data-scheme="dark"] {
+    --label: #ffffff;
+    --label-2: #ebebf5;
+    --label-3: #aeaeb2;
+    --separator: rgba(235, 235, 245, 0.5);
+    --fill: rgba(120, 120, 128, 0.36);
+    --fill-2: rgba(120, 120, 128, 0.48);
+  }
+}
