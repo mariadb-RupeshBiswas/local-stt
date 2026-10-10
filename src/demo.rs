@@ -106,9 +106,10 @@ pub fn spawn(app: AppHandle) {
         wait(1_200);
         step("transcribing");
         app::show_overlay(&app, "done", "Pasted", None);
-        wait(300);
+        // The pill fades itself about 450 ms after "done", so the capture cue goes out early.
+        wait(120);
         step("done");
-        app::hide_overlay_after(&app, 400);
+        app::hide_overlay_after(&app, 600);
         wait(1_500);
         step("end");
         app.exit(0);
