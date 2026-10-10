@@ -15,7 +15,7 @@ keeping audio, sharing notes with other people from inside the app.
 
 | Product | Detects calls | Other side's audio | Speaker names | Processing |
 |---|---|---|---|---|
-| Wispr Flow Notetaker ([page](https://wisprflow.ai/notetaker)) | Yes, asks before taking notes | System audio | "You / Them" live, full names after the call | Cloud refinement and summary |
+| Wispr Flow Notetaker ([page](https://wisprflow.ai/notetaker)) | Yes, asks before taking notes | System audio | "You / Them" live, full names after the call | Audio stored on the device and in some cases in cloud storage; a second AI pass reviews the recording |
 | Granola ([docs](https://docs.granola.ai/help-center/taking-notes/speaker-attribution)) | Calendar | System audio | Me / Them, names read from the meeting app through Accessibility | Cloud |
 | MacWhisper ([help](https://macwhisper.helpscoutdocs.com/article/30-record-meetings)) | "Meeting Detected" notice | Screen Recording permission | Not documented | Local |
 
@@ -25,7 +25,7 @@ local-stt takes the Wispr flow (detect, ask, record, tidy, summarise) and keeps 
 
 ### Notes tab
 
-Tabs become History, Notes, Model, Settings (Cmd/Ctrl + 1..4).
+Tabs become History, Notes, Model, Settings; Cmd/Ctrl + 1..4 move with them.
 
 - List of notes, newest first, grouped by day like History. Each row: title, start time,
   length, and the first line of the transcript.
@@ -37,9 +37,12 @@ Tabs become History, Notes, Model, Settings (Cmd/Ctrl + 1..4).
 ### Before the first note
 
 A one-time sheet: "Taking notes records the other people on the call. In many places you
-need their consent. Tell them you are taking notes." Buttons: **Copy Consent Line** (puts a
-short line on the clipboard, for the meeting chat) and **Continue**. The line is always
-available again from the note header.
+need their consent. Tell them you are taking notes." Buttons: **Copy Consent Line** and
+**Continue**. Continue sets `notes_consent_seen` in the config, so the sheet shows once.
+
+The consent line, copied as plain text for the meeting chat: "Heads up: I'm taking notes of
+this call with a transcription app that runs only on my computer. Tell me if you'd rather I
+didn't." It is always available again from the note header.
 
 ### Taking notes
 
@@ -86,24 +89,35 @@ calls (on).
 - Audio is never written to disk. Each segment lives in memory until it is transcribed, then
   it is dropped. Memory stays at a few seconds of audio per channel.
 - macOS: `NSAudioCaptureUsageDescription` is added to `Info.plist` (embedded in the binary and
-  in the installed app bundle).
+  in the installed app bundle). Whether macOS shows the System Audio Recording prompt for the
+  bare binary that `uvx` runs, and not only for `~/Applications/local-stt.app`, is untested;
+  it is a phase 1 acceptance check. If the bare binary never prompts, New Note offers to
+  install the app first, as Start at login does.
 
 ### Transcription
 
 - Segments go to the existing worker thread as a new job type, so the one loaded Whisper
-  model serves dictation and notes, one job at a time. Dictation jobs go first.
+  model serves dictation and notes, one job at a time.
+- Dictation always goes first: the worker moves note jobs from its channel into its own
+  queue, runs one only when the channel is empty, and checks the channel again after each.
+  A backlog of note segments never delays a paste by more than one segment (a few seconds of
+  audio, well under a second to transcribe on Apple Silicon).
 - Language and translate follow the dictation settings.
-- Echo: with speakers instead of headphones, the microphone hears the others. Phase 1 drops a
-  Me segment when an Others segment covers the same time and is clearly louder; the note
-  header suggests headphones. Better echo handling is a later item.
+- Echo: with speakers instead of headphones, the microphone hears the others, so the same
+  words come back on Me. Loudness cannot tell echo from people talking over each other, so
+  the rule is on text: a Me segment that overlaps an Others segment in time and shares at
+  least 70% of its words is echo and is dropped; different words are crosstalk and both stay.
+  The note header suggests headphones. Acoustic echo cancellation is a later item.
 - Throughput risk: Whisper Small transcribes much faster than real time on Apple Silicon. On
   a slow Windows CPU two channels may lag; segments queue and the note catches up after Stop.
   The log records queue depth so reports show it.
 
 ### Notes store
 
-- One JSON file per note in `<data>/notes/<id>.json`: files 0600, folder 0700, written with
-  the same temp-file, fsync and rename helper as history.
+- While recording, each finished segment is appended as one line to `<data>/notes/<id>.jsonl`
+  (cheap, survives a crash). On Stop the note is compacted into `<data>/notes/<id>.json` with
+  the same temp-file, fsync and rename helper as history, and the `.jsonl` is removed. Files
+  0600, folder 0700.
 - `id` is 16 random hex characters. Shape:
 
 ```json
@@ -122,8 +136,8 @@ calls (on).
 }
 ```
 
-- `status` is `recording`, `tidying`, `done` or `failed`. A note found as `recording` at start
-  (the app crashed) becomes `done` with what it has.
+- `status` is `recording`, `tidying`, `done` or `failed`. At start, a `.jsonl` with no
+  matching `.json` (the app crashed mid-call) is compacted into a `done` note with what it has.
 - Notes are separate from dictation history and are not trimmed. A setting to delete notes
   older than N days can come later.
 
@@ -166,10 +180,17 @@ Events: `note-segment {id, segment}`, `note-state {id, status}`, `meeting-detect
   more); a smaller Qwen3-1.7B tier for 8 GB machines. Gemma (custom terms) and Qwen2.5-3B
   (research licence) are out.
 - Engine: llama.cpp, vendored like whisper.cpp. Two copies of ggml cannot be linked into one
-  binary, so either both projects build against one ggml (whisper.cpp has
-  `WHISPER_USE_SYSTEM_GGML`, llama.cpp has `LLAMA_USE_SYSTEM_GGML`; any API mismatch fails
-  the build instead of misbehaving), or llama.cpp runs as a separate helper program.
-  Recommended: one shared ggml, so the app stays one binary.
+  binary. Options:
+  1. In process, both projects built against one ggml (whisper.cpp has
+     `WHISPER_USE_SYSTEM_GGML`, llama.cpp has `LLAMA_USE_SYSTEM_GGML`; an API mismatch fails the
+     build instead of misbehaving). One binary, but a llama.cpp abort would also end dictation,
+     as the Metal exit crash once did.
+  2. A separate helper program with its own ggml: crash isolation, but a second native binary
+     in the wheel (maturin include rule, its own signing on macOS).
+  3. Recommended: option 1's single binary, run as a child of itself
+     (`local-stt summarize --note <id>`, transcript in, summary out on stdin and stdout). One
+     binary and one ggml, and a crash in the summary only ends the child; the model's memory
+     is freed when it exits.
 - Prompt: map-reduce for long meetings (summarise 15-minute chunks, then the chunk
   summaries). Output sections: Summary, Decisions, Action items (with the person when it was
   said), Open questions.
@@ -222,7 +243,8 @@ Events: `note-segment {id, segment}`, `note-state {id, status}`, `meeting-detect
 
 ## Decisions for the owner
 
-1. Summary engine: one shared ggml in one binary (recommended) or a separate helper program.
+1. Summary engine: the single binary run as a child of itself (recommended), in process, or
+   a separate helper program.
 2. Diarization (phase 4): sherpa-onnx built from source in `build.rs` like whisper.cpp
    (its Rust crate is published by a person, not an organisation, so it fails the dependency
    rule). Its build downloads ONNX Runtime; that needs a pinned checksum or a vendored copy.
@@ -237,4 +259,14 @@ Events: `note-segment {id, segment}`, `note-state {id, status}`, `meeting-detect
   gating copy, with the preview's mock bus.
 - Windows E2E: start a note from the CLI test hook, check the "no system audio" or capture path
   on the runner, stop, list, delete.
-- Manual: a real Zoom or Meet call on macOS and Windows before phase 1 is called done.
+- Manual, on a real call before phase 1 is called done (owner checklist):
+  1. Start local-stt from `uvx` and from the installed app; New Note asks for System Audio
+     Recording once in each case.
+  2. Join a Zoom or Meet call with headphones, click New Note, talk with one other person for
+     two minutes: turns show as Me and Others within a few seconds of each pause.
+  3. Repeat without headphones: your own words appear once, not twice.
+  4. Dictate with the push-to-talk shortcut during the call: the paste is as quick as usual and
+     the pill returns to Notes.
+  5. Close the main window: the pill still shows Notes and the timer; Stop from the tray.
+  6. The saved note reads cleanly; rename it, copy it, delete it.
+  7. Quit local-stt during a note (force quit): on the next start the note is there.
