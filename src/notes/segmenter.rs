@@ -138,7 +138,11 @@ mod tests {
         let chunks = s.feed(&audio);
         assert_eq!(chunks.len(), 1);
         // starts at about 1 s, minus the 300 ms kept before the first word
-        assert!((690..=720).contains(&chunks[0].start_ms), "{}", chunks[0].start_ms);
+        assert!(
+            (690..=720).contains(&chunks[0].start_ms),
+            "{}",
+            chunks[0].start_ms
+        );
         assert!(s.flush().is_none());
     }
 

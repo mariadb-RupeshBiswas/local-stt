@@ -44,6 +44,19 @@ pub enum Job {
         opts: Opts,
         duration_ms: u64,
     },
+    /// One pause-to-pause piece of a note's channel; runs only when no dictation job waits.
+    NoteSegment {
+        id: String,
+        speaker: &'static str,
+        start_ms: u64,
+        pcm: Vec<f32>,
+        opts: Opts,
+    },
+    /// Queued after a note's last segment, so it runs once they are all in.
+    NoteFinish {
+        id: String,
+        ended_ms: u64,
+    },
 }
 
 pub enum Msg {
@@ -81,6 +94,9 @@ pub struct Shared {
     // Set while the final transcription waits; with abort_previews a running preview stops at its next step.
     final_pending: AtomicBool,
     pub update: Mutex<Option<crate::update::UpdateInfo>>,
+    pub note: Mutex<Option<crate::notes::session::Running>>,
+    /// True while the pill shows Notes, so the note's microphone level drives it.
+    pub notes_pill: AtomicBool,
 }
 
 impl Shared {
@@ -133,6 +149,16 @@ pub fn run() -> Result<(), String> {
     if unclean {
         diag::log("the previous run did not quit normally (crash or forced quit)");
     }
+    // A note cut short by a crash or quit is saved with what reached disk.
+    let (smart, english) = (cfg.smart_format, english_output(&cfg));
+    std::thread::spawn(move || {
+        let recovered = crate::notes::recover(smart, english);
+        if recovered > 0 {
+            diag::log(&format!(
+                "notes recovered after an unfinished run: {recovered}"
+            ));
+        }
+    });
     let hardware = if crate::demo::active() {
         crate::demo::sample_hardware()
     } else {
@@ -155,6 +181,8 @@ pub fn run() -> Result<(), String> {
         overlay_gen: AtomicU64::new(0),
         final_pending: AtomicBool::new(false),
         update: Mutex::new(None),
+        note: Mutex::new(None),
+        notes_pill: AtomicBool::new(false),
     });
 
     let app = tauri::Builder::default()
@@ -169,6 +197,12 @@ pub fn run() -> Result<(), String> {
             crate::commands::clear_history,
             crate::commands::delete_history,
             crate::commands::export_diagnostics,
+            crate::commands::list_notes,
+            crate::commands::get_note,
+            crate::commands::start_note,
+            crate::commands::stop_note,
+            crate::commands::rename_note,
+            crate::commands::delete_notes,
             crate::commands::reset_overlay_position,
             crate::commands::move_overlay,
             crate::commands::copy_text,
@@ -215,6 +249,9 @@ pub fn run() -> Result<(), String> {
         // Closing the main window must not quit a menu-bar app.
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
         RunEvent::Exit => {
+            if crate::notes::session::active(app).is_some() {
+                diag::log("quit during a note; it is saved at the next start");
+            }
             diag::log("quit");
             shutdown_engine(app);
             crate::instance::release(&lock);
@@ -230,8 +267,17 @@ fn shared(app: &AppHandle) -> Arc<Shared> {
 }
 
 // An available update is a quiet menu item, never a pop-up over the user's work.
-fn tray_menu(app: &AppHandle, update: Option<&str>) -> tauri::Result<Menu<tauri::Wry>> {
+fn tray_menu(
+    app: &AppHandle,
+    update: Option<&str>,
+    note_running: bool,
+) -> tauri::Result<Menu<tauri::Wry>> {
     let open = MenuItem::with_id(app, "open", "Open local-stt", true, None::<&str>)?;
+    let note = if note_running {
+        MenuItem::with_id(app, "note-stop", "Stop Notes", true, None::<&str>)?
+    } else {
+        MenuItem::with_id(app, "note-start", "New Note", true, None::<&str>)?
+    };
     let check = MenuItem::with_id(app, "check", "Check for Updates...", true, None::<&str>)?;
     let sep = PredefinedMenuItem::separator(app)?;
     let quit = MenuItem::with_id(app, "quit", "Quit local-stt", true, None::<&str>)?;
@@ -240,9 +286,12 @@ fn tray_menu(app: &AppHandle, update: Option<&str>) -> tauri::Result<Menu<tauri:
             let label = format!("Update to {version}...");
             let install = MenuItem::with_id(app, "update", label, true, None::<&str>)?;
             let sep_top = PredefinedMenuItem::separator(app)?;
-            Menu::with_items(app, &[&install, &sep_top, &open, &check, &sep, &quit])
+            Menu::with_items(
+                app,
+                &[&install, &sep_top, &open, &note, &check, &sep, &quit],
+            )
         }
-        None => Menu::with_items(app, &[&open, &check, &sep, &quit]),
+        None => Menu::with_items(app, &[&open, &note, &check, &sep, &quit]),
     }
 }
 
@@ -253,13 +302,17 @@ pub fn refresh_update_menu(app: &AppHandle) {
         .as_ref()
         .filter(|u| u.available && u.latest != cfg.skip_update)
         .and_then(|u| u.latest.clone());
-    if let (Some(tray), Ok(menu)) = (app.tray_by_id("tray"), tray_menu(app, offer.as_deref())) {
+    let running = lock(&s.note).is_some();
+    if let (Some(tray), Ok(menu)) = (
+        app.tray_by_id("tray"),
+        tray_menu(app, offer.as_deref(), running),
+    ) {
         let _ = tray.set_menu(Some(menu));
     }
 }
 
 fn build_tray(app: &AppHandle) -> tauri::Result<()> {
-    let menu = tray_menu(app, None)?;
+    let menu = tray_menu(app, None, false)?;
     TrayIconBuilder::with_id("tray")
         .icon(tauri::include_image!("icons/tray.png"))
         .icon_as_template(true)
@@ -274,6 +327,13 @@ fn build_tray(app: &AppHandle) -> tauri::Result<()> {
                 let _ = app.emit("show-update", ());
             }
             "check" => check_updates_now(app.clone(), true),
+            "note-start" => {
+                show_main(app);
+                let _ = app.emit("show-tab", json!({ "tab": "notes", "newNote": true }));
+            }
+            "note-stop" => {
+                let _ = crate::notes::session::stop(app);
+            }
             _ => {}
         })
         .build(app)?;
@@ -545,6 +605,7 @@ pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Op
     };
     // Any pending hide from an earlier state is now stale.
     s.overlay_gen.fetch_add(1, Ordering::SeqCst);
+    s.notes_pill.store(state == "notes", Ordering::SeqCst);
     if !win.is_visible().unwrap_or(false) {
         place_overlay(app, &win);
     }
@@ -564,12 +625,24 @@ pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Op
     }
 }
 
+/// The pill's Notes state: red dot and the note's timer, shown whenever no dictation needs the pill.
+pub fn show_notes_pill(app: &AppHandle) {
+    if let Some((_, started)) = crate::notes::session::active(app) {
+        show_overlay(app, "notes", "Notes", Some(started));
+    }
+}
+
 pub fn hide_overlay_after(app: &AppHandle, delay_ms: u64) {
     let generation = shared(app).overlay_gen.load(Ordering::SeqCst);
     let app = app.clone();
     std::thread::spawn(move || {
         std::thread::sleep(Duration::from_millis(delay_ms));
         if shared(&app).overlay_gen.load(Ordering::SeqCst) != generation {
+            return;
+        }
+        // During a note the pill goes back to Notes instead of away.
+        if crate::notes::session::active(&app).is_some() {
+            show_notes_pill(&app);
             return;
         }
         if let Some(win) = app.get_webview_window(OVERLAY) {
@@ -948,7 +1021,7 @@ pub(crate) fn english_output(cfg: &Config) -> bool {
     cfg.translate || cfg.language == "en"
 }
 
-fn transcribe_opts(cfg: &Config) -> Opts {
+pub(crate) fn transcribe_opts(cfg: &Config) -> Opts {
     let threads = std::thread::available_parallelism()
         .map(|n| n.get() as u32)
         .unwrap_or(4)
@@ -1126,7 +1199,28 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
     std::thread::spawn(move || {
         let mut engine: Option<Engine> = None;
         let mut verified: Vec<ModelId> = Vec::new();
-        for job in rx {
+        // Note jobs wait here and run only when nothing else is queued, so a paste never waits behind a meeting.
+        let mut note_jobs: std::collections::VecDeque<Job> = std::collections::VecDeque::new();
+        loop {
+            let job = match rx.try_recv() {
+                Ok(job @ (Job::NoteSegment { .. } | Job::NoteFinish { .. })) => {
+                    note_jobs.push_back(job);
+                    continue;
+                }
+                Ok(job) => job,
+                Err(mpsc::TryRecvError::Disconnected) => break,
+                Err(mpsc::TryRecvError::Empty) => match note_jobs.pop_front() {
+                    Some(job) => job,
+                    None => match rx.recv() {
+                        Ok(job @ (Job::NoteSegment { .. } | Job::NoteFinish { .. })) => {
+                            note_jobs.push_back(job);
+                            continue;
+                        }
+                        Ok(job) => job,
+                        Err(_) => break,
+                    },
+                },
+            };
             match job {
                 Job::Shutdown(done) => {
                     drop(engine.take());
@@ -1191,6 +1285,29 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                         result,
                         duration_ms,
                     });
+                }
+                Job::NoteSegment {
+                    id,
+                    speaker,
+                    start_ms,
+                    pcm,
+                    opts,
+                } => {
+                    if let Some(e) = engine.as_ref() {
+                        if let Ok(text) = e.transcribe(&pcm, &opts) {
+                            crate::notes::session::add_segment(
+                                &app,
+                                &id,
+                                speaker,
+                                start_ms,
+                                pcm.len(),
+                                &text,
+                            );
+                        }
+                    }
+                }
+                Job::NoteFinish { id, ended_ms } => {
+                    crate::notes::session::finish(&app, &id, ended_ms);
                 }
             }
         }

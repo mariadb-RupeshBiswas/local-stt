@@ -79,7 +79,12 @@ mod tests {
     fn echo_of_the_others_on_my_microphone_is_dropped() {
         let out = tidy(
             vec![
-                seg(OTHERS, 1_000, 4_000, "Let's review the September numbers first."),
+                seg(
+                    OTHERS,
+                    1_000,
+                    4_000,
+                    "Let's review the September numbers first.",
+                ),
                 seg(ME, 1_200, 4_100, "let's review the September numbers"),
             ],
             false,
@@ -93,7 +98,12 @@ mod tests {
     fn talking_over_each_other_keeps_both() {
         let out = tidy(
             vec![
-                seg(OTHERS, 1_000, 4_000, "Let's review the September numbers first."),
+                seg(
+                    OTHERS,
+                    1_000,
+                    4_000,
+                    "Let's review the September numbers first.",
+                ),
                 seg(ME, 1_500, 3_000, "Sorry, can you share your screen?"),
             ],
             false,
@@ -142,13 +152,20 @@ mod tests {
             true,
         );
         assert_eq!(out.len(), 1);
-        assert!(!out[0].text.to_lowercase().starts_with("uh"), "{}", out[0].text);
+        assert!(
+            !out[0].text.to_lowercase().starts_with("uh"),
+            "{}",
+            out[0].text
+        );
     }
 
     #[test]
     fn lines_come_out_in_time_order() {
         let out = tidy(
-            vec![seg(OTHERS, 5_000, 6_000, "Second."), seg(ME, 0, 1_000, "First.")],
+            vec![
+                seg(OTHERS, 5_000, 6_000, "Second."),
+                seg(ME, 0, 1_000, "First."),
+            ],
             false,
             true,
         );

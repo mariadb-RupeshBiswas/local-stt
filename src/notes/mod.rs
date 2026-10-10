@@ -1,6 +1,7 @@
 //! Meeting notes: one file per note, lines appended while recording, tidied into one file on Stop.
 
 pub mod segmenter;
+pub mod session;
 pub mod tidy;
 
 use crate::paths;
@@ -82,7 +83,10 @@ fn live_path(id: &str) -> PathBuf {
 
 /// Ids are 16 lowercase hex characters, so one can never name a path outside the notes folder.
 pub fn valid_id(id: &str) -> bool {
-    id.len() == 16 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    id.len() == 16
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
 }
 
 pub fn new_id() -> String {
@@ -90,7 +94,10 @@ pub fn new_id() -> String {
     static COUNT: AtomicU64 = AtomicU64::new(0);
     // RandomState is keyed from the OS's randomness, so ids do not repeat across runs.
     let seed = (crate::app::now_ms(), COUNT.fetch_add(1, Ordering::Relaxed));
-    format!("{:016x}", std::collections::hash_map::RandomState::new().hash_one(seed))
+    format!(
+        "{:016x}",
+        std::collections::hash_map::RandomState::new().hash_one(seed)
+    )
 }
 
 /// Trims, drops control characters and caps the length; empty means "use the default title".
@@ -142,12 +149,7 @@ fn read_live(id: &str) -> std::io::Result<Note> {
 }
 
 /// Tidies the live note into its saved file and removes the live one.
-pub fn finish(
-    id: &str,
-    ended_ms: u64,
-    smart_format: bool,
-    english: bool,
-) -> std::io::Result<Note> {
+pub fn finish(id: &str, ended_ms: u64, smart_format: bool, english: bool) -> std::io::Result<Note> {
     let _guard = files();
     finish_locked(id, ended_ms, smart_format, english)
 }
@@ -300,10 +302,10 @@ mod tests {
     use super::*;
 
     // Notes live under LOCAL_STT_DATA_DIR, which is process-wide, so these tests share one folder and one lock.
-    static TEST: Mutex<()> = Mutex::new(());
-
     fn sandbox() -> MutexGuard<'static, ()> {
-        let guard = TEST.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = crate::paths::TEST_DATA_DIR
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let d = std::env::temp_dir().join(format!("lstt-notes-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::env::set_var("LOCAL_STT_DATA_DIR", &d);
@@ -336,7 +338,12 @@ mod tests {
         let id = new_id();
         assert!(valid_id(&id), "{id}");
         assert_ne!(id, new_id());
-        for bad in ["../../etc/passwd", "0123456789ABCDEF", "0123456789abcde", "0123456789abcdeg"] {
+        for bad in [
+            "../../etc/passwd",
+            "0123456789ABCDEF",
+            "0123456789abcde",
+            "0123456789abcdeg",
+        ] {
             assert!(!valid_id(bad), "{bad}");
         }
     }
@@ -380,7 +387,10 @@ mod tests {
         begin(&header(id, 10_000)).unwrap();
         append(id, &seg(OTHERS, 0, "Hello there.")).unwrap();
         // a torn last line, as a crash mid-write leaves
-        let mut f = std::fs::OpenOptions::new().append(true).open(live_path(id)).unwrap();
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(live_path(id))
+            .unwrap();
         write!(f, "{{\"start_ms\":5").unwrap();
         assert_eq!(recover(false, true), 1);
         let note = get(id).unwrap();
