@@ -282,8 +282,8 @@
       historyStale: false,
       search: "",
       selecting: false, // History select mode: checkboxes and a Delete bar
-      selected: new Set(), // ts_ms of the chosen dictations
-      anchor: null, // last toggled ts_ms, where a Shift-click range starts
+      selected: new Set(), // ids of the chosen dictations (see entryId)
+      anchor: null, // last toggled id, where a Shift-click range starts
       progress: {},
       modelErrors: {},
       activeModel: null, // the model actually loaded, which config.model may not be
@@ -718,6 +718,11 @@
       syncSelection();
     }
 
+    // the app's id; entries saved before ids existed go by their time, as the app does
+    function entryId(e) {
+      return typeof e.id === "number" && e.id > 0 ? e.id : e.ts_ms;
+    }
+
     function plural(n, one, many) {
       return n === 1 ? one : n + " " + many;
     }
@@ -733,7 +738,7 @@
         onConfirm: function () {
           Promise.resolve(invoke("delete_history", { ids: ids })).then(function () {
             var gone = new Set(ids);
-            S.history = S.history.filter(function (e) { return !gone.has(e.ts_ms); });
+            S.history = S.history.filter(function (e) { return !gone.has(entryId(e)); });
             setSelecting(false);
             announce("Deleted " + plural(ids.length, "1 dictation", "dictations") + ".");
           }).catch(function (err) { toast("Couldn't delete: " + errText(err)); });
@@ -808,7 +813,7 @@
         }).catch(function (err) { toast("Couldn't copy: " + errText(err)); });
       });
 
-      var id = entry.ts_ms;
+      var id = entryId(entry);
       var box = null;
       if (S.selecting) {
         box = h("input", { type: "checkbox", class: "check hrow-check", "aria-label": "Select dictation: " + (snippet || "empty") });
@@ -854,7 +859,7 @@
       });
       clearButton.disabled = S.history.length === 0;
       selectButton.disabled = S.history.length === 0 && !S.selecting;
-      S.visibleIds = entries.map(function (e) { return e.ts_ms; });
+      S.visibleIds = entries.map(entryId);
       var shown = new Set(S.visibleIds);
       S.selected.forEach(function (id) { if (!shown.has(id)) S.selected.delete(id); }); // never delete what the search hides
       if (S.selecting) syncSelection();
@@ -896,7 +901,7 @@
             var dayBox = h("input", { type: "checkbox", class: "check group-check", "aria-label": "Select all from " + label });
             dayBox._ids = entries.filter(function (e) {
               return (typeof e.ts_ms === "number" ? dayKey(new Date(e.ts_ms)) : "unknown") === key;
-            }).map(function (e) { return e.ts_ms; });
+            }).map(entryId);
             dayBox.addEventListener("change", function () {
               var all = dayBox._ids.every(function (id) { return S.selected.has(id); });
               dayBox._ids.forEach(function (id) {
@@ -1248,7 +1253,6 @@
       return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset, turnOff), error), sync: sync };
     }
 
-    // the button reads Checking... until the app answers with a notice or update-available
     // saves a report in the app's folder and shows it in Finder or Explorer; nothing is sent anywhere
     function reportControl() {
       var busy = false;
@@ -1273,6 +1277,7 @@
       return { el: button, sync: sync };
     }
 
+    // the button reads Checking... until the app answers with a notice or update-available
     function checkControl() {
       var button = h("button", { class: "btn", type: "button", onclick: function () {
         if (S.checkingUpdates) return;

@@ -15,6 +15,8 @@ const LOG_OLD: &str = "local-stt.1.log";
 const ERR: &str = "stderr.log";
 const ERR_OLD: &str = "stderr.1.log";
 const ROTATE_AT: u64 = 512 * 1024;
+// Native code can write to stderr all session; past this the file starts over.
+const ERR_CAP: u64 = 1024 * 1024;
 const LOG_LINES: usize = 400;
 const ERR_LINES: usize = 150;
 const REPORT_CAP: usize = 200 * 1024;
@@ -24,6 +26,7 @@ const CRASH_DAYS: u64 = 30;
 const CRASH_FRAMES: usize = 40;
 
 static ENABLED: AtomicBool = AtomicBool::new(true);
+static CAPTURING: AtomicBool = AtomicBool::new(false);
 static FILE: Mutex<()> = Mutex::new(());
 
 pub fn logs_dir() -> PathBuf {
@@ -64,6 +67,15 @@ fn write_line(message: &str, _guard: MutexGuard<'_, ()>) {
     if std::fs::metadata(&path).is_ok_and(|m| m.len() > ROTATE_AT) {
         let _ = std::fs::rename(&path, dir.join(LOG_OLD));
     }
+    let err = dir.join(ERR);
+    if CAPTURING.load(Ordering::Relaxed) && std::fs::metadata(&err).is_ok_and(|m| m.len() > ERR_CAP)
+    {
+        // Writes are append-only, so the next one lands at the new end.
+        let _ = std::fs::OpenOptions::new()
+            .write(true)
+            .open(&err)
+            .and_then(|f| f.set_len(0));
+    }
     let flat = message.replace(['\r', '\n'], " ");
     let line = format!("{} {}\n", utc_stamp(crate::app::now_ms()), redact(&flat));
     if let Ok(mut f) = crate::config::private_options()
@@ -78,7 +90,11 @@ fn write_line(message: &str, _guard: MutexGuard<'_, ()>) {
 /// Deletes the logs and saved reports, for when the user turns the log off.
 pub fn clear() {
     let _guard = FILE.lock().unwrap_or_else(|e| e.into_inner());
-    // stderr.log is open in this run: Unix unlinks it at once, Windows refuses and keeps it.
+    // Point stderr away from the file first, so it can be deleted on Windows too and stays gone.
+    if CAPTURING.swap(false, Ordering::Relaxed) {
+        let null = if cfg!(windows) { "NUL" } else { "/dev/null" };
+        let _ = crate::engine::redirect_stderr(Path::new(null));
+    }
     for name in [LOG, LOG_OLD, ERR, ERR_OLD] {
         let _ = std::fs::remove_file(logs_dir().join(name));
     }
@@ -111,7 +127,9 @@ pub fn capture_stderr() {
     }
     let path = dir.join(ERR);
     let _ = std::fs::rename(&path, dir.join(ERR_OLD));
-    if !crate::engine::redirect_stderr(&path) {
+    if crate::engine::redirect_stderr(&path) {
+        CAPTURING.store(true, Ordering::Relaxed);
+    } else {
         log("stderr capture: could not open the file");
     }
 }
@@ -128,7 +146,7 @@ fn user_name() -> String {
         .unwrap_or_default()
 }
 
-/// Masks the home folder as ~ and the user name as <user> (names under 3 letters are left, to keep words intact).
+/// Masks the home folder as ~ and the user name as <user>, ignoring letter case as macOS and Windows paths do.
 pub fn redact(text: &str) -> String {
     redact_with(text, &home(), &user_name())
 }
@@ -136,11 +154,32 @@ pub fn redact(text: &str) -> String {
 fn redact_with(text: &str, home: &str, user: &str) -> String {
     let mut out = text.to_string();
     if home.len() > 1 {
-        out = out.replace(home, "~");
+        out = replace_ci(&out, home, "~", false);
     }
+    // Names under 3 letters would mostly hit ordinary words; whole words only, so "art" leaves "start" alone.
     if user.chars().count() >= 3 {
-        out = out.replace(user, "<user>");
+        out = replace_ci(&out, user, "<user>", true);
     }
+    out
+}
+
+// ASCII-case-insensitive replace; ASCII lowercasing keeps byte offsets, so they map back onto `text`.
+fn replace_ci(text: &str, find: &str, with: &str, whole_word: bool) -> String {
+    let hay = text.to_ascii_lowercase();
+    let needle = find.to_ascii_lowercase();
+    let is_word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    let mut out = String::with_capacity(text.len());
+    let mut from = 0;
+    while let Some(found) = hay[from..].find(&needle) {
+        let at = from + found;
+        let end = at + needle.len();
+        let bounded = !whole_word
+            || (!is_word(text[..at].chars().next_back()) && !is_word(text[end..].chars().next()));
+        out.push_str(&text[from..at]);
+        out.push_str(if bounded { with } else { &text[at..end] });
+        from = end;
+    }
+    out.push_str(&text[from..]);
     out
 }
 
@@ -209,7 +248,7 @@ pub fn reveal(path: &Path) {
         use std::os::windows::process::CommandExt;
         let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
         // explorer wants /select,"path" as one raw token; Command::arg would quote the comma part too.
-        let _ = std::process::Command::new(PathBuf::from(root).join("explorer.exe"))
+        let _ = crate::proc::command(PathBuf::from(root).join("explorer.exe"))
             .raw_arg(format!("/select,\"{}\"", path.display()))
             .spawn();
     }
@@ -347,7 +386,7 @@ fn os_version() -> String {
             .output()
     } else if cfg!(windows) {
         let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
-        std::process::Command::new(PathBuf::from(root).join("System32").join("cmd.exe"))
+        crate::proc::command(PathBuf::from(root).join("System32").join("cmd.exe"))
             .args(["/c", "ver"])
             .output()
     } else {
@@ -377,6 +416,10 @@ fn settings_json(cfg: &Config) -> String {
             "system default"
         };
         map.insert("microphone".into(), Value::String(mic.into()));
+        // The saved pill position names a screen, and a screen can be "Jane's iPad".
+        if cfg.overlay_pos.is_some() {
+            map.insert("overlay_pos".into(), Value::String("saved".into()));
+        }
     }
     serde_json::to_string_pretty(&v).unwrap_or_default()
 }
@@ -540,10 +583,30 @@ mod tests {
     }
 
     #[test]
+    fn redaction_takes_whole_names_in_any_case() {
+        assert_eq!(
+            redact_with("start: recording started by art", "/Users/art", "art"),
+            "start: recording started by <user>"
+        );
+        assert_eq!(
+            redact_with(r"C:\Users\Jane\AppData and JANE", r"c:\users\jane", "jane"),
+            r"~\AppData and <user>"
+        );
+    }
+
+    #[test]
     fn settings_hide_the_microphone_name() {
         let cfg = Config {
             microphone: Some("Priya's AirPods".into()),
             ..Config::default()
+        };
+        let cfg = Config {
+            overlay_pos: Some(crate::config::OverlayPos {
+                monitor: "Priya's iPad".into(),
+                x: 1.0,
+                y: 2.0,
+            }),
+            ..cfg
         };
         let json = settings_json(&cfg);
         assert!(!json.contains("Priya"), "{json}");

@@ -45,7 +45,7 @@ pub fn notes_url(version: &str) -> String {
 }
 
 fn fetch_latest() -> Result<String, String> {
-    let out = Command::new(crate::download::curl_program())
+    let out = crate::proc::command(crate::download::curl_program())
         .args([
             "-q",
             "--fail",
@@ -165,7 +165,7 @@ pub fn install(version: &str) -> Result<String, String> {
     }
     let uv = find_uv().ok_or("uv was not found. Download the update from the releases page.")?;
     let spec = format!("local-stt=={version}");
-    let mut cmd = Command::new(uv);
+    let mut cmd = crate::proc::command(uv);
     cmd.args(["tool", "run", "--from", &spec, "local-stt", "install"]);
     let (ok, stdout, stderr) = run_with_timeout(cmd, std::time::Duration::from_secs(600))?;
     if !ok {
@@ -227,7 +227,10 @@ pub fn open_url(url: &str) -> Result<(), String> {
     let status = if cfg!(target_os = "macos") {
         Command::new("/usr/bin/open").arg(url).status()
     } else if cfg!(windows) {
-        Command::new("explorer.exe").arg(url).status()
+        let root = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        crate::proc::command(std::path::PathBuf::from(root).join("explorer.exe"))
+            .arg(url)
+            .status()
     } else {
         Command::new("xdg-open").arg(url).status()
     };
