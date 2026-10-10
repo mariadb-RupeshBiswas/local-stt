@@ -9,6 +9,7 @@ pub mod commands;
 pub mod config;
 pub mod download;
 pub mod engine;
+pub mod format;
 pub mod history;
 pub mod hotkey;
 pub mod hwprobe;

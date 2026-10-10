@@ -714,6 +714,7 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         .unwrap_or("-")
         .to_string();
     let text = match result {
+        Ok(t) if !t.trim().is_empty() && cfg.smart_format => crate::format::tidy(&t),
         Ok(t) if !t.trim().is_empty() => t,
         Ok(_) => return fail(app, "No speech heard", cfg.sounds),
         Err(e) => {

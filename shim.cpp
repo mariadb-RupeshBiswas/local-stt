@@ -42,6 +42,11 @@ extern "C" int lstt_transcribe(void * ctx, const float * pcm, int n, int transla
             const char * t = whisper_full_get_segment_text(wc, i);
             if (!t) continue;
             size_t len = std::strlen(t);
+            // Segments do not always carry a leading space; without one, words fuse ("hereSo").
+            if (used > 0 && len > 0 && out[used - 1] != ' ' && t[0] != ' ') {
+                if (used + 2 > static_cast<size_t>(out_len)) return -3;
+                out[used++] = ' ';
+            }
             if (used + len + 1 > static_cast<size_t>(out_len)) return -3;
             std::memcpy(out + used, t, len);
             used += len;

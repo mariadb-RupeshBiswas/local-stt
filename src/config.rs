@@ -32,6 +32,8 @@ pub struct Config {
     pub translate: bool,
     pub language: String,
     pub paste: bool,
+    /// Tidy the transcript before pasting: spoken lists, fillers, spacing.
+    pub smart_format: bool,
     pub restore_clipboard: bool,
     pub microphone: Option<String>,
     pub theme: Theme,
@@ -51,6 +53,7 @@ impl Default for Config {
             translate: true,
             language: "auto".into(),
             paste: true,
+            smart_format: true,
             restore_clipboard: false,
             microphone: None,
             theme: Theme::Pill,
