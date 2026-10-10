@@ -8,7 +8,7 @@ use serde_json::Value;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard, TryLockError};
 
 const LOG: &str = "local-stt.log";
 const LOG_OLD: &str = "local-stt.1.log";
@@ -19,6 +19,7 @@ const LOG_LINES: usize = 400;
 const ERR_LINES: usize = 150;
 const REPORT_CAP: usize = 200 * 1024;
 const KEEP_REPORTS: usize = 5;
+#[cfg(target_os = "macos")]
 const CRASH_DAYS: u64 = 30;
 const CRASH_FRAMES: usize = 40;
 
@@ -39,10 +40,22 @@ pub fn set_enabled(on: bool) {
 
 /// Appends one line to the local log, with the home folder and user name masked.
 pub fn log(message: &str) {
+    write_line(message, FILE.lock().unwrap_or_else(|e| e.into_inner()));
+}
+
+// A panic raised while this thread holds the log lock must not deadlock, so the hook skips a busy log.
+fn try_log(message: &str) {
+    match FILE.try_lock() {
+        Ok(guard) => write_line(message, guard),
+        Err(TryLockError::Poisoned(p)) => write_line(message, p.into_inner()),
+        Err(TryLockError::WouldBlock) => {}
+    }
+}
+
+fn write_line(message: &str, _guard: MutexGuard<'_, ()>) {
     if !ENABLED.load(Ordering::Relaxed) {
         return;
     }
-    let _guard = FILE.lock().unwrap_or_else(|e| e.into_inner());
     let dir = logs_dir();
     if paths::private_dir(&dir).is_err() {
         return;
@@ -76,10 +89,10 @@ pub fn clear() {
 pub fn install_panic_hook() {
     let default = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
-        log(&format!("panic: {info}"));
+        try_log(&format!("panic: {info}"));
         let trace = std::backtrace::Backtrace::force_capture().to_string();
         for line in trace.lines().take(60) {
-            log(&format!("  {line}"));
+            try_log(&format!("  {line}"));
         }
         default(info);
     }));
