@@ -87,7 +87,8 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
         .map_err(|e| format!("Could not start the note: {e}"))?;
     app::show_notes_pill(app);
     app::refresh_update_menu(app);
-    let _ = app.emit(
+    let _ = app.emit_to(
+        app::MAIN,
         "note-state",
         json!({ "id": id, "status": "recording", "startedMs": started_ms }),
     );
@@ -104,7 +105,8 @@ pub fn stop(app: &AppHandle) -> Result<(), String> {
     shared.notes_pill.store(false, Ordering::SeqCst);
     app::hide_overlay_after(app, 0);
     app::refresh_update_menu(app);
-    let _ = app.emit(
+    let _ = app.emit_to(
+        app::MAIN,
         "note-state",
         json!({ "id": running.id, "status": "tidying" }),
     );
@@ -259,7 +261,7 @@ fn send(app: &AppHandle, id: &str, speaker: &'static str, start_ms: u64, pcm: Ve
     let _ = lock(&app::shared_of(app).worker).send(job);
 }
 
-/// Worker side: a transcribed segment joins the note on disk and in any open window.
+/// Worker side: a transcribed segment joins the note on disk and in the main window (only it shows notes).
 pub fn add_segment(
     app: &AppHandle,
     id: &str,
@@ -282,7 +284,11 @@ pub fn add_segment(
         diag::log(&format!("note: could not save a segment: {e}"));
         return;
     }
-    let _ = app.emit("note-segment", json!({ "id": id, "segment": seg }));
+    let _ = app.emit_to(
+        app::MAIN,
+        "note-segment",
+        json!({ "id": id, "segment": seg }),
+    );
 }
 
 /// Worker side, after the note's last segment: tidy it and save it whole.
@@ -291,7 +297,11 @@ pub fn finish(app: &AppHandle, id: &str, ended_ms: u64) {
     match super::finish(id, ended_ms, cfg.smart_format, app::english_output(&cfg)) {
         Ok(note) => {
             diag::log(&format!("note saved: {} lines", note.segments.len()));
-            let _ = app.emit("note-state", json!({ "id": id, "status": "done" }));
+            let _ = app.emit_to(
+                app::MAIN,
+                "note-state",
+                json!({ "id": id, "status": "done" }),
+            );
         }
         Err(e) => {
             diag::log(&format!("note: could not save: {e}"));
@@ -301,7 +311,7 @@ pub fn finish(app: &AppHandle, id: &str, ended_ms: u64) {
             );
         }
     }
-    let _ = app.emit("notes-changed", ());
+    let _ = app.emit_to(app::MAIN, "notes-changed", ());
 }
 
 #[cfg(test)]

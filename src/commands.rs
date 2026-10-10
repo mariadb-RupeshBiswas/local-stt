@@ -10,7 +10,8 @@ use tauri::{AppHandle, State};
 
 const HISTORY_LIMIT: usize = 500;
 const MAX_DELETE_IDS: usize = 10_000;
-const MAX_COPY_CHARS: usize = 100_000;
+// A four-hour meeting note is about 250,000 characters.
+const MAX_COPY_CHARS: usize = 1_000_000;
 
 #[tauri::command]
 pub fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Value {
@@ -340,7 +341,7 @@ pub fn rename_note(
         return Err("Unknown note.".into());
     }
     let note = crate::notes::rename(&id, &title).map_err(|e| format!("Could not rename: {e}"))?;
-    let _ = tauri::Emitter::emit(&app, "notes-changed", ());
+    let _ = tauri::Emitter::emit_to(&app, app::MAIN, "notes-changed", ());
     Ok(note)
 }
 
@@ -355,7 +356,7 @@ pub fn delete_notes(app: AppHandle, ids: Vec<String>) -> Result<usize, String> {
     let removed = crate::notes::delete(&ids, recording.as_deref())
         .map_err(|e| format!("cannot delete notes: {e}"))?;
     diag::log(&format!("notes deleted: {removed}"));
-    let _ = tauri::Emitter::emit(&app, "notes-changed", ());
+    let _ = tauri::Emitter::emit_to(&app, app::MAIN, "notes-changed", ());
     Ok(removed)
 }
 

@@ -1200,6 +1200,7 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
         let mut engine: Option<Engine> = None;
         let mut verified: Vec<ModelId> = Vec::new();
         // Note jobs wait here and run only when nothing else is queued, so a paste never waits behind a meeting.
+        // ponytail: unbounded; a CPU far slower than real time grows it about 2 MB per queued segment, cap it if that shows up in reports.
         let mut note_jobs: std::collections::VecDeque<Job> = std::collections::VecDeque::new();
         loop {
             let job = match rx.try_recv() {
