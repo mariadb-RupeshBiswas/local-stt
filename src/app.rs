@@ -235,7 +235,8 @@ fn create_overlay(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         .always_on_top(true)
         .skip_taskbar(true)
         .resizable(false)
-        .shadow(true)
+        // Windows draws a square frame for a shadowed borderless window; the page draws its own shadow there.
+        .shadow(cfg!(target_os = "macos"))
         .visible_on_all_workspaces(true)
         // Created hidden and never focusable, so showing it cannot steal focus from the user's app.
         .visible(false)
