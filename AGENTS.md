@@ -25,6 +25,8 @@ whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local
 
 Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pinned to a release commit.
 `LOCAL_STT_DATA_DIR` overrides the app data folder, which keeps tests away from real user data.
+`LOCAL_STT_NO_PERMISSION_PROMPTS=1` starts without the Accessibility prompt, and
+`LOCAL_STT_EXIT_AFTER_MS=<ms>` quits the app after that long, for headless start-and-quit checks.
 
 ## Layout
 

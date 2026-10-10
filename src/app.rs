@@ -31,6 +31,8 @@ const LIVE_TAIL_SECS: u32 = 18;
 const LIVE_EVERY_MS: u64 = 800;
 
 pub enum Job {
+    /// Frees the engine before the process exits; ggml's Metal backend asserts if it is still alive.
+    Shutdown(Sender<()>),
     Partial {
         pcm: Vec<f32>,
         opts: Opts,
@@ -153,18 +155,27 @@ pub fn run() -> Result<(), String> {
             spawn_controller(handle.clone(), ctrl_rx);
             start_hotkey(&handle);
             first_run_or_load(&handle);
+            // LOCAL_STT_EXIT_AFTER_MS lets CI and smoke tests exercise a full start and a clean quit.
+            if let Some(ms) = std::env::var("LOCAL_STT_EXIT_AFTER_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                let quitter = handle.clone();
+                std::thread::spawn(move || {
+                    std::thread::sleep(Duration::from_millis(ms));
+                    quitter.exit(0);
+                });
+            }
             Ok(())
         })
         .build(tauri::generate_context!())
         .map_err(|e| format!("cannot start the app: {e}"))?;
 
-    app.run(|_app, event| {
+    app.run(|app, event| match event {
         // Closing the main window must not quit a menu-bar app.
-        if let RunEvent::ExitRequested { api, code, .. } = event {
-            if code.is_none() {
-                api.prevent_exit();
-            }
-        }
+        RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
+        RunEvent::Exit => shutdown_engine(app),
+        _ => {}
     });
     Ok(())
 }
@@ -915,12 +926,25 @@ pub fn model_name(id: ModelId) -> &'static str {
 
 // ---------- worker and models ----------
 
+// Waits briefly for the worker to drop the whisper context, so exit-time destructors find nothing to free.
+fn shutdown_engine(app: &AppHandle) {
+    let (tx, rx) = mpsc::channel();
+    if lock(&shared(app).worker).send(Job::Shutdown(tx)).is_ok() {
+        let _ = rx.recv_timeout(Duration::from_secs(3));
+    }
+}
+
 fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
     std::thread::spawn(move || {
         let mut engine: Option<Engine> = None;
         let mut verified: Vec<ModelId> = Vec::new();
         for job in rx {
             match job {
+                Job::Shutdown(done) => {
+                    drop(engine.take());
+                    let _ = done.send(());
+                    break;
+                }
                 Job::Load(path, id) => match verify_model(&path, id, &mut verified)
                     .and_then(|()| Engine::load(&path))
                 {

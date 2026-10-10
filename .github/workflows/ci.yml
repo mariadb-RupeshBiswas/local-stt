@@ -53,6 +53,12 @@ jobs:
         env:
           LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
         run: cargo test --locked --release --test engine
+      - name: Start the app, load the model, quit cleanly
+        env:
+          LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
+          LOCAL_STT_NO_PERMISSION_PROMPTS: "1"
+          LOCAL_STT_EXIT_AFTER_MS: "20000"
+        run: cargo run --locked --release
 
   windows:
     name: Windows (lint, test)
