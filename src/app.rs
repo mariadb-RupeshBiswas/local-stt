@@ -159,9 +159,14 @@ pub fn run() -> Result<(), String> {
             create_live(&handle)?;
             spawn_worker(handle.clone(), worker_rx);
             spawn_controller(handle.clone(), ctrl_rx);
-            start_hotkey(&handle);
-            first_run_or_load(&handle);
-            spawn_update_checker(handle.clone());
+            if crate::demo::active() {
+                // The tour never listens to the keyboard, downloads, checks for updates, records or pastes.
+                crate::demo::spawn(handle.clone());
+            } else {
+                start_hotkey(&handle);
+                first_run_or_load(&handle);
+                spawn_update_checker(handle.clone());
+            }
             // LOCAL_STT_EXIT_AFTER_MS lets CI and smoke tests exercise a full start and a clean quit.
             if let Some(ms) = std::env::var("LOCAL_STT_EXIT_AFTER_MS")
                 .ok()
@@ -351,7 +356,7 @@ fn create_live(app: &AppHandle) -> tauri::Result<WebviewWindow> {
             EffectsBuilder::new()
                 .effects([Effect::LiquidGlassRegular, Effect::HudWindow])
                 .state(EffectState::Active)
-                .radius(16.0)
+                .radius(22.0)
                 .build(),
         )
     };

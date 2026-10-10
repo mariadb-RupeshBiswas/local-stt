@@ -10,6 +10,7 @@ USAGE:
   local-stt                      start the app (menu bar / tray)
   local-stt doctor               show your hardware and which models fit
   local-stt fetch-model <id>     download a model: small, medium or large-v3
+  local-stt demo                 a short tour with sample data (nothing is recorded or pasted)
   local-stt check-update         see whether a newer release is available
   local-stt install              add local-stt to Applications / Start menu and your terminal
   local-stt uninstall            remove what install added (settings and history are kept)
@@ -27,6 +28,7 @@ fn main() -> ExitCode {
         Some("--autostart") => set_autostart(args.get(1).map(String::as_str)),
         Some("install") => install(),
         Some("check-update") => check_update(),
+        Some("demo") => local_stt::demo::prepare().and_then(|()| local_stt::app::run()),
         Some("uninstall") => uninstall(),
         Some("--version") | Some("-V") => {
             println!("local-stt {}", env!("CARGO_PKG_VERSION"));
