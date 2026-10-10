@@ -627,7 +627,7 @@
       onSearch();
       searchInput.focus();
     } }, icon("close"));
-    var clearButton = h("button", { class: "btn btn-danger", type: "button", text: "Clear history", onclick: askClearHistory });
+    var clearButton = h("button", { class: "btn btn-danger", type: "button", text: "Clear History", onclick: askClearHistory });
     var historyList = h("div", { class: "history-list" });
     var historyBar = h("div", { class: "history-bar" },
       h("div", { class: "search" }, icon("search"), searchInput, searchClear),
@@ -660,9 +660,9 @@
 
       var body = h("div", { class: "hrow-text" + (text ? "" : " is-empty"), text: text || "Nothing was transcribed." });
       var moreDot = h("span", { class: "dot-sep", "aria-hidden": "true", hidden: true });
-      var more = h("button", { class: "linklike", type: "button", text: "Show more", hidden: true, onclick: function () {
+      var more = h("button", { class: "linklike", type: "button", text: "Show More", hidden: true, onclick: function () {
         var open = body.classList.toggle("open");
-        more.textContent = open ? "Show less" : "Show more";
+        more.textContent = open ? "Show Less" : "Show More";
       } });
       var snippet = text.length > 40 ? text.slice(0, 40).trim() + "..." : text;
       var copyLabel = text === "" ? "Copy dictation (empty)" : "Copy dictation: " + snippet;
@@ -755,7 +755,7 @@
         card.appendChild(row);
       });
 
-      // reveal "Show more" only where the clamp actually hides text
+      // reveal "Show More" only where the clamp actually hides text
       requestAnimationFrame(function () {
         rows.forEach(function (row) {
           if (row._body.scrollHeight > row._body.clientHeight + 1) {
@@ -790,7 +790,7 @@
       askConfirm({
         title: "Clear all history?",
         body: "This deletes every saved dictation from " + thisDevice() + ". It can't be undone.",
-        confirm: "Clear history",
+        confirm: "Clear History",
         danger: true,
         onConfirm: function () {
           Promise.resolve(invoke("clear_history")).then(function () {
@@ -805,7 +805,7 @@
       askConfirm({
         title: "Turn off history?",
         body: "Saved dictations will be deleted from " + thisDevice() + ".",
-        confirm: "Turn off",
+        confirm: "Turn Off",
         danger: true,
         onConfirm: function () {
           patchConfig({ save_history: false }).then(function () {
@@ -1036,7 +1036,7 @@
         change[info.field] = defaults[S.platform];
         patchConfig(change);
       } });
-      var turnOff = slot === "toggle" ? h("button", { class: "btn btn-quiet", type: "button", text: "Turn off", "aria-label": "Turn off hands-free", onclick: function () {
+      var turnOff = slot === "toggle" ? h("button", { class: "btn btn-quiet", type: "button", text: "Turn Off", "aria-label": "Turn off hands-free", onclick: function () {
         patchConfig({ toggle_hotkey: null });
       } }) : null;
       var error = h("div", { class: "field-error", role: "alert", hidden: true });
@@ -1200,7 +1200,7 @@
 
     function pillPositionControl() {
       var move = h("button", { class: "btn", type: "button", onclick: function () { setMoving(!S.moving); } });
-      var reset = h("button", { class: "btn", type: "button", text: "Reset position", onclick: function () {
+      var reset = h("button", { class: "btn", type: "button", text: "Reset Position", onclick: function () {
         Promise.resolve(invoke("reset_overlay_position")).then(function () {
           toast("Position reset.");
           if (!S.moving) return null;
@@ -1212,7 +1212,7 @@
           });
         }).catch(function (err) { toast(errText(err)); });
       } });
-      function sync() { move.textContent = S.moving ? "Done" : "Move pill"; }
+      function sync() { move.textContent = S.moving ? "Done" : "Move Pill"; }
       sync();
       return { el: h("div", { class: "btn-row" }, move, reset), sync: sync };
     }
@@ -1359,7 +1359,7 @@
         [panels.history, panels.model, panels.settings].forEach(function (p) { clear(p); });
         if (S.loadError) {
           panels[S.tab].appendChild(emptyState("Couldn't load", S.loadError,
-            h("button", { class: "btn", type: "button", text: "Try again", onclick: refreshState })));
+            h("button", { class: "btn", type: "button", text: "Try Again", onclick: refreshState })));
         }
         return;
       }

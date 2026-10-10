@@ -94,7 +94,7 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   check("warning faded out by ~3 s", (await ov.getAttribute("data-visible")) === "false");
 
   // positioning: no timer, no auto-hide, grab cursor
-  await btn("Move pill").click();
+  await btn("Move Pill").click();
   await page.waitForTimeout(500);
   const pos = await read();
   check("positioning shows Drag me anywhere", (await ov.getAttribute("data-state")) === "positioning" && (await live.locator(".ov-label").textContent()) === "Drag me anywhere" && pos.opacity === 1, pos);
@@ -360,12 +360,12 @@ for (const dark of [false, true]) {
   const dotBefore = await page.locator(".hrow-meta .dot-sep:not([hidden])").evaluateAll((els) => els.length);
   check("Show more has a separator dot", dotBefore >= 1);
 
-  await page.getByText("Clear history", { exact: true }).first().click();
+  await page.getByText("Clear History", { exact: true }).first().click();
   await page.waitForTimeout(250);
   check("clear history asks first", (await page.locator("dialog.dlg[open]").count()) === 1);
   await page.locator("dialog.dlg .btn", { hasText: "Cancel" }).click();
   check("cancel keeps history", (await page.locator(".hrow").count()) > 0);
-  await page.getByText("Clear history", { exact: true }).first().click();
+  await page.getByText("Clear History", { exact: true }).first().click();
   await page.locator("dialog.dlg .btn-danger-solid").click();
   await page.waitForTimeout(300);
   check("confirm clears history", (await page.locator(".empty-title").textContent()) === "No dictations yet");
@@ -472,27 +472,27 @@ for (const dark of [false, true]) {
 // ---------- main: Settings ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
-  const move = page.getByRole("button", { name: "Move pill" });
-  check("Pill position row has Move pill and Reset position", (await page.locator(".srow-title", { hasText: "Pill position" }).count()) === 1 && (await move.count()) === 1 && (await page.getByRole("button", { name: "Reset position" }).count()) === 1);
+  const move = page.getByRole("button", { name: "Move Pill" });
+  check("Pill position row has Move pill and Reset position", (await page.locator(".srow-title", { hasText: "Pill position" }).count()) === 1 && (await move.count()) === 1 && (await page.getByRole("button", { name: "Reset Position" }).count()) === 1);
   await move.click();
   await page.waitForTimeout(200);
   check("Move pill calls move_overlay on:true and becomes Done", (await calls(page)).includes("move_overlay:true") && (await page.getByRole("button", { name: "Done", exact: true }).count()) === 1);
   await page.getByRole("button", { name: "Done", exact: true }).click();
   await page.waitForTimeout(200);
   check("Done calls move_overlay on:false", (await calls(page)).join() === "move_overlay:true,move_overlay:false", await calls(page));
-  await page.getByRole("button", { name: "Move pill" }).click();
+  await page.getByRole("button", { name: "Move Pill" }).click();
   await page.locator("#tab-history").click();
   await page.waitForTimeout(200);
   check("leaving the Settings tab stops positioning", (await calls(page)).slice(-1)[0] === "move_overlay:false", await calls(page));
   await page.locator("#tab-settings").click();
-  check("button is back to Move pill after returning", (await page.getByRole("button", { name: "Move pill" }).count()) === 1);
-  await page.getByRole("button", { name: "Reset position" }).click();
+  check("button is back to Move pill after returning", (await page.getByRole("button", { name: "Move Pill" }).count()) === 1);
+  await page.getByRole("button", { name: "Reset Position" }).click();
   await page.waitForTimeout(250);
   check("Reset position resets and says so", (await calls(page)).includes("reset_overlay_position") && (await page.locator(".toast").textContent()) === "Position reset.");
 
   // Reset while the pill is up re-places it: hide, then show again
-  await page.getByRole("button", { name: "Move pill" }).click();
-  await page.getByRole("button", { name: "Reset position" }).click();
+  await page.getByRole("button", { name: "Move Pill" }).click();
+  await page.getByRole("button", { name: "Reset Position" }).click();
   await page.waitForTimeout(600);
   check("Reset while positioning hides and shows the pill again", (await calls(page)).slice(-4).join() === "move_overlay:true,reset_overlay_position,move_overlay:false,move_overlay:true", await calls(page));
   await page.getByRole("button", { name: "Done", exact: true }).click();
@@ -572,7 +572,7 @@ for (const dark of [false, true]) {
 }
 for (const how of ["visibilitychange", "pagehide"]) {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
-  await page.getByRole("button", { name: "Move pill" }).click();
+  await page.getByRole("button", { name: "Move Pill" }).click();
   await page.waitForTimeout(150);
   await page.evaluate((kind) => {
     if (kind === "visibilitychange") {
@@ -880,7 +880,7 @@ for (const dark of [false, true]) {
   check(mode + ": Show more gets the accent ink at 4.5:1", verdict(link), link);
   const icon = await probe("?view=main&tab=history", ".hrow .copy", "label-2", ".card");
   check(mode + ": copy button keeps its secondary ink at 4.5:1", verdict(icon), icon);
-  const solid = await probe("?view=main&tab=history", ".btn-danger-solid", "white", ".dlg", { before: async (page) => { await page.getByText("Clear history", { exact: true }).first().click(); await page.waitForTimeout(300); } });
+  const solid = await probe("?view=main&tab=history", ".btn-danger-solid", "white", ".dlg", { before: async (page) => { await page.getByText("Clear History", { exact: true }).first().click(); await page.waitForTimeout(300); } });
   check(mode + ": the red confirm button has white text at 4.5:1", verdict(solid), solid);
 }
 
