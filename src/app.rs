@@ -765,7 +765,8 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                     partial_in_flight = false;
                     let current = machine.recording_since() == Some(session);
                     if let Some(text) = text.filter(|t| current && !t.trim().is_empty()) {
-                        let formatted = shared(&app).config().smart_format;
+                        let cfg = shared(&app).config();
+                        let formatted = cfg.smart_format && english_output(&cfg);
                         let _ =
                             app.emit("live-text", json!({ "text": text, "formatted": formatted }));
                     }
@@ -873,6 +874,11 @@ fn apply(
     }
 }
 
+/// Translation always yields English; otherwise only an explicit English setting guarantees it.
+fn english_output(cfg: &Config) -> bool {
+    cfg.translate || cfg.language == "en"
+}
+
 fn transcribe_opts(cfg: &Config) -> Opts {
     let threads = std::thread::available_parallelism()
         .map(|n| n.get() as u32)
@@ -902,7 +908,7 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         .to_string();
     let result = result.map(|t| {
         if cfg.smart_format {
-            crate::format::tidy(&t)
+            crate::format::tidy_for(&t, english_output(&cfg))
         } else {
             t
         }

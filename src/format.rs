@@ -2,6 +2,15 @@
 
 const FILLERS: &[&str] = &["uh", "uhh", "um", "umm", "uhm", "erm", "hmm"];
 
+/// English output gets every rule; other languages only get spacing fixes, since "um" or "point" mean other things there.
+pub fn tidy_for(text: &str, english: bool) -> String {
+    if english {
+        tidy(text)
+    } else {
+        fix_spacing(text).trim().to_string()
+    }
+}
+
 /// Applies every rule; text with nothing to fix comes back unchanged apart from trimming.
 pub fn tidy(text: &str) -> String {
     let without_fillers = remove_fillers(text);
@@ -142,7 +151,7 @@ fn numbered_points(text: &str) -> String {
     while i < ws.len() {
         let expected = markers.len() as u32 + 1;
         let word = &text[ws[i].start..ws[i].end];
-        if !word.eq_ignore_ascii_case("point") {
+        if !word.eq_ignore_ascii_case("point") || !clause_start(text, &ws, i) {
             i += 1;
             continue;
         }
@@ -193,6 +202,19 @@ fn numbered_points(text: &str) -> String {
     out
 }
 
+// A spoken list marker opens a clause: text start, after punctuation, or after "and"/"then"/"so".
+fn clause_start(text: &str, ws: &[Word], i: usize) -> bool {
+    if i == 0 {
+        return true;
+    }
+    let gap = &text[ws[i - 1].end..ws[i].start];
+    if gap.contains(['.', ',', ';', ':', '!', '?', '\n']) {
+        return true;
+    }
+    let prev = text[ws[i - 1].start..ws[i - 1].end].to_lowercase();
+    matches!(prev.as_str(), "and" | "then" | "so" | "also" | "next")
+}
+
 // Drops the commas, spaces and "and"/"then" that glue spoken points together.
 fn trim_joiners(s: &str) -> &str {
     let mut t = s.trim_matches(|c: char| c.is_whitespace() || c == ',' || c == ':');
@@ -233,7 +255,7 @@ mod tests {
 
     #[test]
     fn point_number_and_digits_work() {
-        let input = "Agenda point number 1 budget point number 2 hiring point number 3 travel";
+        let input = "Agenda: point number 1 budget, point number 2 hiring, point number 3 travel";
         assert_eq!(tidy(input), "Agenda:\n1. Budget.\n2. Hiring.\n3. Travel.");
     }
 
@@ -251,8 +273,31 @@ mod tests {
 
     #[test]
     fn to_is_only_two_when_two_is_due() {
-        let input = "I want to go point one eat point to sleep";
+        let input = "I want to go, point one eat, point to sleep";
         assert_eq!(tidy(input), "I want to go:\n1. Eat.\n2. Sleep.");
+    }
+
+    #[test]
+    fn point_inside_a_sentence_is_not_a_marker() {
+        let input = "At this point one thing is clear and at that point to be fair we agree.";
+        assert_eq!(tidy(input), input);
+    }
+
+    #[test]
+    fn other_languages_only_get_spacing_fixes() {
+        assert_eq!(
+            tidy_for("Eu tenho um carro e um cão.", false),
+            "Eu tenho um carro e um cão."
+        );
+        assert_eq!(
+            tidy_for("Wir treffen uns um zehn Uhr, um zu reden.", false),
+            "Wir treffen uns um zehn Uhr, um zu reden."
+        );
+        assert_eq!(tidy_for("Hola.Mundo", false), "Hola. Mundo");
+        assert_eq!(
+            tidy_for("uh, point one a, point two b", true),
+            "1. A.\n2. B."
+        );
     }
 
     #[test]
