@@ -165,18 +165,58 @@ pub fn install(version: &str) -> Result<String, String> {
     }
     let uv = find_uv().ok_or("uv was not found. Download the update from the releases page.")?;
     let spec = format!("local-stt=={version}");
-    let out = Command::new(uv)
-        .args(["tool", "run", "--from", &spec, "local-stt", "install"])
-        .stdin(Stdio::null())
-        .output()
-        .map_err(|e| format!("cannot run uv: {e}"))?;
-    if !out.status.success() {
-        return Err(format!(
-            "update failed: {}",
-            String::from_utf8_lossy(&out.stderr).trim()
-        ));
+    let mut cmd = Command::new(uv);
+    cmd.args(["tool", "run", "--from", &spec, "local-stt", "install"]);
+    let (ok, stdout, stderr) = run_with_timeout(cmd, std::time::Duration::from_secs(600))?;
+    if !ok {
+        return Err(format!("update failed: {}", stderr.trim()));
     }
-    Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    Ok(stdout.trim().to_string())
+}
+
+/// Runs a command, draining its output on threads, and kills it if it runs past `limit`.
+fn run_with_timeout(
+    mut cmd: Command,
+    limit: std::time::Duration,
+) -> Result<(bool, String, String), String> {
+    use std::io::Read;
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("cannot run uv: {e}"))?;
+    let mut out_pipe = child.stdout.take();
+    let mut err_pipe = child.stderr.take();
+    let out_reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(p) = out_pipe.as_mut() {
+            let _ = p.read_to_string(&mut s);
+        }
+        s
+    });
+    let err_reader = std::thread::spawn(move || {
+        let mut s = String::new();
+        if let Some(p) = err_pipe.as_mut() {
+            let _ = p.read_to_string(&mut s);
+        }
+        s
+    });
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(status) => break status,
+            None if started.elapsed() > limit => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("The update took too long and was stopped.".into());
+            }
+            None => std::thread::sleep(std::time::Duration::from_millis(200)),
+        }
+    };
+    let stdout = out_reader.join().unwrap_or_default();
+    let stderr = err_reader.join().unwrap_or_default();
+    Ok((status.success(), stdout, stderr))
 }
 
 /// Opens a fixed project URL in the default browser.
@@ -246,6 +286,27 @@ mod tests {
             "https://github.com/mariadb-RupeshBiswas/local-stt/releases/tag/v0.2.0"
         );
         assert_eq!(notes_url("bad version"), RELEASES_URL);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn slow_commands_are_stopped() {
+        let mut cmd = Command::new("/bin/sleep");
+        cmd.arg("5");
+        let started = std::time::Instant::now();
+        let result = run_with_timeout(cmd, std::time::Duration::from_millis(300));
+        assert!(result.is_err());
+        assert!(started.elapsed() < std::time::Duration::from_secs(3));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn command_output_is_collected() {
+        let mut cmd = Command::new("/bin/echo");
+        cmd.arg("hello");
+        let (ok, out, _) = run_with_timeout(cmd, std::time::Duration::from_secs(5)).unwrap();
+        assert!(ok);
+        assert_eq!(out.trim(), "hello");
     }
 
     #[test]

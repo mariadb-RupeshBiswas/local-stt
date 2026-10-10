@@ -49,8 +49,9 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 
 ## Rules
 
-- Privacy first: no network calls except the pinned model downloads, no telemetry, never
-  store audio or keystrokes.
+- Privacy first: the only network use is the pinned model downloads, the daily PyPI version
+  check (user can turn it off) and a user-started update through uv. No telemetry; never store
+  audio or keystrokes.
 - `unsafe` only in `src/engine.rs` and the `macos.rs` / `windows.rs` platform files, each
   block with a one-line `// SAFETY:` comment.
 - Dependencies: crates from named organizations with a release in the last year. Ask before

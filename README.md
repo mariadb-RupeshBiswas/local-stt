@@ -109,7 +109,7 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 ## Privacy and security
 
 - Speech recognition runs locally with [whisper.cpp](https://github.com/ggml-org/whisper.cpp). Audio stays in memory and is discarded after each dictation.
-- The app makes only two kinds of network request: downloading a model from Hugging Face over HTTPS (verified against a pinned checksum on download and again when it loads), and, unless you turn it off, a once-a-day version check against pypi.org that sends nothing but the request itself.
+- The app talks to the network for three things only: downloading a model from Hugging Face over HTTPS (verified against a pinned checksum on download and again when it loads); a once-a-day version check against pypi.org that sends nothing but the request itself (you can turn it off); and, only when you click Install and Restart, uv fetching the new release from PyPI.
 - Text is put on the clipboard marked as private, so clipboard managers, Windows clipboard history and cloud clipboard skip it. On a Mac with Handoff on, Universal Clipboard can still pass it to your own nearby devices.
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
 - History and settings are plain local files readable only by your user account. History can be switched off or cleared at any time.
@@ -137,6 +137,8 @@ It runs a model you choose, entirely on your device, translates to English if yo
 ## Updating
 
 local-stt checks for a new version once a day (Settings > General > Check automatically). When one is out you see an "Update to ..." item in the menu bar or tray and a banner in the app with **Install and Restart**, **Release Notes**, **Later** and **Skip This Version**. From a terminal: `local-stt check-update`.
+
+On macOS, each new version is a new program to the system, so it may ask for Microphone and Accessibility again after an update.
 
 ## Uninstall
 

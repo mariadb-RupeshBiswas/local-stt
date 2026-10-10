@@ -160,7 +160,7 @@ pub fn run() -> Result<(), String> {
             spawn_worker(handle.clone(), worker_rx);
             spawn_controller(handle.clone(), ctrl_rx);
             if crate::demo::active() {
-                // The tour never listens to the keyboard, downloads, checks for updates, records or pastes.
+                // The tour starts no keyboard hook, download, update check, recording or paste on its own.
                 crate::demo::spawn(handle.clone());
             } else {
                 start_hotkey(&handle);

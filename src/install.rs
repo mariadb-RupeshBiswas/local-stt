@@ -199,8 +199,20 @@ mod platform {
         )
     }
 
+    /// An existing bundle is ours only if its Info.plist names our identifier.
+    pub(super) fn is_ours(app: &Path) -> bool {
+        std::fs::read_to_string(app.join("Contents").join("Info.plist"))
+            .is_ok_and(|plist| plist.contains("<string>io.github.localstt</string>"))
+    }
+
     pub fn install(exe: &Path) -> Result<PathBuf, String> {
         let app = app_dir().ok_or("HOME is not set")?;
+        if app.exists() && !is_ours(&app) {
+            return Err(format!(
+                "{} belongs to another app, so it was left alone.",
+                app.display()
+            ));
+        }
         let contents = app.join("Contents");
         let resources = contents.join("Resources");
         std::fs::create_dir_all(&resources)
@@ -233,6 +245,12 @@ mod platform {
         let app = app_dir().ok_or("HOME is not set")?;
         if !app.exists() {
             return Ok(vec![]);
+        }
+        if !is_ours(&app) {
+            return Ok(vec![format!(
+                "{} is not local-stt's, so it was left alone.",
+                app.display()
+            )]);
         }
         std::fs::remove_dir_all(&app)
             .map_err(|e| format!("cannot remove {}: {e}", app.display()))?;
@@ -274,32 +292,68 @@ mod platform {
             .join("powershell.exe")
     }
 
-    pub fn install(exe: &Path) -> Result<PathBuf, String> {
-        let dir = program_dir().ok_or("LOCALAPPDATA is not set")?;
-        let target = super::copy_binary(exe, &dir)?;
-        let lnk = shortcut().ok_or("APPDATA is not set")?;
-        // Paths travel as environment variables, never spliced into the script, so no quoting can break out.
-        let script = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LSTT_LNK); $s.TargetPath = $env:LSTT_TARGET; $s.WorkingDirectory = $env:LSTT_DIR; $s.Description = 'Free, local push-to-talk speech-to-text'; $s.Save()";
-        let out = std::process::Command::new(powershell())
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-ExecutionPolicy",
-                "Bypass",
-                "-Command",
-                script,
-            ])
-            .env("LSTT_LNK", &lnk)
-            .env("LSTT_TARGET", &target)
-            .env("LSTT_DIR", &dir)
+    // A marker file proves the folder was made by install, so uninstall may remove it.
+    const MARKER: &str = ".installed-by-local-stt";
+
+    fn run_powershell(script: &str, env: &[(&str, &Path)]) -> Result<String, String> {
+        let mut cmd = std::process::Command::new(powershell());
+        cmd.args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-ExecutionPolicy",
+            "Bypass",
+            "-Command",
+            script,
+        ]);
+        for (key, value) in env {
+            cmd.env(key, value);
+        }
+        let out = cmd
             .output()
             .map_err(|e| format!("cannot run PowerShell: {e}"))?;
         if !out.status.success() {
+            return Err(String::from_utf8_lossy(&out.stderr).trim().to_string());
+        }
+        Ok(String::from_utf8_lossy(&out.stdout).trim().to_string())
+    }
+
+    /// The shortcut is ours when it points at our installed exe.
+    fn shortcut_is_ours(lnk: &Path, target: &Path) -> bool {
+        let script =
+            "(New-Object -ComObject WScript.Shell).CreateShortcut($env:LSTT_LNK).TargetPath";
+        run_powershell(script, &[("LSTT_LNK", lnk)])
+            .is_ok_and(|found| std::path::Path::new(&found) == target)
+    }
+
+    pub fn install(exe: &Path) -> Result<PathBuf, String> {
+        let dir = program_dir().ok_or("LOCALAPPDATA is not set")?;
+        if dir.exists()
+            && !dir.join(MARKER).exists()
+            && dir.read_dir().is_ok_and(|mut d| d.next().is_some())
+        {
             return Err(format!(
-                "cannot create the Start menu shortcut: {}",
-                String::from_utf8_lossy(&out.stderr).trim()
+                "{} holds files local-stt did not create, so it was left alone.",
+                dir.display()
             ));
         }
+        let target = super::copy_binary(exe, &dir)?;
+        std::fs::write(dir.join(MARKER), b"")
+            .map_err(|e| format!("cannot mark the install folder: {e}"))?;
+        let lnk = shortcut().ok_or("APPDATA is not set")?;
+        if lnk.exists() && !shortcut_is_ours(&lnk, &target) {
+            return Ok(target);
+        }
+        // Paths travel as environment variables, never spliced into the script, so no quoting can break out.
+        let script = "$s = (New-Object -ComObject WScript.Shell).CreateShortcut($env:LSTT_LNK); $s.TargetPath = $env:LSTT_TARGET; $s.WorkingDirectory = $env:LSTT_DIR; $s.Description = 'Free, local push-to-talk speech-to-text'; $s.Save()";
+        run_powershell(
+            script,
+            &[
+                ("LSTT_LNK", &lnk),
+                ("LSTT_TARGET", &target),
+                ("LSTT_DIR", &dir),
+            ],
+        )
+        .map_err(|e| format!("cannot create the Start menu shortcut: {e}"))?;
         Ok(target)
     }
 
@@ -309,12 +363,15 @@ mod platform {
 
     pub fn uninstall() -> Result<Vec<String>, String> {
         let mut notes = Vec::new();
+        let target = installed_exe().unwrap_or_default();
         if let Some(lnk) = shortcut().filter(|p| p.exists()) {
-            std::fs::remove_file(&lnk)
-                .map_err(|e| format!("cannot remove {}: {e}", lnk.display()))?;
-            notes.push("Removed the Start menu shortcut.".to_string());
+            if shortcut_is_ours(&lnk, &target) {
+                std::fs::remove_file(&lnk)
+                    .map_err(|e| format!("cannot remove {}: {e}", lnk.display()))?;
+                notes.push("Removed the Start menu shortcut.".to_string());
+            }
         }
-        if let Some(dir) = program_dir().filter(|p| p.exists()) {
+        if let Some(dir) = program_dir().filter(|p| p.join(MARKER).exists()) {
             // Windows cannot delete a running program, so the installed copy cannot remove its own folder.
             let running_from_dir = std::env::current_exe()
                 .ok()
@@ -322,10 +379,23 @@ mod platform {
                 .zip(dir.canonicalize().ok())
                 .is_some_and(|(exe, d)| exe.starts_with(d));
             if running_from_dir {
-                notes.push(format!(
-                    "Close local-stt, then delete {} to finish.",
-                    dir.display()
-                ));
+                // Let a detached PowerShell remove the folder once this process has exited.
+                let script = "Start-Sleep -Seconds 3; Remove-Item -LiteralPath $env:LSTT_DIR -Recurse -Force";
+                let spawned = std::process::Command::new(powershell())
+                    .args([
+                        "-NoProfile",
+                        "-NonInteractive",
+                        "-WindowStyle",
+                        "Hidden",
+                        "-Command",
+                        script,
+                    ])
+                    .env("LSTT_DIR", &dir)
+                    .spawn();
+                notes.push(match spawned {
+                    Ok(_) => format!("{} will be removed in a few seconds.", dir.display()),
+                    Err(_) => format!("Close local-stt, then delete {} to finish.", dir.display()),
+                });
             } else {
                 std::fs::remove_dir_all(&dir)
                     .map_err(|e| format!("cannot remove {}: {e}", dir.display()))?;
@@ -429,6 +499,29 @@ mod tests {
         std::fs::write(&target, b"x").unwrap();
         let note = link_into(&target, &d.join("bin"), std::ffi::OsStr::new("")).unwrap();
         assert!(note.contains("to your PATH"), "{note}");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn only_a_bundle_with_our_identifier_counts_as_ours() {
+        let d = scratch("bundle");
+        let ours = d.join("ours.app");
+        let foreign = d.join("foreign.app");
+        std::fs::create_dir_all(ours.join("Contents")).unwrap();
+        std::fs::create_dir_all(foreign.join("Contents")).unwrap();
+        std::fs::write(
+            ours.join("Contents/Info.plist"),
+            platform::bundle_plist("1.0"),
+        )
+        .unwrap();
+        std::fs::write(
+            foreign.join("Contents/Info.plist"),
+            "<plist><dict><key>CFBundleIdentifier</key><string>com.example.other</string></dict></plist>",
+        )
+        .unwrap();
+        assert!(platform::is_ours(&ours));
+        assert!(!platform::is_ours(&foreign));
+        assert!(!platform::is_ours(&d.join("missing.app")));
     }
 
     #[cfg(target_os = "macos")]

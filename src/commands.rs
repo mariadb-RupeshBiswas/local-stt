@@ -73,7 +73,7 @@ pub fn merge_patch(current: &Config, patch: &Value) -> Result<Config, String> {
 }
 
 #[tauri::command]
-pub fn set_config(
+pub async fn set_config(
     app: AppHandle,
     state: State<'_, Arc<Shared>>,
     patch: Value,
@@ -81,7 +81,11 @@ pub fn set_config(
     let before = state.config();
     let next = merge_patch(&before, &patch)?;
     if next.autostart != before.autostart {
-        let note = autostart::set(next.autostart)?;
+        // Turning this on may install the app (copy, codesign), which must not freeze the window.
+        let enable = next.autostart;
+        let note = tauri::async_runtime::spawn_blocking(move || autostart::set(enable))
+            .await
+            .map_err(|e| format!("start at login failed: {e}"))??;
         let _ = tauri::Emitter::emit(&app, "notice", json!({ "message": note }));
     }
     if before.save_history && !next.save_history {
@@ -184,9 +188,23 @@ pub fn check_for_updates(app: AppHandle) {
     app::check_updates_now(app, true);
 }
 
+static UPDATING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+// Clears the in-progress flag however the update ends.
+struct UpdateGuard;
+impl Drop for UpdateGuard {
+    fn drop(&mut self) {
+        UPDATING.store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+}
+
 /// Installs the version the last check found, then restarts into it.
 #[tauri::command]
 pub async fn install_update(app: AppHandle) -> Result<String, String> {
+    if UPDATING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("An update is already being installed.".into());
+    }
+    let _guard = UpdateGuard;
     let shared = app::shared_of(&app);
     let version = lock(&shared.update)
         .as_ref()
@@ -218,10 +236,14 @@ pub fn open_release_notes(state: State<'_, Arc<Shared>>) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn install_app() -> Result<String, String> {
-    let exe = crate::autostart::current_exe()?;
-    let (_installed, notes) = crate::install::install(&exe)?;
-    Ok(notes.join(" "))
+pub async fn install_app() -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let exe = crate::autostart::current_exe()?;
+        let (_installed, notes) = crate::install::install(&exe)?;
+        Ok(notes.join(" "))
+    })
+    .await
+    .map_err(|e| format!("install failed: {e}"))?
 }
 
 #[tauri::command]
