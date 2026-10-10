@@ -155,6 +155,64 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   await ctx.close();
 }
 
+// ---------- overlay: hands-free label ----------
+{
+  const { page, ctx, errors } = await open("?view=overlays&scheme=light");
+  const live = page.locator(".pv-live").first();
+  const ov = live.locator(".ov");
+  const label = live.locator(".ov-label");
+  // the preview glass is 220 px for every theme and the app's waveform window is 260 px, so waveform is measured on the tighter box
+  const fit = () => live.evaluate((root) => {
+    const lab = root.querySelector(".ov-label");
+    const time = root.querySelector(".ov-time");
+    const meter = root.querySelector(".ov-meter");
+    const cap = root.querySelector(".ov-capsule");
+    const box = (n) => n.getBoundingClientRect();
+    return {
+      label: lab.textContent,
+      clipped: lab.scrollWidth > lab.clientWidth,
+      capsuleOverflow: cap.scrollWidth > cap.clientWidth,
+      labelEndsBeforeMeter: box(lab).right <= box(meter).left,
+      timeShown: !time.hidden && getComputedStyle(time).display !== "none",
+      timeEndsBeforeMeter: box(time).right <= box(meter).left,
+    };
+  });
+  await live.getByRole("button", { name: "Hands-free" }).click();
+  await page.waitForTimeout(400);
+  check("hands-free demo starts as Recording", (await label.textContent()) === "Recording" && (await ov.getAttribute("data-state")) === "recording");
+  const minOpacity = await live.evaluate((root) => new Promise((resolve) => {
+    const cap = root.querySelector(".ov-capsule");
+    const t0 = performance.now();
+    let min = 1;
+    (function tick() {
+      min = Math.min(min, +getComputedStyle(cap).opacity);
+      if (performance.now() - t0 < 1500) requestAnimationFrame(tick); else resolve(min);
+    })();
+  }));
+  check("switching to hands-free keeps the pill on screen (no fade restart)", minOpacity === 1, minOpacity);
+  check("hands-free label with state recording", (await label.textContent()) === "Hands-free" && (await ov.getAttribute("data-state")) === "recording");
+  check("timer keeps running in hands-free", /^\d:\d\d$/.test(await live.locator(".ov-time").textContent()));
+  const pill = await fit();
+  check("Hands-free fits the pill with its timer", pill.label === "Hands-free" && !pill.clipped && !pill.capsuleOverflow && pill.timeShown && pill.labelEndsBeforeMeter && pill.timeEndsBeforeMeter, pill);
+
+  await live.getByRole("button", { name: "waveform", exact: true }).click();
+  await page.waitForTimeout(300);
+  const wave = await fit();
+  check("Hands-free fits the waveform theme", wave.label === "Hands-free" && !wave.clipped && !wave.capsuleOverflow && wave.labelEndsBeforeMeter, wave);
+
+  await live.getByRole("button", { name: "minimal", exact: true }).click();
+  await page.waitForTimeout(300);
+  const dot = await live.evaluate((root) => {
+    const text = root.querySelector(".ov-text").getBoundingClientRect();
+    const cap = root.querySelector(".ov-capsule").getBoundingClientRect();
+    return { textSize: [Math.round(text.width), Math.round(text.height)], capsule: [Math.round(cap.width), Math.round(cap.height)], dotOpacity: +getComputedStyle(root.querySelector(".ov-dot")).opacity, meter: getComputedStyle(root.querySelector(".ov-meter")).display };
+  });
+  check("minimal theme shows only the dot in hands-free", dot.capsule.join("x") === "44x44" && dot.textSize.join("x") === "1x1" && dot.dotOpacity > 0 && dot.meter === "none", dot);
+  check("minimal keeps the hands-free label for screen readers", (await label.textContent()) === "Hands-free" && (await label.getAttribute("role")) === "status");
+  check("no page errors (overlay hands-free)", errors.length === 0, errors);
+  await ctx.close();
+}
+
 // ---------- main: History ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light&xss=1");
@@ -195,7 +253,9 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   await page.waitForTimeout(300);
   check("confirm clears history", (await page.locator(".empty-title").textContent()) === "No dictations yet");
   const hint = await page.locator(".empty-body .key").allTextContents();
-  check("macOS empty-state keycaps use Mac names", hint.join("+") === "fn+Shift", hint);
+  check("macOS empty-state keycaps use Mac names for both shortcuts", hint.join("+") === "fn+Shift+fn+Shift+Space", hint);
+  const hintText = await page.locator(".empty-body").textContent();
+  check("empty-state hint names push to talk and hands-free", hintText === "Hold fnShift and speak, or press fnShiftSpace for hands-free. Your text appears here.", hintText);
 
   // tabs by keyboard
   const tabs = page.locator("#tab-history");
@@ -341,16 +401,15 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   await page.waitForTimeout(200);
   check("turning history on needs no confirmation", (await page.locator("dialog.dlg[open]").count()) === 0 && (await history.getAttribute("aria-checked")) === "true");
 
-  check("hotkey shortcut copy", (await page.locator(".srow-desc", { hasText: "Click, then press the new shortcut." }).count()) === 1);
   check("start at login copy has no shell command", (await page.locator(".srow-desc", { hasText: "uv tool" }).count()) === 0);
-  const hk = page.locator(".hk");
+  const hk = page.locator(".hk[data-slot=hold]");
   check("Mac keycaps in settings", (await hk.locator(".key").allTextContents()).join("+") === "fn+Shift");
   await hk.click();
   await page.waitForTimeout(150);
   check("capture start is announced", (await page.locator(".sr-only[role=status]").textContent()) === "Press your shortcut now. Escape cancels.");
   await page.waitForTimeout(2400);
   check("captured combo uses Mac names", (await hk.locator(".key").allTextContents()).join("+") === "Control+Option+Space", await hk.locator(".key").allTextContents());
-  await page.getByRole("button", { name: "Reset", exact: true }).click();
+  await page.getByRole("button", { name: "Reset Push to talk shortcut" }).click();
   await page.waitForTimeout(250);
   check("reset restores fn + Shift", (await hk.locator(".key").allTextContents()).join("+") === "fn+Shift");
 
@@ -381,8 +440,9 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
 }
 {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows&h=1200", { tall: true });
-  const hk = page.locator(".hk");
+  const hk = page.locator(".hk[data-slot=hold]");
   check("Windows keycaps keep Ctrl and Alt", (await hk.locator(".key").allTextContents()).join("+") === "Ctrl+Alt");
+  check("Windows hands-free keycaps keep Ctrl, Alt and Space", (await page.locator(".hk[data-slot=toggle] .key").allTextContents()).join("+") === "Ctrl+Alt+Space");
   await page.keyboard.press("Control+2");
   await page.waitForTimeout(250);
   check("Ctrl+2 opens Model on Windows", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
@@ -407,6 +467,149 @@ for (const how of ["visibilitychange", "pagehide"]) {
   }, how);
   await page.waitForTimeout(150);
   check("closing the window (" + how + ") stops positioning", (await calls(page)).join() === "move_overlay:true,move_overlay:false", await calls(page));
+  await ctx.close();
+}
+
+// ---------- main: Settings, shortcuts ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const push = page.locator(".hk[data-slot=hold]");
+  const free = page.locator(".hk[data-slot=toggle]");
+  const pushWrap = page.locator(".hk-wrap").nth(0);
+  const freeWrap = page.locator(".hk-wrap").nth(1);
+  const cfg = () => page.evaluate(() => window.__cfg.slice());
+  const keys = async (loc) => (await loc.locator(".key").allTextContents()).join("+");
+  const resetBtn = (name) => page.getByRole("button", { name: "Reset " + name + " shortcut" });
+  const turnOff = page.getByRole("button", { name: "Turn off hands-free" });
+  const isCapturing = (loc) => loc.evaluate((e) => e.classList.contains("capturing"));
+
+  const titles = await page.locator(".srow-title").allTextContents();
+  check("Dictation has Push to talk and Hands-free rows, no Shortcut or Mode", titles.includes("Push to talk") && titles.includes("Hands-free") && !titles.includes("Shortcut") && !titles.includes("Mode"), titles);
+  const rowDesc = (title) => page.locator(".srow", { has: page.locator(".srow-title", { hasText: title }) }).locator(".srow-desc").first().textContent();
+  check("Push to talk copy", (await rowDesc("Push to talk")) === "Hold to talk, release to paste.");
+  check("Hands-free copy", (await rowDesc("Hands-free")) === "Press once to start listening, again to stop. Adding the extra key while holding push to talk switches to hands-free.");
+  check("no dictation mode control is left", (await page.locator("[aria-label='Dictation mode']").count()) === 0);
+  check("both shortcut rows render keycaps", (await keys(push)) === "fn+Shift" && (await keys(free)) === "fn+Shift+Space");
+  check("each shortcut field has its own name", (await push.getAttribute("aria-label")).startsWith("Push to talk shortcut: fn plus Shift") && (await free.getAttribute("aria-label")).startsWith("Hands-free shortcut: fn plus Shift plus Space") && (await page.getByRole("button", { name: "Hands-free shortcut" }).count()) === 1 && (await page.getByRole("button", { name: "Push to talk shortcut" }).count()) === 1);
+  check("hands-free Reset is hidden at the default and Turn off is shown", (await resetBtn("Hands-free").isHidden()) && (await turnOff.isVisible()));
+  const turnBox = await turnOff.boundingBox();
+  const freeBox = await free.boundingBox();
+  check("shortcut field and Turn off keep 28 pt targets", turnBox.height >= 28 && freeBox.height >= 28, { turnBox, freeBox });
+
+  // one capture at a time, and a slot never marks the other
+  await free.click();
+  await page.waitForTimeout(150);
+  check("capturing hands-free does not mark push to talk", (await isCapturing(free)) && !(await isCapturing(push)) && (await push.getAttribute("aria-label")).startsWith("Push to talk shortcut: fn plus Shift"));
+  check("capture asks the app for the toggle slot", (await cfg()).slice(-1)[0] === "start_hotkey_capture:toggle", await cfg());
+  check("Turn off hides while hands-free captures", await turnOff.isHidden());
+  await push.click();
+  await page.waitForTimeout(150);
+  check("starting a second capture ends the first", !(await isCapturing(free)) && (await isCapturing(push)) && (await cfg()).slice(-2).join() === "cancel_hotkey_capture,start_hotkey_capture:hold", await cfg());
+  await page.keyboard.press("Escape");
+  await page.waitForTimeout(150);
+  check("Escape leaves capture mode and shows no error", !(await isCapturing(push)) && (await page.locator(".field-error:visible").count()) === 0 && (await cfg()).slice(-1)[0] === "cancel_hotkey_capture", await cfg());
+
+  // a captured toggle combo is saved by the app: the UI re-reads state and never sends it back
+  await page.evaluate(() => { window.__cfg.length = 0; });
+  await free.click();
+  await page.waitForTimeout(2500);
+  const afterCapture = await cfg();
+  check("captured hands-free combo triggers get_state and not set_config", afterCapture.includes("get_state") && !afterCapture.some((c) => c.startsWith("set_config")), afterCapture);
+  check("captured hands-free combo shows in its field only", (await keys(free)) === "Control+Option+H" && (await keys(push)) === "fn+Shift");
+  check("capture ends after the event", !(await isCapturing(free)));
+  check("Reset appears once hands-free differs from its default", await resetBtn("Hands-free").isVisible());
+
+  await page.evaluate(() => { window.__cfg.length = 0; });
+  await resetBtn("Hands-free").click();
+  await page.waitForTimeout(300);
+  check("hands-free Reset patches the platform default toggle combo", (await cfg()).includes('set_config:{"toggle_hotkey":{"modifiers":["Fn","Shift"],"key":"Space"}}') && (await keys(free)) === "fn+Shift+Space", await cfg());
+
+  // errors land under the slot that asked; Cancelled is silent
+  await page.evaluate(() => { window.__captureError = "That shortcut is already used for the other mode."; });
+  await free.click();
+  await page.waitForTimeout(2500);
+  check("a capture error shows under the hands-free field only", (await freeWrap.locator(".field-error").isVisible()) && (await freeWrap.locator(".field-error").textContent()) === "That shortcut is already used for the other mode." && (await pushWrap.locator(".field-error").isHidden()) && !(await isCapturing(free)));
+  await page.evaluate(() => { window.__captureError = "Cancelled"; });
+  await free.click();
+  await page.waitForTimeout(2500);
+  check("Cancelled from the app clears the error and shows nothing", (await page.locator(".field-error:visible").count()) === 0 && !(await isCapturing(free)));
+  await page.evaluate(() => { window.__captureError = ""; });
+
+  // Turn off, then turn back on by clicking the field
+  await page.evaluate(() => { window.__cfg.length = 0; });
+  await turnOff.click();
+  await page.waitForTimeout(300);
+  check("Turn off sends toggle_hotkey null", (await cfg()).includes('set_config:{"toggle_hotkey":null}'), await cfg());
+  check("when off the field shows Off and Turn off is gone", (await free.textContent()) === "Off" && (await free.locator(".key").count()) === 0 && (await turnOff.isHidden()) && (await free.getAttribute("aria-label")) === "Hands-free shortcut: off. Click to turn on.");
+  check("Reset is offered while hands-free is off", await resetBtn("Hands-free").isVisible());
+  await free.click();
+  await page.waitForTimeout(2500);
+  check("clicking Off captures a new hands-free shortcut", (await keys(free)) === "Control+Option+H" && (await turnOff.isVisible()));
+  check("no page errors (shortcuts)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&empty=1&toggle=off");
+  const text = await page.locator(".empty-body").textContent();
+  check("empty hint with hands-free off names only push to talk", text === "Hold fnShift and speak. Your text appears here." && (await page.locator(".empty-body .key").count()) === 2, text);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&empty=1&platform=windows");
+  const hint = await page.locator(".empty-body .key").allTextContents();
+  check("Windows empty hint shows both shortcuts", hint.join("+") === "Ctrl+Alt+Ctrl+Alt+Space", hint);
+  await ctx.close();
+}
+
+// ---------- main: Settings, install and notices ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) });
+  const button = row.locator(".btn");
+  check("Install row copy on macOS", (await row.locator(".srow-desc").textContent()) === "Add local-stt to Applications so Spotlight finds it, and add the local-stt terminal command.");
+  check("Install is an enabled 28 pt button", (await button.textContent()) === "Install" && (await button.isEnabled()) && (await button.boundingBox()).height >= 28);
+  const loginDesc = await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Start at login" }) }).locator(".srow-desc").textContent();
+  check("Start at login copy says it installs first", loginDesc === "Opens local-stt when you log in. Turning it on installs local-stt first if needed.", loginDesc);
+  await button.click();
+  await page.waitForTimeout(400);
+  check("Install calls install_app", (await calls(page)).includes("install_app"), await calls(page));
+  check("Install toasts the returned sentence", (await page.locator(".toast").textContent()) === "Installed local-stt in Applications and set up the local-stt command.");
+  check("after Install the row shows a disabled Installed button with a check", (await button.textContent()) === "Installed" && (await button.isDisabled()) && (await button.locator("svg.ic-check").count()) === 1);
+  check("Install refreshed state through get_state", (await page.evaluate(() => window.__cfg.filter((c) => c === "get_state").length)) >= 2);
+  check("installed copy on macOS", (await row.locator(".srow-desc").textContent()) === "local-stt is in your Applications folder (Spotlight finds it) and the local-stt terminal command is set up.");
+  check("no page errors (install)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&installed=1&h=1200", { tall: true });
+  const button = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) }).locator(".btn");
+  check("installed state shows a disabled Installed button with a check", (await button.textContent()) === "Installed" && (await button.isDisabled()) && (await button.locator("svg.ic-check").count()) === 1);
+  check("installed state never calls install_app", !(await calls(page)).includes("install_app"));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows&h=1200", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) });
+  check("Install row copy on Windows", (await row.locator(".srow-desc").textContent()) === "Add local-stt to the Start menu so Windows search finds it, and add the local-stt terminal command.");
+  await row.locator(".btn").click();
+  await page.waitForTimeout(400);
+  check("installed copy on Windows", (await row.locator(".srow-desc").textContent()) === "local-stt is in your Start menu (Windows search finds it) and the local-stt terminal command is set up.");
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  await page.evaluate(() => { window.__emit("notice", {}); window.__emit("notice", null); window.__emit("notice", { message: "" }); });
+  await page.waitForTimeout(300);
+  check("a notice without a message shows nothing", (await page.locator(".toast").count()) === 0);
+  await page.evaluate(() => window.__emit("notice", { message: "Installed local-stt and added the local-stt command." }));
+  await page.waitForTimeout(300);
+  check("notice event toasts its message", (await page.locator(".toast").textContent()) === "Installed local-stt and added the local-stt command.");
+  check("toast lives in a polite status region", (await page.locator(".toast-host").getAttribute("role")) === "status" && (await page.locator(".toast-host").getAttribute("aria-live")) === "polite");
+  await page.waitForTimeout(5800);
+  await page.getByRole("switch", { name: "Start at login" }).click();
+  await page.waitForTimeout(400);
+  check("turning Start at login on toasts the app's notice and flips Install to Installed", (await page.locator(".toast").textContent()) === "Installed local-stt and set it to open at login." && (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) }).locator(".btn").textContent()) === "Installed");
+  check("no page errors (notices)", errors.length === 0, errors);
   await ctx.close();
 }
 
