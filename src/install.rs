@@ -68,8 +68,9 @@ pub fn copy_binary(exe: &Path, dir: &Path) -> Result<PathBuf, String> {
             .map_err(|e| format!("cannot set permissions: {e}"))?;
     }
     // Windows refuses to overwrite a running exe but allows renaming it, so an update moves the old one aside.
-    let old = dir.join(format!("{EXE_NAME}.old"));
-    let _ = std::fs::remove_file(&old);
+    // Each move gets its own name, and leftovers from earlier updates are cleared when no longer running.
+    sweep_old_copies(dir);
+    let old = dir.join(format!("{EXE_NAME}.old-{}", std::process::id()));
     if cfg!(windows) && dest.exists() {
         std::fs::rename(&dest, &old).map_err(|e| {
             let _ = std::fs::remove_file(&tmp);
@@ -82,6 +83,17 @@ pub fn copy_binary(exe: &Path, dir: &Path) -> Result<PathBuf, String> {
         format!("cannot install local-stt to {}: {e}", dest.display())
     })?;
     Ok(dest)
+}
+
+fn sweep_old_copies(dir: &Path) {
+    let prefix = format!("{EXE_NAME}.old");
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            if entry.file_name().to_string_lossy().starts_with(&prefix) {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
 }
 
 fn same_file(a: &Path, b: &Path) -> bool {

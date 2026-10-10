@@ -236,6 +236,10 @@ fn trim_joiners(s: &str) -> &str {
 
 fn capitalize_first(s: &str) -> String {
     let mut chars = s.chars();
+    // "iPhone" and "eBay" are spelled that way on purpose.
+    if chars.clone().nth(1).is_some_and(char::is_uppercase) {
+        return s.to_string();
+    }
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
         None => String::new(),
@@ -275,6 +279,14 @@ mod tests {
     fn to_is_only_two_when_two_is_due() {
         let input = "I want to go, point one eat, point to sleep";
         assert_eq!(tidy(input), "I want to go:\n1. Eat.\n2. Sleep.");
+    }
+
+    #[test]
+    fn list_items_keep_intentional_lowercase_brands() {
+        assert_eq!(
+            tidy("Buy: point one iPhone case, point two eBay voucher"),
+            "Buy:\n1. iPhone case.\n2. eBay voucher."
+        );
     }
 
     #[test]

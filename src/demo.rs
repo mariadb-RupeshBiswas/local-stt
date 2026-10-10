@@ -13,6 +13,17 @@ pub fn active() -> bool {
     std::env::var_os(ENV).is_some()
 }
 
+fn demo_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("local-stt-demo")
+}
+
+/// The tour's sample data never outlives it.
+pub fn cleanup() {
+    if active() {
+        let _ = std::fs::remove_dir_all(demo_dir());
+    }
+}
+
 const SAMPLE_HISTORY: &[(&str, u64)] = &[
     ("The weather is really nice today, let's take the afternoon off.", 2_400),
     ("Remind me to renew the domain before the end of the month.", 2_900),
@@ -25,7 +36,7 @@ const LIVE_WORDS: &str = "Here are the notes from the planning call point one ma
 /// Points the app at a throwaway data folder with sample history and, when present, the real small model.
 pub fn prepare() -> Result<(), String> {
     let real_models = paths::models_dir();
-    let dir = std::env::temp_dir().join(format!("local-stt-demo-{}", std::process::id()));
+    let dir = demo_dir();
     let _ = std::fs::remove_dir_all(&dir);
     std::env::set_var("LOCAL_STT_DATA_DIR", &dir);
     std::env::set_var(ENV, "1");

@@ -211,6 +211,10 @@ pub async fn install_update(app: AppHandle) -> Result<String, String> {
         .filter(|u| u.available)
         .and_then(|u| u.latest.clone())
         .ok_or("No update is available.")?;
+    // Re-checked right before installing, so a stale or hostile reply can never downgrade.
+    if !crate::update::is_newer(&version, crate::update::current()) {
+        return Err("That version is not newer than this one.".into());
+    }
     let target = version.clone();
     let notes = tauri::async_runtime::spawn_blocking(move || crate::update::install(&target))
         .await

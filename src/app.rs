@@ -110,6 +110,14 @@ pub fn now_ms() -> u64 {
 
 pub fn run() -> Result<(), String> {
     paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
+    // A second launch (Spotlight, login item, terminal) asks the running copy to show itself and quits.
+    let lock = match crate::instance::claim(&paths::data_dir()) {
+        crate::instance::Claim::Other => {
+            println!("local-stt is already running; showing its window.");
+            return Ok(());
+        }
+        crate::instance::Claim::Owner(lock) => lock,
+    };
     let cfg = config::load(&paths::config_path());
     let hardware = hwprobe::probe(&paths::data_dir());
     let (worker_tx, worker_rx) = mpsc::channel::<Job>();
@@ -183,10 +191,14 @@ pub fn run() -> Result<(), String> {
         .build(tauri::generate_context!())
         .map_err(|e| format!("cannot start the app: {e}"))?;
 
-    app.run(|app, event| match event {
+    app.run(move |app, event| match event {
         // Closing the main window must not quit a menu-bar app.
         RunEvent::ExitRequested { api, code, .. } if code.is_none() => api.prevent_exit(),
-        RunEvent::Exit => shutdown_engine(app),
+        RunEvent::Exit => {
+            shutdown_engine(app);
+            crate::instance::release(&lock);
+            crate::demo::cleanup();
+        }
         _ => {}
     });
     Ok(())
@@ -714,6 +726,9 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
         loop {
             let msg = rx.recv_timeout(Duration::from_millis(200));
             let now = now_ms();
+            if crate::instance::take_show_request(&paths::data_dir()) {
+                show_main(&app);
+            }
             if let (Some(r), Some(since)) = (recorder.as_ref(), machine.recording_since()) {
                 let cfg = shared(&app).config();
                 let due = now.saturating_sub(last_partial_ms) >= LIVE_EVERY_MS
@@ -1023,7 +1038,8 @@ fn shutdown_engine(app: &AppHandle) {
     crate::engine::abort_previews(true);
     let (tx, rx) = mpsc::channel();
     if lock(&shared(app).worker).send(Job::Shutdown(tx)).is_ok() {
-        let _ = rx.recv_timeout(Duration::from_secs(3));
+        // Long enough for a large model's checksum pass to finish before the engine can be freed.
+        let _ = rx.recv_timeout(Duration::from_secs(10));
     }
 }
 

@@ -337,6 +337,8 @@ struct Ctx {
     tx: Sender<HotkeyEvent>,
     keys: MacKeys,
     tap: CFMachPortRef,
+    // A listen-only tap cannot drop events, so the callback must not try.
+    active: bool,
 }
 
 impl Ctx {
@@ -366,16 +368,19 @@ extern "C" fn on_event(
 ) -> CGEventRef {
     // SAFETY: `user` is the Ctx leaked in `run`, only this thread's run loop calls the tap.
     let ctx = unsafe { &mut *user.cast::<Ctx>() };
-    if ctx.handle(event_type, event) {
+    if ctx.handle(event_type, event) && ctx.active {
         // Returning NULL from an active tap deletes the event, so the hands-free Space types nothing.
         return ptr::null_mut();
     }
     event
 }
 
-fn set_tap(ctx: *mut Ctx, tap: CFMachPortRef) {
+fn set_tap(ctx: *mut Ctx, tap: CFMachPortRef, active: bool) {
     // SAFETY: `ctx` is live and the tap cannot call back before the run loop starts.
-    unsafe { (*ctx).tap = tap };
+    unsafe {
+        (*ctx).tap = tap;
+        (*ctx).active = active;
+    }
 }
 
 fn free_ctx(ctx: *mut Ctx) {
@@ -389,10 +394,12 @@ fn run(core: Arc<Mutex<Core>>, tx: Sender<HotkeyEvent>, ready: Sender<Result<usi
         tx,
         keys: MacKeys::default(),
         tap: ptr::null_mut(),
+        active: false,
     }));
     let mask = (1u64 << EVENT_KEY_DOWN) | (1u64 << EVENT_KEY_UP) | (1u64 << EVENT_FLAGS_CHANGED);
     // An active tap can drop the hands-free key; without that right, listening still works.
     let mut tap = tap_create(mask, ctx.cast(), TAP_OPTION_DEFAULT);
+    let active = !tap.is_null();
     if tap.is_null() {
         tap = tap_create(mask, ctx.cast(), TAP_OPTION_LISTEN_ONLY);
     }
@@ -401,7 +408,7 @@ fn run(core: Arc<Mutex<Core>>, tx: Sender<HotkeyEvent>, ready: Sender<Result<usi
         let _ = ready.send(Err(NO_TAP_MESSAGE.into()));
         return;
     }
-    set_tap(ctx, tap);
+    set_tap(ctx, tap, active);
     let source = run_loop_source(tap);
     if source.is_null() {
         invalidate_port(tap);
