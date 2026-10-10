@@ -348,13 +348,13 @@ for (const dark of [false, true]) {
   await page.waitForTimeout(1100);
   check("copy restores its own name after 1 s", (await copy.getAttribute("aria-label")) === before, before);
 
-  await page.fill(".search-input", "zzzz");
-  check("no-match message has no quotes", (await page.locator(".empty-body").textContent()) === "Nothing matches your search.");
-  const clearBox = await page.locator(".search-clear").boundingBox();
+  await page.fill("#panel-history .search-input", "zzzz");
+  check("no-match message has no quotes", (await page.locator("#panel-history .empty-body").textContent()) === "Nothing matches your search.");
+  const clearBox = await page.locator("#panel-history .search-clear").boundingBox();
   check("search clear button is 28 pt", clearBox.width >= 28 && clearBox.height >= 28, clearBox);
-  await page.fill(".search-input", "");
+  await page.fill("#panel-history .search-input", "");
 
-  const more = page.locator(".linklike:visible").first();
+  const more = page.locator("#panel-history .linklike:visible").first();
   const moreBox = await more.boundingBox();
   check("Show more is a 28 pt target", moreBox.height >= 28, moreBox);
   const dotBefore = await page.locator(".hrow-meta .dot-sep:not([hidden])").evaluateAll((els) => els.length);
@@ -368,10 +368,10 @@ for (const dark of [false, true]) {
   await page.getByText("Clear History", { exact: true }).first().click();
   await page.locator("dialog.dlg .btn-danger-solid").click();
   await page.waitForTimeout(300);
-  check("confirm clears history", (await page.locator(".empty-title").textContent()) === "No dictations yet");
-  const hint = await page.locator(".empty-body .key").allTextContents();
+  check("confirm clears history", (await page.locator("#panel-history .empty-title").textContent()) === "No dictations yet");
+  const hint = await page.locator("#panel-history .empty-body .key").allTextContents();
   check("macOS empty-state keycaps use Mac names for both shortcuts", hint.join("+") === "fn+Shift+fn+Shift+Space", hint);
-  const hintText = await page.locator(".empty-body").textContent();
+  const hintText = await page.locator("#panel-history .empty-body").textContent();
   check("empty-state hint names push to talk and hands-free", hintText === "Hold fnShift and speak, or press fnShiftSpace for hands-free. Your text appears here.", hintText);
 
   // tabs by keyboard
@@ -379,7 +379,7 @@ for (const dark of [false, true]) {
   await tabs.focus();
   await page.keyboard.press("ArrowRight");
   await page.waitForTimeout(250);
-  check("arrow moves to Model", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  check("arrow moves to Notes", (await page.locator("#tab-notes").getAttribute("aria-selected")) === "true");
   await page.keyboard.press("End");
   await page.waitForTimeout(250);
   check("End moves to the last tab", (await page.locator("#tab-settings").getAttribute("aria-selected")) === "true");
@@ -391,10 +391,13 @@ for (const dark of [false, true]) {
 
   await page.keyboard.press("Meta+2");
   await page.waitForTimeout(250);
-  check("Cmd+2 opens Model", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  check("Cmd+2 opens Notes", (await page.locator("#tab-notes").getAttribute("aria-selected")) === "true");
   await page.keyboard.press("Meta+3");
   await page.waitForTimeout(250);
-  check("Cmd+3 opens Settings", (await page.locator("#tab-settings").getAttribute("aria-selected")) === "true");
+  check("Cmd+3 opens Model", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  await page.keyboard.press("Meta+4");
+  await page.waitForTimeout(250);
+  check("Cmd+4 opens Settings", (await page.locator("#tab-settings").getAttribute("aria-selected")) === "true");
   await page.keyboard.press("Meta+f");
   await page.waitForTimeout(250);
   check("Cmd+F opens History and focuses the search box", (await page.locator("#tab-history").getAttribute("aria-selected")) === "true" && (await page.evaluate(() => document.activeElement.className)) === "search-input");
@@ -406,13 +409,13 @@ for (const dark of [false, true]) {
 {
   const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light");
   const rows = () => page.locator(".hrow").count();
-  const count = () => page.locator(".select-count").textContent();
+  const count = () => page.locator("#panel-history .select-count").textContent();
   const total = await rows();
-  check("select bar and checkboxes stay hidden until Select", (await page.locator(".select-bar").isHidden()) && (await page.locator(".hrow-check").count()) === 0);
-  await page.locator(".history-bar > .btn", { hasText: "Select" }).click();
+  check("select bar and checkboxes stay hidden until Select", (await page.locator("#panel-history .select-bar").isHidden()) && (await page.locator(".hrow-check").count()) === 0);
+  await page.locator("#panel-history .history-bar > .btn", { hasText: "Select" }).click();
   check("Select shows a checkbox per row and hides Clear History", (await page.locator(".hrow-check").count()) === total && (await page.getByText("Clear History", { exact: true }).isHidden()));
-  check("Select turns into Done and copy buttons go away", (await page.locator(".history-bar > .btn").first().textContent()) === "Done" && (await page.locator(".hrow .copy").count()) === 0);
-  check("Delete is off while nothing is picked", (await count()) === "None selected" && (await page.locator(".select-bar .btn-danger").isDisabled()));
+  check("Select turns into Done and copy buttons go away", (await page.locator("#panel-history .history-bar > .btn").first().textContent()) === "Done" && (await page.locator(".hrow .copy").count()) === 0);
+  check("Delete is off while nothing is picked", (await count()) === "None selected" && (await page.locator("#panel-history .select-bar .btn-danger").isDisabled()));
 
   await page.locator(".hrow-text").first().click();
   check("clicking a row picks it", (await count()) === "1 selected" && (await page.locator(".hrow").first().getAttribute("class")).includes("is-selected"));
@@ -421,20 +424,20 @@ for (const dark of [false, true]) {
   await page.locator(".hrow-check").nth(5).click({ modifiers: ["Shift"] });
   const ticks = await page.locator(".hrow-check").evaluateAll((els) => els.map((e) => e.checked));
   check("Shift-click picks the run between, ticks included", (await count()) === "5 selected" && ticks.slice(0, 6).join() === "true,false,true,true,true,true", ticks);
-  check("the day box shows a mixed state", await page.locator(".group-check").first().evaluate((b) => b.indeterminate || b.checked));
+  check("the day box shows a mixed state", await page.locator("#panel-history .group-check").first().evaluate((b) => b.indeterminate || b.checked));
 
   await page.locator("#select-all").click();
   check("Select All picks every row shown", (await count()) === total + " selected");
   await page.locator("#select-all").click();
-  check("Select All again clears the pick", (await count()) === "None selected" && (await page.locator(".select-bar .btn-danger").isDisabled()));
+  check("Select All again clears the pick", (await count()) === "None selected" && (await page.locator("#panel-history .select-bar .btn-danger").isDisabled()));
 
   await page.locator(".hrow-check").first().focus();
   await page.keyboard.press("Meta+a");
   check("Cmd+A picks every row shown", (await count()) === total + " selected");
-  await page.fill(".search-input", "domain");
+  await page.fill("#panel-history .search-input", "domain");
   await page.waitForTimeout(100);
   check("search drops picks it hides, so Delete never removes unseen rows", (await count()) === "1 selected");
-  await page.fill(".search-input", "");
+  await page.fill("#panel-history .search-input", "");
   await page.waitForTimeout(100);
 
   await page.locator(".hrow-check").first().focus();
@@ -447,13 +450,13 @@ for (const dark of [false, true]) {
 
   await page.locator(".hrow-check").first().focus();
   await page.keyboard.press("Escape");
-  check("Esc leaves select mode", (await page.locator(".select-bar").isHidden()) && (await page.locator(".hrow-check").count()) === 0);
+  check("Esc leaves select mode", (await page.locator("#panel-history .select-bar").isHidden()) && (await page.locator(".hrow-check").count()) === 0);
 
-  await page.locator(".history-bar > .btn", { hasText: "Select" }).click();
-  const dayRows = await page.locator(".card").first().locator(".hrow").count();
-  await page.locator(".group-check").first().click();
+  await page.locator("#panel-history .history-bar > .btn", { hasText: "Select" }).click();
+  const dayRows = await page.locator("#panel-history .card").first().locator(".hrow").count();
+  await page.locator("#panel-history .group-check").first().click();
   check("the day box picks that whole day", (await count()) === dayRows + " selected");
-  await page.locator(".select-bar .btn-danger").click();
+  await page.locator("#panel-history .select-bar .btn-danger").click();
   await page.waitForTimeout(250);
   const title = dayRows === 1 ? "Delete this dictation?" : "Delete " + dayRows + " dictations?";
   check("delete dialog counts the pick", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === title);
@@ -461,10 +464,106 @@ for (const dark of [false, true]) {
   await page.waitForTimeout(400);
   check("confirm deletes exactly the picked rows", (await rows()) === total - dayRows);
   check("the app is asked to delete them by id", (await page.evaluate(() => window.__calls)).includes("delete_history:" + dayRows));
-  check("select mode ends after a delete", await page.locator(".select-bar").isHidden());
+  check("select mode ends after a delete", await page.locator("#panel-history .select-bar").isHidden());
   const said = await page.locator(".sr-only[role=status]").textContent();
   check("the delete is announced", said === "Deleted " + (dayRows === 1 ? "1 dictation" : dayRows + " dictations") + ".", said);
   check("no page errors (history select)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: Notes ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light");
+  const panel = page.locator("#panel-notes");
+  const titles = await panel.locator(".nrow-title").allTextContents();
+  check("Notes lists notes newest first with default and own titles", titles.length === 2 && /^Zoom call, /.test(titles[0]) && titles[1] === "Design review", titles);
+  check("a note row shows its first line and length", (await panel.locator(".nrow-first").first().textContent()).startsWith("Let's start") && (await panel.locator(".nrow .hrow-meta").first().textContent()) === "42 min");
+  const titleSize = await page.evaluate(() => { document.querySelector("#panel-notes .nrow-open").click(); return new Promise((r) => setTimeout(() => r(parseFloat(getComputedStyle(document.querySelector(".note-title")).fontSize)), 300)); });
+  check("the note title is a 22 pt heading", titleSize === 22, titleSize);
+  await panel.locator(".note-back").click();
+  await page.waitForTimeout(200);
+
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("opening a note shows its transcript as Me and Others turns", (await panel.locator(".turn").count()) === 3 && (await panel.locator(".turn-name").allTextContents()).join(",") === "Others,Me,Others");
+  check("turn times read as minutes and seconds", (await panel.locator(".turn-time").first().textContent()) === "0:04");
+  check("the title field shows the default as its placeholder", (await panel.locator(".note-title").getAttribute("placeholder")).startsWith("Zoom call, "));
+  await panel.locator(".note-title").fill("Q3 sync");
+  await panel.locator(".note-title").press("Enter");
+  await page.waitForTimeout(250);
+  check("renaming sends the new title", (await page.evaluate(() => window.__calls)).includes("rename_note:Q3 sync"));
+  await panel.locator(".note-back").click();
+  await page.waitForTimeout(250);
+  check("back returns to the list with the new title", (await panel.locator(".nrow-title").first().textContent()) === "Q3 sync");
+
+  // consent sheet first, then a live note
+  await panel.locator(".history-bar .btn-action", { hasText: "New Note" }).click();
+  await page.waitForTimeout(250);
+  check("the first New Note shows the consent sheet", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Before you take notes");
+  check("the sheet shows the consent line to copy", (await page.locator("dialog.dlg[open] .consent-line").textContent()).startsWith("Heads up: I'm taking notes"));
+  await page.locator("dialog.dlg .btn", { hasText: "Cancel" }).click();
+  check("cancel starts nothing", !(await page.evaluate(() => window.__calls)).includes("start_note"));
+  await panel.locator(".history-bar .btn-action", { hasText: "New Note" }).click();
+  await page.waitForTimeout(200);
+  await page.locator("dialog.dlg .btn-action", { hasText: "Continue" }).click();
+  await page.waitForTimeout(400);
+  check("Continue saves the consent flag and starts the note", (await page.evaluate(() => window.__cfg.includes('set_config:{"notes_consent_seen":true}'))) && (await page.evaluate(() => window.__calls)).includes("start_note"));
+  check("the live note shows Recording, a timer, Stop and Copy Consent Line", (await panel.locator(".note-live .note-rec-label").textContent()) === "Recording" && (await panel.locator(".note-live .btn", { hasText: "Stop" }).count()) === 1 && (await panel.locator(".note-live .btn", { hasText: "Copy Consent Line" }).count()) === 1);
+  check("an empty live note says lines come after pauses", (await panel.locator(".turn-empty").textContent()).startsWith("Listening."));
+  await page.evaluate(() => window.__emit("note-segment", { id: "feedfacecafe0001", segment: { start_ms: 2000, end_ms: 4000, speaker: "others", text: "<b>Hello</b> from the call." } }));
+  await page.evaluate(() => window.__emit("note-segment", { id: "feedfacecafe0001", segment: { start_ms: 500, end_ms: 1500, speaker: "me", text: "Can everyone hear me?" } }));
+  await page.waitForTimeout(150);
+  check("live lines appear in time order", (await panel.locator(".turn-text").allTextContents()).join("|") === "Can everyone hear me?|<b>Hello</b> from the call.");
+  check("transcript text is never parsed as markup", (await panel.locator(".turn-text b").count()) === 0);
+  await page.evaluate(() => window.__emit("note-segment", { id: "someothernote000", segment: { start_ms: 0, end_ms: 1, speaker: "me", text: "stray" } }));
+  await page.waitForTimeout(100);
+  check("lines for another note are ignored", (await panel.locator(".turn").count()) === 2);
+  await panel.locator(".note-back").click();
+  await page.waitForTimeout(200);
+  const openRec = panel.locator(".history-bar .btn-action");
+  check("while recording, the list offers Open Recording", (await openRec.textContent()) === "Open Recording" && (await openRec.isEnabled()));
+  await openRec.click();
+  await page.waitForTimeout(300);
+  check("Open Recording returns to the live note", (await panel.locator(".note-live").count()) === 1 && (await panel.locator(".note-live .btn", { hasText: "Stop" }).count()) === 1);
+  await panel.locator(".note-live .btn", { hasText: "Stop" }).click();
+  await page.waitForTimeout(100);
+  check("Stop asks the app to stop and shows Tidying", (await page.evaluate(() => window.__calls)).includes("stop_note") && (await panel.locator(".note-meta").textContent()).includes("Tidying"));
+  await page.waitForTimeout(600);
+  check("when tidied the note shows its copy and delete buttons", (await panel.locator(".note-actions .copy").count()) === 1 && (await panel.locator(".note-live").count()) === 0);
+
+  // delete from the note, then select mode on the list
+  await panel.locator(".note-actions [aria-label='Delete note']").click();
+  await page.waitForTimeout(200);
+  check("deleting a note asks first", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Delete this note?");
+  await page.locator("dialog.dlg .btn-danger-solid").click();
+  await page.waitForTimeout(300);
+  check("the deleted note leaves the list", (await panel.locator(".nrow").count()) === 2 && (await page.evaluate(() => window.__calls)).includes("delete_notes:1"));
+  await panel.locator(".history-bar > .btn", { hasText: "Select" }).click();
+  check("Select hides New Note and shows note checkboxes", (await panel.locator(".nrow-check").count()) === 2 && (await panel.locator(".history-bar .btn-action", { hasText: "New Note" }).isHidden()));
+  await panel.locator("#select-all-notes").click();
+  await panel.locator(".select-bar .btn-danger").click();
+  await page.waitForTimeout(200);
+  check("deleting picked notes counts them", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Delete 2 notes?");
+  await page.locator("dialog.dlg .btn-danger-solid").click();
+  await page.waitForTimeout(300);
+  check("with every note gone, Notes shows its empty state", (await panel.locator(".empty-title").textContent()) === "No notes yet");
+  await page.keyboard.press("Meta+f");
+  await page.waitForTimeout(150);
+  check("Cmd+F on Notes searches notes", (await page.evaluate(() => document.activeElement.getAttribute("aria-label"))) === "Search notes" && (await page.locator("#tab-notes").getAttribute("aria-selected")) === "true");
+  check("no page errors (notes)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=notes&scheme=light&notes=old-macos");
+  const panel = page.locator("#panel-notes");
+  check("an old macOS says why and turns New Note off", (await panel.locator(".notes-gate").textContent()) === "Notes need macOS 14.6 or later." && (await panel.locator(".history-bar .btn-action").isDisabled()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&consent=seen");
+  await page.evaluate(() => window.__emit("show-tab", { tab: "notes", newNote: true }));
+  await page.waitForTimeout(400);
+  check("the tray's New Note opens Notes and starts at once once consent was seen", (await page.locator("#tab-notes").getAttribute("aria-selected")) === "true" && (await page.evaluate(() => window.__calls)).includes("start_note") && (await page.locator("dialog.dlg[open]").count()) === 0);
   await ctx.close();
 }
 
@@ -595,7 +694,7 @@ for (const dark of [false, true]) {
   check("confirm turns history off", (await history.getAttribute("aria-checked")) === "false");
   await page.locator("#tab-history").click();
   await page.waitForTimeout(200);
-  check("history list is emptied and says History is off", (await page.locator(".empty-title").textContent()) === "History is off");
+  check("history list is emptied and says History is off", (await page.locator("#panel-history .empty-title").textContent()) === "History is off");
   await page.locator("#tab-settings").click();
   await history.click(); // turning it back on needs no dialog
   await page.waitForTimeout(200);
@@ -643,9 +742,9 @@ for (const dark of [false, true]) {
   const hk = page.locator(".hk[data-slot=hold]");
   check("Windows keycaps keep Ctrl and Alt", (await hk.locator(".key").allTextContents()).join("+") === "Ctrl+Alt");
   check("Windows hands-free keycaps keep Ctrl, Alt and Space", (await page.locator(".hk[data-slot=toggle] .key").allTextContents()).join("+") === "Ctrl+Alt+Space");
-  await page.keyboard.press("Control+2");
+  await page.keyboard.press("Control+3");
   await page.waitForTimeout(250);
-  check("Ctrl+2 opens Model on Windows", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  check("Ctrl+3 opens Model on Windows", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
   await page.locator("#tab-settings").click();
   await page.getByRole("switch", { name: "Save history" }).click();
   await page.waitForTimeout(250);
@@ -750,13 +849,13 @@ for (const how of ["visibilitychange", "pagehide"]) {
 }
 {
   const { page, ctx } = await open("?view=main&tab=history&scheme=light&empty=1&toggle=off");
-  const text = await page.locator(".empty-body").textContent();
-  check("empty hint with hands-free off names only push to talk", text === "Hold fnShift and speak. Your text appears here." && (await page.locator(".empty-body .key").count()) === 2, text);
+  const text = await page.locator("#panel-history .empty-body").textContent();
+  check("empty hint with hands-free off names only push to talk", text === "Hold fnShift and speak. Your text appears here." && (await page.locator("#panel-history .empty-body .key").count()) === 2, text);
   await ctx.close();
 }
 {
   const { page, ctx } = await open("?view=main&tab=history&scheme=light&empty=1&platform=windows");
-  const hint = await page.locator(".empty-body .key").allTextContents();
+  const hint = await page.locator("#panel-history .empty-body .key").allTextContents();
   check("Windows empty hint shows both shortcuts", hint.join("+") === "Ctrl+Alt+Ctrl+Alt+Space", hint);
   await ctx.close();
 }
@@ -859,7 +958,7 @@ function contrastScript() {
     const lin = (v) => { v /= 255; return v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4); };
     const lum = (c) => 0.2126 * lin(c.r) + 0.7152 * lin(c.g) + 0.0722 * lin(c.b);
     const ratio = (a, b) => { const l = [lum(a), lum(b)].sort((x, y) => y - x); return (l[0] + 0.05) / (l[1] + 0.05); };
-    const surface = parse(getComputedStyle(document.querySelector(".card")).backgroundColor);
+    const surface = parse(getComputedStyle(document.querySelector("#panel-history .card")).backgroundColor);
     const out = {};
     const sel = { "tag-blue": ".tag-blue", "tag-green": ".tag-green", "tag-red": ".tag-red", "tag-grey": ".tag-grey", "pill-active": ".pill-active", "btn-action": ".btn-action", "btn-danger": ".btn-danger" };
     for (const [name, q] of Object.entries(sel)) {
@@ -905,7 +1004,7 @@ for (const dark of [false, true]) {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true, media: [{ name: "prefers-contrast", value: "more" }] });
   const info = await page.evaluate(() => ({
     label2: getComputedStyle(document.querySelector(".group-title")).color,
-    card: getComputedStyle(document.querySelector(".card")).boxShadow,
+    card: getComputedStyle(document.querySelector("#panel-history .card")).boxShadow,
     hairline: +getComputedStyle(document.querySelector(".mw-toolbar"), "::after").opacity,
   }));
   check("Increase Contrast: opaque secondary text, 1 px card border, toolbar hairline", info.label2 === "rgb(60, 60, 67)" && info.card.includes("1px") && info.hairline === 1, info);
@@ -913,7 +1012,7 @@ for (const dark of [false, true]) {
 }
 {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=dark&h=1200", { tall: true, dark: true, media: [{ name: "prefers-contrast", value: "more" }] });
-  const info = await page.evaluate(() => ({ label2: getComputedStyle(document.querySelector(".group-title")).color, card: getComputedStyle(document.querySelector(".card")).boxShadow }));
+  const info = await page.evaluate(() => ({ label2: getComputedStyle(document.querySelector(".group-title")).color, card: getComputedStyle(document.querySelector("#panel-history .card")).boxShadow }));
   check("Increase Contrast, dark: opaque light secondary text and 1 px card border", info.label2 === "rgb(235, 235, 245)" && info.card.includes("1px"), info);
   await ctx.close();
 }
@@ -949,19 +1048,19 @@ for (const dark of [false, true]) {
   };
   const verdict = (r) => r !== null && r.color === r.expected && r.ratio >= 4.5;
   const settings = "?view=main&tab=settings&installed=1&toggle=custom&h=1200";
-  const quiet = await probe(settings, ".btn-quiet", "accent-ink", ".card", { tall: true });
+  const quiet = await probe(settings, ".btn-quiet", "accent-ink", "#panel-history .card", { tall: true });
   check(mode + ": Reset gets the accent ink at 4.5:1", verdict(quiet), quiet);
-  const turnOff = await probe(settings, "[aria-label='Turn off hands-free']", "accent-ink", ".card", { tall: true });
+  const turnOff = await probe(settings, "[aria-label='Turn off hands-free']", "accent-ink", "#panel-history .card", { tall: true });
   check(mode + ": Turn off gets the accent ink at 4.5:1", verdict(turnOff), turnOff);
-  const done = await probe(settings, ".btn-done", "green-ink", ".card", { tall: true });
+  const done = await probe(settings, ".btn-done", "green-ink", "#panel-history .card", { tall: true });
   check(mode + ": Installed gets the green ink at 4.5:1", verdict(done), done);
-  const action = await probe("?view=main&tab=model", ".btn-action", "accent-ink", ".card");
+  const action = await probe("?view=main&tab=model", ".btn-action", "accent-ink", "#panel-history .card");
   check(mode + ": Download gets the accent ink at 4.5:1", verdict(action), action);
-  const danger = await probe("?view=main&tab=history", ".btn-danger", "red-ink", ".card");
+  const danger = await probe("?view=main&tab=history", ".btn-danger", "red-ink", "#panel-history .card");
   check(mode + ": Clear history gets the red ink at 4.5:1", verdict(danger), danger);
-  const link = await probe("?view=main&tab=history", ".linklike:not([hidden])", "accent-ink", ".card");
+  const link = await probe("?view=main&tab=history", ".linklike:not([hidden])", "accent-ink", "#panel-history .card");
   check(mode + ": Show more gets the accent ink at 4.5:1", verdict(link), link);
-  const icon = await probe("?view=main&tab=history", ".hrow .copy", "label-2", ".card");
+  const icon = await probe("?view=main&tab=history", ".hrow .copy", "label-2", "#panel-history .card");
   check(mode + ": copy button keeps its secondary ink at 4.5:1", verdict(icon), icon);
   const solid = await probe("?view=main&tab=history", ".btn-danger-solid", "white", ".dlg", { before: async (page) => { await page.getByText("Clear History", { exact: true }).first().click(); await page.waitForTimeout(300); } });
   check(mode + ": the red confirm button has white text at 4.5:1", verdict(solid), solid);
@@ -998,7 +1097,7 @@ for (const dark of [false, true]) {
   const layout = await page.evaluate(() => ({
     toolbar: document.querySelector(".mw-toolbar").getBoundingClientRect().bottom,
     banner: document.querySelector(".mw-banner").getBoundingClientRect(),
-    content: document.querySelector(".history-bar").getBoundingClientRect().top,
+    content: document.querySelector("#panel-history .history-bar").getBoundingClientRect().top,
   }));
   check("banner sits under the tabs and above the content, not over either", layout.banner.top >= layout.toolbar && layout.content >= layout.banner.bottom, layout);
   check("Install and Restart is the primary action", (await btn("Install and Restart").evaluate((e) => e.classList.contains("btn-action"))) && (await btn("Later").evaluate((e) => e.classList.contains("btn-quiet"))));

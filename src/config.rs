@@ -50,6 +50,8 @@ pub struct Config {
     pub skip_update: Option<String>,
     /// A local troubleshooting log of app events, never content; see diag.rs.
     pub diagnostic_log: bool,
+    /// The one-time Notes consent sheet was read.
+    pub notes_consent_seen: bool,
     pub model: ModelId,
 }
 
@@ -74,6 +76,7 @@ impl Default for Config {
             check_updates: true,
             skip_update: None,
             diagnostic_log: true,
+            notes_consent_seen: false,
             model: ModelId::Small,
         }
     }

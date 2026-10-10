@@ -270,7 +270,7 @@ mod platform {
 
     pub fn bundle_plist(version: &str) -> String {
         format!(
-            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>CFBundleExecutable</key><string>local-stt</string>\n  <key>CFBundleIdentifier</key><string>io.github.localstt</string>\n  <key>CFBundleName</key><string>local-stt</string>\n  <key>CFBundleDisplayName</key><string>local-stt</string>\n  <key>CFBundleIconFile</key><string>icon</string>\n  <key>CFBundlePackageType</key><string>APPL</string>\n  <key>CFBundleShortVersionString</key><string>{version}</string>\n  <key>CFBundleVersion</key><string>{version}</string>\n  <key>LSMinimumSystemVersion</key><string>11.0</string>\n  <key>LSUIElement</key><true/>\n  <key>NSHighResolutionCapable</key><true/>\n  <key>NSMicrophoneUsageDescription</key><string>local-stt listens only while you hold your shortcut, and turns your speech into text on this computer. Audio never leaves your device.</string>\n</dict>\n</plist>\n"
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n<plist version=\"1.0\">\n<dict>\n  <key>CFBundleExecutable</key><string>local-stt</string>\n  <key>CFBundleIdentifier</key><string>io.github.localstt</string>\n  <key>CFBundleName</key><string>local-stt</string>\n  <key>CFBundleDisplayName</key><string>local-stt</string>\n  <key>CFBundleIconFile</key><string>icon</string>\n  <key>CFBundlePackageType</key><string>APPL</string>\n  <key>CFBundleShortVersionString</key><string>{version}</string>\n  <key>CFBundleVersion</key><string>{version}</string>\n  <key>LSMinimumSystemVersion</key><string>11.0</string>\n  <key>LSUIElement</key><true/>\n  <key>NSHighResolutionCapable</key><true/>\n  <key>NSMicrophoneUsageDescription</key><string>local-stt listens only while you hold your shortcut, and turns your speech into text on this computer. Audio never leaves your device.</string>\n  <key>NSAudioCaptureUsageDescription</key><string>local-stt records what your computer plays only while you take a note of a call, and transcribes it on this computer. Audio is never saved or uploaded.</string>\n</dict>\n</plist>\n"
         )
     }
 
@@ -704,6 +704,7 @@ mod tests {
             "<string>9.9.9</string>",
             "<key>LSUIElement</key><true/>",
             "NSMicrophoneUsageDescription",
+            "NSAudioCaptureUsageDescription",
         ] {
             assert!(p.contains(needle), "missing {needle}");
         }

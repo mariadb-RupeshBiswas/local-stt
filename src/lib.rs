@@ -18,6 +18,7 @@ pub mod hwprobe;
 pub mod install;
 pub mod instance;
 pub mod models;
+pub mod notes;
 pub mod output;
 pub mod overlay;
 pub mod paths;

@@ -22,6 +22,7 @@ whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local
 | UI checks | `cd dev/ui-tests && npm ci --ignore-scripts && npm test` (headless Chrome against `dev/preview.html`) |
 | Workflow audit | `uvx zizmor .github/workflows` |
 | Hardware report | `cargo run -- doctor` |
+| Note pipeline on real audio (macOS, needs mic and System Audio permission) | `cargo run --release --example note_probe -- 20` while something plays |
 
 Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pinned to a release commit.
 `LOCAL_STT_DATA_DIR` overrides the app data folder, which keeps tests away from real user data.
@@ -41,6 +42,7 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 | `src/recorder.rs`, `src/audio.rs`, `src/sound.rs` | Microphone capture, resampling, level, cues |
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke; Windows console detach |
+| `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session |
 | `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |
 | `src/hwprobe/` | RAM, CPU, GPU, disk |
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |

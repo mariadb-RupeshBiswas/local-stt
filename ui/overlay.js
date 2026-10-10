@@ -309,6 +309,8 @@
 
     // ---- events ----
     function onState(payload) {
+      // a running note looks like recording, with its own label and timer
+      if (payload && payload.state === "notes") payload = Object.assign({}, payload, { state: "recording" });
       if (!payload || STATES.indexOf(payload.state) === -1) return;
       var next = payload.state;
       var previous = status;

@@ -8,6 +8,8 @@
   <string>local-stt</string>
   <key>NSMicrophoneUsageDescription</key>
   <string>local-stt listens only while you hold your shortcut, and turns your speech into text on this computer. Audio never leaves your device.</string>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>local-stt records what your computer plays only while you take a note of a call, and transcribes it on this computer. Audio is never saved or uploaded.</string>
   <key>LSUIElement</key>
   <true/>
 </dict>

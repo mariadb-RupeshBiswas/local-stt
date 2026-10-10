@@ -341,6 +341,9 @@ pub fn report(cfg: &Config, hw: &Hardware) -> String {
         .unwrap_or_else(|_| "-".into());
     r.push_str(&format!("Entries: {entries} ({bytes})\n"));
 
+    section(&mut r, "Notes");
+    r.push_str(&format!("Notes saved: {}\n", crate::notes::count()));
+
     section(&mut r, "Microphones");
     r.push_str(&format!(
         "Inputs found: {}\n",

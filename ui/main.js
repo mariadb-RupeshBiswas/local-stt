@@ -23,6 +23,7 @@
   };
   var TABS = [
     { value: "history", label: "History" },
+    { value: "notes", label: "Notes" },
     { value: "model", label: "Model" },
     { value: "settings", label: "Settings" }
   ];
@@ -281,9 +282,13 @@
       historyLoaded: false,
       historyStale: false,
       search: "",
-      selecting: false, // History select mode: checkboxes and a Delete bar
-      selected: new Set(), // ids of the chosen dictations (see entryId)
-      anchor: null, // last toggled id, where a Shift-click range starts
+      notes: { supported: true, reason: null, active: null }, // from the app: can notes run here, and the one recording
+      noteList: [],
+      noteListLoaded: false,
+      noteListStale: false,
+      noteSearch: "",
+      openNote: null, // the whole note shown in the Notes tab, or null for the list
+      openStatus: "done", // recording, tidying or done
       progress: {},
       modelErrors: {},
       activeModel: null, // the model actually loaded, which config.model may not be
@@ -359,17 +364,19 @@
       TABS.forEach(function (t) { panels[t.value].hidden = t.value !== name; });
       tabs.sync();
       scroller.scrollTop = 0;
-      if (name !== "history" && S.selecting) setSelecting(false);
+      if (name !== "history" && historyPick.on) historyPick.set(false);
+      if (name !== "notes" && notesPick.on) notesPick.set(false);
+      if (name === "notes" && S.noteListStale) loadNotes();
       if (name === "history" && S.historyStale) loadHistory();
     }
 
     // ---------- keyboard shortcuts ----------
 
-    // Cmd on macOS, Ctrl on Windows: 1, 2, 3 pick a tab, F searches the history, W closes the window
+    // Cmd on macOS, Ctrl on Windows: 1 to 4 pick a tab, F searches the history, W closes the window
     function onShortcut(event) {
       var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
       if (!mod || event.altKey || event.shiftKey || S.capturingSlot || dialog.open) return;
-      var tab = { "1": "history", "2": "model", "3": "settings" }[event.key];
+      var tab = { "1": "history", "2": "notes", "3": "model", "4": "settings" }[event.key];
       var win = tauri && tauri.window && tauri.window.getCurrentWindow ? tauri.window.getCurrentWindow() : null;
       if ((event.key === "w" || event.key === "W") && win) {
         event.preventDefault();
@@ -380,9 +387,12 @@
         showTab(tab);
       } else if (event.key === "f" || event.key === "F") {
         event.preventDefault();
-        showTab("history");
-        searchInput.focus();
-        searchInput.select();
+        // searches the list in front: notes on the Notes tab, dictations everywhere else
+        var box = S.tab === "notes" ? notesSearch.input : searchInput;
+        if (S.tab === "notes" && S.openNote) showNotesList();
+        else if (S.tab !== "notes") showTab("history");
+        box.focus();
+        box.select();
       }
     }
 
@@ -432,6 +442,13 @@
       S.downloading = typeof state.downloading === "string" ? state.downloading : null;
       S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
       S.update = state.update && typeof state.update === "object" ? state.update : null;
+      if (state.notes && typeof state.notes === "object") {
+        S.notes = {
+          supported: state.notes.supported !== false,
+          reason: typeof state.notes.reason === "string" ? state.notes.reason : null,
+          active: state.notes.active && typeof state.notes.active.id === "string" ? state.notes.active : null
+        };
+      }
       if (S.downloading && !S.progress[S.downloading]) S.progress[S.downloading] = { downloaded: null, total: null };
       if (S.loadingModel && S.loadingModel === S.activeModel) S.loadingModel = "";
       S.loaded = true;
@@ -615,161 +632,252 @@
       syncSettings();
     }
 
+    // ---------- select mode, shared by History and Notes ----------
+
+    // Select mode for one list: a sticky bar with Select All, a count and Delete, and a checkbox per row and per day.
+    function picker(cfg) {
+      var p = { on: false, chosen: new Set(), anchor: null, shown: [] };
+      var allBox = h("input", { type: "checkbox", class: "check", id: cfg.allId });
+      var count = h("span", { class: "select-count", "aria-live": "polite" });
+      var del = h("button", { class: "btn btn-danger btn-icon", type: "button", onclick: askDelete }, icon("trash"), h("span", { text: "Delete" }));
+      p.bar = h("div", { class: "select-bar", role: "toolbar", "aria-label": "Selected " + cfg.many, hidden: true },
+        h("label", { class: "select-all", for: cfg.allId }, allBox, h("span", { text: "Select All" })),
+        count,
+        del
+      );
+      allBox.addEventListener("change", function () {
+        var all = allShown();
+        p.shown.forEach(function (id) {
+          if (all) p.chosen.delete(id);
+          else p.chosen.add(id);
+        });
+        p.anchor = null;
+        sync();
+      });
+
+      function allShown() {
+        return p.shown.length > 0 && p.shown.every(function (id) { return p.chosen.has(id); });
+      }
+
+      // a tri-state box: checked when all of ids are chosen, mixed when some are
+      function syncBox(box, ids) {
+        var n = ids.filter(function (id) { return p.chosen.has(id); }).length;
+        box.checked = n > 0 && n === ids.length;
+        box.indeterminate = n > 0 && n < ids.length;
+      }
+
+      // repaint the checks in place, so the focused checkbox keeps focus
+      function sync() {
+        cfg.list.querySelectorAll(".pickable").forEach(function (row) {
+          var on = p.chosen.has(row._id);
+          row.classList.toggle("is-selected", on);
+          if (row._box) row._box.checked = on;
+        });
+        cfg.list.querySelectorAll(".group-check").forEach(function (box) { syncBox(box, box._ids); });
+        syncBox(allBox, p.shown);
+        count.textContent = p.chosen.size === 0 ? "None selected" : p.chosen.size + " selected";
+        del.disabled = p.chosen.size === 0;
+      }
+
+      // click picks one; Shift-click picks the run from the last one, like Finder
+      function toggle(id, shift) {
+        var to = !p.chosen.has(id);
+        var from = p.anchor === null ? -1 : p.shown.indexOf(p.anchor);
+        var at = p.shown.indexOf(id);
+        if (shift && from !== -1 && at !== -1) {
+          p.shown.slice(Math.min(from, at), Math.max(from, at) + 1).forEach(function (other) {
+            if (to) p.chosen.add(other);
+            else p.chosen.delete(other);
+          });
+        } else if (to) {
+          p.chosen.add(id);
+        } else {
+          p.chosen.delete(id);
+        }
+        p.anchor = id;
+        sync();
+      }
+
+      function askDelete() {
+        var ids = Array.from(p.chosen);
+        if (ids.length === 0) return;
+        askConfirm({
+          title: ids.length === 1 ? "Delete this " + cfg.one + "?" : "Delete " + ids.length + " " + cfg.many + "?",
+          body: (ids.length === 1 ? "It" : "They") + " will be removed from " + thisDevice() + ". This can't be undone.",
+          confirm: "Delete",
+          danger: true,
+          onConfirm: function () {
+            Promise.resolve(cfg.remove(ids)).then(function () {
+              p.set(false);
+              announce("Deleted " + (ids.length === 1 ? "1 " + cfg.one : ids.length + " " + cfg.many) + ".");
+            }).catch(function (err) { toast("Couldn't delete: " + errText(err)); });
+          }
+        });
+      }
+
+      p.set = function (on) {
+        p.on = on;
+        p.chosen.clear();
+        p.anchor = null;
+        cfg.button.textContent = on ? "Done" : "Select";
+        cfg.button.classList.toggle("btn-action", on);
+        cfg.hideWhenOn.forEach(function (el) { el.hidden = on; });
+        p.bar.hidden = !on;
+        cfg.render();
+        if (on) allBox.focus();
+        else cfg.button.focus();
+      };
+
+      // what the list shows now; picks the search hides are dropped, so Delete never removes unseen rows
+      p.show = function (ids) {
+        p.shown = ids;
+        var shown = new Set(ids);
+        p.chosen.forEach(function (id) { if (!shown.has(id)) p.chosen.delete(id); });
+        if (p.on) sync();
+      };
+
+      p.rowBox = function (id, label) {
+        if (!p.on) return null;
+        var box = h("input", { type: "checkbox", class: "check " + cfg.rowClass, "aria-label": label });
+        box.addEventListener("click", function (event) { toggle(id, event.shiftKey); });
+        return box;
+      };
+
+      p.attach = function (row, id, box) {
+        row._id = id;
+        row._box = box;
+        row.classList.add("pickable");
+        if (!p.on) return;
+        row.classList.add("selecting");
+        row.addEventListener("click", function (event) {
+          if (event.target === box || event.target.closest("button, input, a")) return;
+          if (window.getSelection && String(window.getSelection()).length > 0) return; // a text drag is not a pick
+          toggle(id, event.shiftKey);
+        });
+      };
+
+      // a day heading, with a box that picks the whole day while selecting
+      p.dayTitle = function (label, ids) {
+        var title = h("h3", { class: "group-title" });
+        if (!p.on) {
+          title.textContent = label;
+          return title;
+        }
+        var box = h("input", { type: "checkbox", class: "check group-check", "aria-label": "Select all from " + label });
+        box._ids = ids;
+        box.addEventListener("change", function () {
+          var all = ids.every(function (id) { return p.chosen.has(id); });
+          ids.forEach(function (id) {
+            if (all) p.chosen.delete(id);
+            else p.chosen.add(id);
+          });
+          sync();
+        });
+        title.appendChild(h("label", { class: "group-pick" }, box, h("span", { text: label })));
+        return title;
+      };
+
+      p.sync = sync;
+
+      // Esc leaves select mode, Delete asks to delete, Cmd/Ctrl+A picks everything shown
+      cfg.panel.addEventListener("keydown", function (event) {
+        if (!p.on || dialog.open) return;
+        var typing = event.target.tagName === "INPUT" && event.target.type === "text";
+        var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
+        if (event.key === "Escape") {
+          event.preventDefault();
+          p.set(false);
+        } else if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
+          event.preventDefault();
+          askDelete();
+        } else if (mod && (event.key === "a" || event.key === "A") && !typing) {
+          event.preventDefault();
+          p.shown.forEach(function (id) { p.chosen.add(id); });
+          sync();
+        }
+      });
+      return p;
+    }
+
+    // rows grouped under day headings, so History and Notes read the same way
+    function dayGroups(list, items, timeOf, idOf, pick, rowOf) {
+      var rows = [];
+      var group = null;
+      var card = null;
+      items.forEach(function (item) {
+        var ms = timeOf(item);
+        var date = typeof ms === "number" ? new Date(ms) : null;
+        var key = date ? dayKey(date) : "unknown";
+        if (key !== group) {
+          group = key;
+          var ids = items.filter(function (other) {
+            var t = timeOf(other);
+            return (typeof t === "number" ? dayKey(new Date(t)) : "unknown") === key;
+          }).map(idOf);
+          list.appendChild(pick.dayTitle(date ? dayLabel(date) : "-", ids));
+          card = h("div", { class: "card" });
+          list.appendChild(card);
+        }
+        var row = rowOf(item);
+        rows.push(row);
+        card.appendChild(row);
+      });
+      if (pick.on) pick.sync();
+      return rows;
+    }
+
+    function searchBox(placeholder, onChange) {
+      var input = h("input", { class: "search-input", type: "text", placeholder: placeholder, "aria-label": placeholder, autocomplete: "off", spellcheck: "false" });
+      var clearIt = h("button", { class: "icon-btn search-clear", type: "button", "aria-label": "Clear search", hidden: true, onclick: function () {
+        input.value = "";
+        changed();
+        input.focus();
+      } }, icon("close"));
+      function changed() {
+        clearIt.hidden = input.value === "";
+        onChange(input.value);
+      }
+      input.addEventListener("input", changed);
+      return { input: input, el: h("div", { class: "search" }, icon("search"), input, clearIt) };
+    }
+
     // ---------- History ----------
 
     var historyPanel = panels.history;
-    var searchInput = h("input", {
-      class: "search-input",
-      type: "text",
-      placeholder: "Search dictations",
-      "aria-label": "Search dictations",
-      autocomplete: "off",
-      spellcheck: "false"
+    var historySearch = searchBox("Search dictations", function (value) {
+      S.search = value;
+      renderHistoryList();
     });
-    var searchClear = h("button", { class: "icon-btn search-clear", type: "button", "aria-label": "Clear search", hidden: true, onclick: function () {
-      searchInput.value = "";
-      onSearch();
-      searchInput.focus();
-    } }, icon("close"));
-    var selectButton = h("button", { class: "btn", type: "button", text: "Select", onclick: function () { setSelecting(!S.selecting); } });
+    var searchInput = historySearch.input;
+    var selectButton = h("button", { class: "btn", type: "button", text: "Select", onclick: function () { historyPick.set(!historyPick.on); } });
     var clearButton = h("button", { class: "btn btn-danger", type: "button", text: "Clear History", onclick: askClearHistory });
     var historyList = h("div", { class: "history-list" });
-    var historyBar = h("div", { class: "history-bar" },
-      h("div", { class: "search" }, icon("search"), searchInput, searchClear),
-      selectButton,
-      clearButton
-    );
-    var selectAll = h("input", { type: "checkbox", class: "check", id: "select-all" });
-    selectAll.addEventListener("change", function () {
-      var all = allVisibleSelected();
-      S.visibleIds.forEach(function (id) {
-        if (all) S.selected.delete(id);
-        else S.selected.add(id);
-      });
-      S.anchor = null;
-      syncSelection();
-    });
-    var selectCount = h("span", { class: "select-count", "aria-live": "polite" });
-    var deleteButton = h("button", { class: "btn btn-danger btn-icon", type: "button", onclick: askDeleteSelected }, icon("trash"), h("span", { text: "Delete" }));
-    var selectBar = h("div", { class: "select-bar", role: "toolbar", "aria-label": "Selected dictations", hidden: true },
-      h("label", { class: "select-all", for: "select-all" }, selectAll, h("span", { text: "Select All" })),
-      selectCount,
-      deleteButton
-    );
-    historyPanel.appendChild(historyBar);
-    historyPanel.appendChild(selectBar);
-    historyPanel.appendChild(historyList);
-    S.visibleIds = [];
-
-    function setSelecting(on) {
-      S.selecting = on;
-      S.selected.clear();
-      S.anchor = null;
-      selectButton.textContent = on ? "Done" : "Select";
-      selectButton.classList.toggle("btn-action", on);
-      clearButton.hidden = on;
-      selectBar.hidden = !on;
-      renderHistoryList();
-      if (on) selectAll.focus();
-      else selectButton.focus();
-    }
-
-    function allVisibleSelected() {
-      return S.visibleIds.length > 0 && S.visibleIds.every(function (id) { return S.selected.has(id); });
-    }
-
-    // a tri-state box: checked when all of ids are chosen, mixed when some are
-    function syncBox(box, ids) {
-      var chosen = ids.filter(function (id) { return S.selected.has(id); }).length;
-      box.checked = chosen > 0 && chosen === ids.length;
-      box.indeterminate = chosen > 0 && chosen < ids.length;
-    }
-
-    // repaint the checks in place, so the focused checkbox keeps focus
-    function syncSelection() {
-      historyList.querySelectorAll(".hrow").forEach(function (row) {
-        var on = S.selected.has(row._id);
-        row.classList.toggle("is-selected", on);
-        if (row._box) row._box.checked = on;
-      });
-      historyList.querySelectorAll(".group-check").forEach(function (box) { syncBox(box, box._ids); });
-      syncBox(selectAll, S.visibleIds);
-      var n = S.selected.size;
-      selectCount.textContent = n === 0 ? "None selected" : n + " selected";
-      deleteButton.disabled = n === 0;
-    }
-
-    // click picks one; Shift-click picks the run from the last one, like Finder
-    function toggleRow(id, shift) {
-      var to = !S.selected.has(id);
-      var from = S.anchor === null ? -1 : S.visibleIds.indexOf(S.anchor);
-      var at = S.visibleIds.indexOf(id);
-      if (shift && from !== -1 && at !== -1) {
-        S.visibleIds.slice(Math.min(from, at), Math.max(from, at) + 1).forEach(function (other) {
-          if (to) S.selected.add(other);
-          else S.selected.delete(other);
+    var historyBar = h("div", { class: "history-bar" }, historySearch.el, selectButton, clearButton);
+    var historyPick = picker({
+      allId: "select-all",
+      one: "dictation",
+      many: "dictations",
+      rowClass: "hrow-check",
+      list: historyList,
+      panel: historyPanel,
+      button: selectButton,
+      hideWhenOn: [clearButton],
+      render: function () { renderHistoryList(); },
+      remove: function (ids) {
+        return Promise.resolve(invoke("delete_history", { ids: ids })).then(function () {
+          var gone = new Set(ids);
+          S.history = S.history.filter(function (e) { return !gone.has(entryId(e)); });
         });
-      } else if (to) {
-        S.selected.add(id);
-      } else {
-        S.selected.delete(id);
       }
-      S.anchor = id;
-      syncSelection();
-    }
+    });
+    historyPanel.appendChild(historyBar);
+    historyPanel.appendChild(historyPick.bar);
+    historyPanel.appendChild(historyList);
 
     // the app's id; entries saved before ids existed go by their time, as the app does
     function entryId(e) {
       return typeof e.id === "number" && e.id > 0 ? e.id : e.ts_ms;
     }
-
-    function plural(n, one, many) {
-      return n === 1 ? one : n + " " + many;
-    }
-
-    function askDeleteSelected() {
-      var ids = Array.from(S.selected);
-      if (ids.length === 0) return;
-      askConfirm({
-        title: ids.length === 1 ? "Delete this dictation?" : "Delete " + ids.length + " dictations?",
-        body: (ids.length === 1 ? "It" : "They") + " will be removed from " + thisDevice() + ". This can't be undone.",
-        confirm: "Delete",
-        danger: true,
-        onConfirm: function () {
-          Promise.resolve(invoke("delete_history", { ids: ids })).then(function () {
-            var gone = new Set(ids);
-            S.history = S.history.filter(function (e) { return !gone.has(entryId(e)); });
-            setSelecting(false);
-            announce("Deleted " + plural(ids.length, "1 dictation", "dictations") + ".");
-          }).catch(function (err) { toast("Couldn't delete: " + errText(err)); });
-        }
-      });
-    }
-
-    // Esc leaves select mode, Delete asks to delete, Cmd/Ctrl+A picks everything shown
-    historyPanel.addEventListener("keydown", function (event) {
-      if (!S.selecting || dialog.open) return;
-      var typing = event.target === searchInput;
-      var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
-      if (event.key === "Escape") {
-        event.preventDefault();
-        setSelecting(false);
-      } else if ((event.key === "Delete" || event.key === "Backspace") && !typing) {
-        event.preventDefault();
-        askDeleteSelected();
-      } else if (mod && (event.key === "a" || event.key === "A") && !typing) {
-        event.preventDefault();
-        S.visibleIds.forEach(function (id) { S.selected.add(id); });
-        syncSelection();
-      }
-    });
-
-    function onSearch() {
-      S.search = searchInput.value;
-      searchClear.hidden = S.search === "";
-      renderHistoryList();
-    }
-    searchInput.addEventListener("input", onSearch);
 
     function renderHistoryEmptyHint() {
       if (S.historyLoaded && S.history.length === 0) renderHistoryList();
@@ -777,6 +885,29 @@
 
     function emptyState(title, body, extra) {
       return h("div", { class: "empty" }, h("div", { class: "empty-title", text: title }), h("div", { class: "empty-body" }, body), extra);
+    }
+
+    // a copy button that shows Copied for a second
+    function copyButton(label, textOf) {
+      var copy = h("button", { class: "icon-btn copy", type: "button", "aria-label": label }, icon("copy"));
+      var timer = 0;
+      copy.addEventListener("click", function () {
+        Promise.resolve(invoke("copy_text", { text: textOf() })).then(function () {
+          clearTimeout(timer);
+          clear(copy);
+          copy.appendChild(icon("check"));
+          copy.classList.add("done");
+          copy.setAttribute("aria-label", "Copied");
+          announce("Copied to the clipboard.");
+          timer = setTimeout(function () {
+            clear(copy);
+            copy.appendChild(icon("copy"));
+            copy.classList.remove("done");
+            copy.setAttribute("aria-label", label);
+          }, 1000);
+        }).catch(function (err) { toast("Couldn't copy: " + errText(err)); });
+      });
+      return copy;
     }
 
     function historyRow(entry) {
@@ -793,33 +924,12 @@
         more.textContent = open ? "Show Less" : "Show More";
       } });
       var snippet = text.length > 40 ? text.slice(0, 40).trim() + "..." : text;
-      var copyLabel = text === "" ? "Copy dictation (empty)" : "Copy dictation: " + snippet;
-      var copy = h("button", { class: "icon-btn copy", type: "button", "aria-label": copyLabel, disabled: text === "" }, icon("copy"));
-      var copyTimer = 0;
-      copy.addEventListener("click", function () {
-        Promise.resolve(invoke("copy_text", { text: text })).then(function () {
-          clearTimeout(copyTimer);
-          clear(copy);
-          copy.appendChild(icon("check"));
-          copy.classList.add("done");
-          copy.setAttribute("aria-label", "Copied");
-          announce("Copied to the clipboard.");
-          copyTimer = setTimeout(function () {
-            clear(copy);
-            copy.appendChild(icon("copy"));
-            copy.classList.remove("done");
-            copy.setAttribute("aria-label", copyLabel);
-          }, 1000);
-        }).catch(function (err) { toast("Couldn't copy: " + errText(err)); });
-      });
+      var copy = copyButton(text === "" ? "Copy dictation (empty)" : "Copy dictation: " + snippet, function () { return text; });
+      copy.disabled = text === "";
 
       var id = entryId(entry);
-      var box = null;
-      if (S.selecting) {
-        box = h("input", { type: "checkbox", class: "check hrow-check", "aria-label": "Select dictation: " + (snippet || "empty") });
-        box.addEventListener("click", function (event) { toggleRow(id, event.shiftKey); });
-      }
-      var row = h("div", { class: "hrow" + (failed ? " failed" : "") + (S.selecting ? " selecting" : "") },
+      var box = historyPick.rowBox(id, "Select dictation: " + (snippet || "empty"));
+      var row = h("div", { class: "hrow" + (failed ? " failed" : "") },
         box,
         h("div", { class: "hrow-main" },
           body,
@@ -834,17 +944,9 @@
             more
           )
         ),
-        S.selecting ? null : h("div", { class: "hrow-actions" }, copy)
+        historyPick.on ? null : h("div", { class: "hrow-actions" }, copy)
       );
-      if (S.selecting) {
-        row.addEventListener("click", function (event) {
-          if (event.target === box || event.target.closest("button")) return;
-          if (window.getSelection && String(window.getSelection()).length > 0) return; // a text drag is not a pick
-          toggleRow(id, event.shiftKey);
-        });
-      }
-      row._id = id;
-      row._box = box;
+      historyPick.attach(row, id, box);
       row._body = body;
       row._more = more;
       row._moreDot = moreDot;
@@ -858,11 +960,8 @@
         return needle === "" || String(e.text || "").toLowerCase().indexOf(needle) !== -1;
       });
       clearButton.disabled = S.history.length === 0;
-      selectButton.disabled = S.history.length === 0 && !S.selecting;
-      S.visibleIds = entries.map(entryId);
-      var shown = new Set(S.visibleIds);
-      S.selected.forEach(function (id) { if (!shown.has(id)) S.selected.delete(id); }); // never delete what the search hides
-      if (S.selecting) syncSelection();
+      selectButton.disabled = S.history.length === 0 && !historyPick.on;
+      historyPick.show(entries.map(entryId));
 
       if (!S.historyLoaded) return;
 
@@ -887,42 +986,7 @@
         return;
       }
 
-      var rows = [];
-      var group = null;
-      var card = null;
-      entries.forEach(function (entry) {
-        var date = typeof entry.ts_ms === "number" ? new Date(entry.ts_ms) : null;
-        var key = date ? dayKey(date) : "unknown";
-        if (key !== group) {
-          group = key;
-          var label = date ? dayLabel(date) : "-";
-          var title = h("h3", { class: "group-title" });
-          if (S.selecting) {
-            var dayBox = h("input", { type: "checkbox", class: "check group-check", "aria-label": "Select all from " + label });
-            dayBox._ids = entries.filter(function (e) {
-              return (typeof e.ts_ms === "number" ? dayKey(new Date(e.ts_ms)) : "unknown") === key;
-            }).map(entryId);
-            dayBox.addEventListener("change", function () {
-              var all = dayBox._ids.every(function (id) { return S.selected.has(id); });
-              dayBox._ids.forEach(function (id) {
-                if (all) S.selected.delete(id);
-                else S.selected.add(id);
-              });
-              syncSelection();
-            });
-            title.appendChild(h("label", { class: "group-pick" }, dayBox, h("span", { text: label })));
-          } else {
-            title.textContent = label;
-          }
-          historyList.appendChild(title);
-          card = h("div", { class: "card" });
-          historyList.appendChild(card);
-        }
-        var row = historyRow(entry);
-        rows.push(row);
-        card.appendChild(row);
-      });
-      if (S.selecting) syncSelection();
+      var rows = dayGroups(historyList, entries, function (e) { return e.ts_ms; }, entryId, historyPick, historyRow);
 
       // reveal "Show More" only where the clamp actually hides text
       requestAnimationFrame(function () {
@@ -933,6 +997,340 @@
           }
         });
       });
+    }
+
+    // ---------- Notes ----------
+
+    var CONSENT_LINE = "Heads up: I'm taking notes of this call with a transcription app that runs only on my computer. Tell me if you'd rather I didn't.";
+    var notesPanel = panels.notes;
+    var notesSearch = searchBox("Search notes", function (value) {
+      S.noteSearch = value;
+      renderNotesList();
+    });
+    var newNoteButton = h("button", { class: "btn btn-action", type: "button", text: "New Note", onclick: function () { newNote(); } });
+    var notesSelectButton = h("button", { class: "btn", type: "button", text: "Select", onclick: function () { notesPick.set(!notesPick.on); } });
+    var notesList = h("div", { class: "history-list notes-list" });
+    var notesGate = h("p", { class: "footnote notes-gate", hidden: true });
+    var notesBar = h("div", { class: "history-bar" }, notesSearch.el, notesSelectButton, newNoteButton);
+    var notesPick = picker({
+      allId: "select-all-notes",
+      one: "note",
+      many: "notes",
+      rowClass: "nrow-check",
+      list: notesList,
+      panel: notesPanel,
+      button: notesSelectButton,
+      hideWhenOn: [newNoteButton],
+      render: function () { renderNotesList(); },
+      remove: function (ids) {
+        return Promise.resolve(invoke("delete_notes", { ids: ids })).then(function () {
+          var gone = new Set(ids);
+          S.noteList = S.noteList.filter(function (n) { return !gone.has(n.id); });
+        });
+      }
+    });
+    var notesListView = h("div", { class: "notes-list-view" }, notesBar, notesGate, notesPick.bar, notesList);
+    var noteView = h("div", { class: "note-view", hidden: true });
+    notesPanel.appendChild(notesListView);
+    notesPanel.appendChild(noteView);
+    var noteTimer = 0;
+
+    function noteTime(ms) {
+      return typeof ms === "number" ? new Date(ms).toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" }) : "-";
+    }
+
+    // an untitled note reads "Zoom call, 10:30" when the app is known, else "Note, 10:30"
+    function noteTitle(n) {
+      if (n.title) return n.title;
+      return (n.source ? n.source + " call" : "Note") + ", " + noteTime(n.started_ms !== undefined ? n.started_ms : n.startedMs);
+    }
+
+    function clock(ms) {
+      var s = Math.max(0, Math.floor(ms / 1000));
+      var hh = Math.floor(s / 3600);
+      var mm = Math.floor((s % 3600) / 60);
+      var ss = s % 60;
+      var two = function (n) { return (n < 10 ? "0" : "") + n; };
+      return (hh > 0 ? hh + ":" + two(mm) : mm) + ":" + two(ss);
+    }
+
+    function noteLength(start, end) {
+      if (typeof start !== "number" || typeof end !== "number") return "-";
+      var min = Math.round((end - start) / 60000);
+      if (min < 1) return "Under a minute";
+      if (min < 60) return min + " min";
+      return Math.floor(min / 60) + " h " + (min % 60) + " min";
+    }
+
+    function isRecording(id) {
+      return !!(S.notes.active && S.notes.active.id === id);
+    }
+
+    function loadNotes() {
+      S.noteListStale = false;
+      return Promise.resolve(invoke("list_notes")).then(function (rows) {
+        S.noteList = Array.isArray(rows) ? rows : [];
+        S.noteListLoaded = true;
+        renderNotesList();
+      }).catch(function (err) { toast(errText(err)); });
+    }
+
+    function noteRow(n) {
+      var recording = isRecording(n.id) || n.status === "recording";
+      var title = noteTitle(n);
+      var box = notesPick.rowBox(n.id, "Select note: " + title);
+      var open = h("button", { class: "nrow-open", type: "button", "aria-label": "Open " + title, onclick: function () { openNote(n.id); } },
+        h("div", { class: "nrow-title", text: title }),
+        h("div", { class: "hrow-meta" },
+          n.title ? h("span", { text: noteTime(n.startedMs) }) : null, // an untitled note already has the time in its title
+          n.title ? h("span", { class: "dot-sep", "aria-hidden": "true" }) : null,
+          recording ? h("span", { class: "tag tag-red", text: "Recording" }) : h("span", { text: noteLength(n.startedMs, n.endedMs) })
+        ),
+        n.firstLine ? h("div", { class: "nrow-first", text: n.firstLine }) : null
+      );
+      var row = h("div", { class: "nrow" }, box, open, notesPick.on ? null : h("span", { class: "nrow-chevron", "aria-hidden": "true" }, icon("chevron")));
+      notesPick.attach(row, n.id, box);
+      if (notesPick.on) open.disabled = true;
+      return row;
+    }
+
+    function renderNotesList() {
+      clear(notesList);
+      var gate = S.notes.supported === false ? (S.notes.reason || "Notes are not available on this computer.") : "";
+      notesGate.textContent = gate;
+      notesGate.hidden = gate === "";
+      newNoteButton.disabled = gate !== "";
+      newNoteButton.textContent = S.notes.active ? "Open Recording" : "New Note";
+      var needle = S.noteSearch.trim().toLowerCase();
+      var rows = S.noteList.filter(function (n) {
+        return needle === "" || (noteTitle(n) + " " + (n.firstLine || "")).toLowerCase().indexOf(needle) !== -1;
+      });
+      notesSelectButton.disabled = S.noteList.length === 0 && !notesPick.on;
+      notesPick.show(rows.map(function (n) { return n.id; }));
+      if (!S.noteListLoaded) return;
+      if (S.noteList.length === 0) {
+        notesList.appendChild(emptyState("No notes yet", "Click New Note when a call starts. local-stt records your microphone as Me and the call as Others, and writes it all down on this computer."));
+        return;
+      }
+      if (rows.length === 0) {
+        notesList.appendChild(emptyState("No results", "Nothing matches your search."));
+        return;
+      }
+      dayGroups(notesList, rows, function (n) { return n.startedMs; }, function (n) { return n.id; }, notesPick, noteRow);
+    }
+
+    function showNotesList() {
+      S.openNote = null;
+      clearInterval(noteTimer);
+      noteView.hidden = true;
+      notesListView.hidden = false;
+      renderNotesList();
+    }
+
+    function openNote(id) {
+      return Promise.resolve(invoke("get_note", { id: id })).then(function (note) {
+        S.openNote = note;
+        S.openStatus = isRecording(id) ? "recording" : note.status === "recording" ? "tidying" : "done";
+        notesListView.hidden = true;
+        noteView.hidden = false;
+        renderNoteView();
+        var back = noteView.querySelector(".note-back");
+        if (back) back.focus();
+      }).catch(function (err) { toast(errText(err)); });
+    }
+
+    function noteText(note) {
+      var lines = [noteTitle(note), new Date(note.started_ms).toLocaleString(), ""];
+      (note.segments || []).forEach(function (seg) {
+        lines.push(speakerName(seg.speaker) + " (" + clock(seg.start_ms) + "): " + seg.text);
+      });
+      return lines.join("\n");
+    }
+
+    function speakerName(id) {
+      return id === "me" ? "Me" : id === "others" ? "Others" : String(id || "-");
+    }
+
+    function turnRow(seg) {
+      var row = h("div", { class: "turn turn-" + (seg.speaker === "me" ? "me" : "others") },
+        h("div", { class: "turn-who" },
+          h("span", { class: "turn-name", text: speakerName(seg.speaker) }),
+          h("span", { class: "turn-time", text: clock(seg.start_ms) })
+        ),
+        h("div", { class: "turn-text", text: seg.text })
+      );
+      row._start = seg.start_ms;
+      return row;
+    }
+
+    function renderTranscript(card) {
+      clear(card);
+      var segs = (S.openNote.segments || []).slice().sort(function (a, b) { return a.start_ms - b.start_ms; });
+      if (segs.length === 0) {
+        card.appendChild(h("div", { class: "turn-empty", text: S.openStatus === "recording" ? "Listening. Lines appear a few seconds after each pause." : "Nothing was transcribed." }));
+        return;
+      }
+      segs.forEach(function (seg) { card.appendChild(turnRow(seg)); });
+    }
+
+    function renderNoteView() {
+      var note = S.openNote;
+      if (!note) return;
+      clearInterval(noteTimer);
+      clear(noteView);
+      var recording = S.openStatus === "recording";
+      var back = h("button", { class: "btn btn-quiet note-back", type: "button", onclick: showNotesList }, h("span", { text: "Notes" }));
+      back.insertBefore(icon("chevron"), back.firstChild);
+      var actions = h("div", { class: "note-actions" });
+      if (!recording) {
+        actions.appendChild(copyButton("Copy note", function () { return noteText(S.openNote); }));
+        actions.appendChild(h("button", { class: "icon-btn", type: "button", "aria-label": "Delete note", onclick: function () { askDeleteNote(note.id); } }, icon("trash")));
+      }
+      var title = h("input", { class: "note-title", type: "text", maxlength: "200", "aria-label": "Note title", placeholder: noteTitle(Object.assign({}, note, { title: "" })), value: note.title || "" });
+      function saveTitle() {
+        var next = title.value.trim();
+        if (next === (S.openNote.title || "")) return;
+        Promise.resolve(invoke("rename_note", { id: note.id, title: next })).then(function (saved) {
+          var title = saved && typeof saved.title === "string" ? saved.title : next;
+          if (S.openNote && S.openNote.id === note.id) S.openNote.title = title;
+          S.noteList.forEach(function (n) { if (n.id === note.id) n.title = title; });
+        }).catch(function (err) { toast("Couldn't rename: " + errText(err)); });
+      }
+      title.addEventListener("change", saveTitle);
+      title.addEventListener("keydown", function (event) { if (event.key === "Enter") title.blur(); });
+      var meta = h("div", { class: "note-meta" },
+        h("span", { text: new Date(note.started_ms).toLocaleDateString(undefined, { weekday: "long", month: "long", day: "numeric" }) + ", " + noteTime(note.started_ms) }),
+        recording ? null : h("span", { class: "dot-sep", "aria-hidden": "true" }),
+        recording ? null : h("span", { text: S.openStatus === "tidying" ? "Tidying..." : noteLength(note.started_ms, note.ended_ms) })
+      );
+      noteView.appendChild(h("div", { class: "note-top" }, back, actions));
+      noteView.appendChild(title);
+      noteView.appendChild(meta);
+      if (recording) {
+        var timer = h("span", { class: "note-timer", text: clock(Date.now() - S.notes.active.startedMs) });
+        noteView.appendChild(h("div", { class: "note-live", role: "group", "aria-label": "Recording" },
+          h("span", { class: "rec-dot", "aria-hidden": "true" }),
+          h("span", { class: "note-rec-label", text: "Recording" }),
+          timer,
+          h("span", { class: "note-live-gap" }),
+          h("button", { class: "btn", type: "button", text: "Copy Consent Line", onclick: copyConsent }),
+          h("button", { class: "btn btn-danger-solid", type: "button", text: "Stop", onclick: stopNote })
+        ));
+        noteView.appendChild(h("p", { class: "footnote", text: "Use headphones, so your own words are not picked up twice." }));
+        noteTimer = setInterval(function () {
+          if (S.notes.active) timer.textContent = clock(Date.now() - S.notes.active.startedMs);
+        }, 1000);
+      }
+      var card = h("div", { class: "card transcript", role: "log", "aria-live": recording ? "polite" : "off" });
+      noteView.appendChild(card);
+      renderTranscript(card);
+      noteView._card = card;
+    }
+
+    function copyConsent() {
+      Promise.resolve(invoke("copy_text", { text: CONSENT_LINE })).then(function () {
+        announce("Consent line copied.");
+        toast("Consent line copied. Paste it in the meeting chat.");
+      }).catch(function (err) { toast("Couldn't copy: " + errText(err)); });
+    }
+
+    // shown once: recording other people needs their consent in many places
+    function askConsent(onContinue) {
+      clear(dialog);
+      dialog.appendChild(h("h2", { class: "dlg-title", id: "dlg-title", text: "Before you take notes" }));
+      dialog.appendChild(h("p", { class: "dlg-body", text: "Taking notes records the other people on the call. In many places you need their consent. Tell them you are taking notes." }));
+      dialog.appendChild(h("p", { class: "dlg-body consent-line", text: CONSENT_LINE }));
+      var cancel = h("button", { class: "btn", type: "button", text: "Cancel", onclick: function () { closeDialog(); } });
+      var copy = h("button", { class: "btn", type: "button", text: "Copy Consent Line", onclick: copyConsent });
+      var go = h("button", { class: "btn btn-action", type: "button", text: "Continue", onclick: function () {
+        closeDialog();
+        patchConfig({ notes_consent_seen: true });
+        onContinue();
+      } });
+      dialog.appendChild(h("div", { class: "dlg-actions" }, cancel, copy, go));
+      if (typeof dialog.showModal === "function") dialog.showModal();
+      else dialog.setAttribute("open", "");
+      go.focus();
+    }
+
+    function newNote() {
+      if (S.notes.supported === false) {
+        toast(S.notes.reason || "Notes are not available on this computer.");
+        return;
+      }
+      if (S.notes.active) {
+        openNote(S.notes.active.id);
+        return;
+      }
+      if (!(S.config && S.config.notes_consent_seen)) askConsent(startNote);
+      else startNote();
+    }
+
+    function startNote() {
+      Promise.resolve(invoke("start_note")).then(function (id) {
+        var now = Date.now();
+        S.notes.active = { id: id, startedMs: now };
+        S.openNote = { id: id, title: "", started_ms: now, status: "recording", segments: [] };
+        S.openStatus = "recording";
+        notesListView.hidden = true;
+        noteView.hidden = false;
+        renderNoteView();
+        announce("Taking notes.");
+        loadNotes();
+      }).catch(function (err) { toast("Couldn't start the note: " + errText(err)); });
+    }
+
+    function stopNote() {
+      Promise.resolve(invoke("stop_note")).catch(function (err) { toast(errText(err)); });
+    }
+
+    function askDeleteNote(id) {
+      askConfirm({
+        title: "Delete this note?",
+        body: "It will be removed from " + thisDevice() + ". This can't be undone.",
+        confirm: "Delete",
+        danger: true,
+        onConfirm: function () {
+          Promise.resolve(invoke("delete_notes", { ids: [id] })).then(function () {
+            S.noteList = S.noteList.filter(function (n) { return n.id !== id; });
+            showNotesList();
+            announce("Deleted 1 note.");
+          }).catch(function (err) { toast("Couldn't delete: " + errText(err)); });
+        }
+      });
+    }
+
+    function onNoteState(p) {
+      if (!p || typeof p.id !== "string") return;
+      if (p.status === "recording") {
+        S.notes.active = { id: p.id, startedMs: typeof p.startedMs === "number" ? p.startedMs : Date.now() };
+      } else if (S.notes.active && S.notes.active.id === p.id) {
+        S.notes.active = null;
+      }
+      var open = S.openNote && S.openNote.id === p.id;
+      if (open && p.status === "done") {
+        openNote(p.id);
+      } else if (open) {
+        S.openStatus = p.status === "recording" ? "recording" : "tidying";
+        renderNoteView();
+      }
+      if (S.tab === "notes") loadNotes();
+      else S.noteListStale = true;
+    }
+
+    function onNoteSegment(p) {
+      if (!p || !S.openNote || p.id !== S.openNote.id || !p.segment) return;
+      S.openNote.segments = (S.openNote.segments || []).concat([p.segment]);
+      var card = noteView._card;
+      if (!card) return;
+      var atEnd = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 40;
+      // one new row in time order, so a screen reader hears only the new line and a long call stays cheap
+      var empty = card.querySelector(".turn-empty");
+      if (empty) card.removeChild(empty);
+      var row = turnRow(p.segment);
+      var after = Array.prototype.find.call(card.children, function (el) { return el._start > p.segment.start_ms; });
+      card.insertBefore(row, after || null);
+      if (atEnd) scroller.scrollTop = scroller.scrollHeight; // follow the call unless the reader scrolled up
     }
 
     // one confirmation dialog for every action that deletes or downloads something
@@ -1560,7 +1958,7 @@
 
     function renderAll() {
       if (!S.loaded) {
-        [panels.history, panels.model, panels.settings].forEach(function (p) { clear(p); });
+        [panels.history, panels.notes, panels.model, panels.settings].forEach(function (p) { clear(p); });
         if (S.loadError) {
           panels[S.tab].appendChild(emptyState("Couldn't load", S.loadError,
             h("button", { class: "btn", type: "button", text: "Try Again", onclick: refreshState })));
@@ -1570,8 +1968,15 @@
       if (!panels.history.contains(historyBar)) {
         clear(panels.history);
         panels.history.appendChild(historyBar);
+        panels.history.appendChild(historyPick.bar);
         panels.history.appendChild(historyList);
       }
+      if (!panels.notes.contains(notesListView)) {
+        clear(panels.notes);
+        panels.notes.appendChild(notesListView);
+        panels.notes.appendChild(noteView);
+      }
+      renderNotesList();
       renderModels();
       buildSettings();
       renderHistoryList();
@@ -1618,6 +2023,14 @@
     subscribe("show-tab", function (p) {
       var known = p && TABS.some(function (t) { return t.value === p.tab; });
       if (known) showTab(p.tab);
+      if (known && p.tab === "notes" && p.newNote === true) newNote();
+    });
+
+    subscribe("note-state", onNoteState);
+    subscribe("note-segment", onNoteSegment);
+    subscribe("notes-changed", function () {
+      if (S.tab === "notes") loadNotes();
+      else S.noteListStale = true;
     });
 
     subscribe("notice", function (p) {
@@ -1646,7 +2059,10 @@
     // ---------- start ----------
 
     refreshState().then(function () {
-      if (S.loaded) loadHistory();
+      if (S.loaded) {
+        loadHistory();
+        loadNotes();
+      }
     });
 
     return {
