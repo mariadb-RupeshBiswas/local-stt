@@ -11,6 +11,7 @@ pub mod demo;
 pub mod diag;
 pub mod download;
 pub mod engine;
+pub mod focus;
 pub mod format;
 pub mod history;
 pub mod hotkey;

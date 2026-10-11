@@ -67,6 +67,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   standalone copy and opens that instead: macOS asks for permissions as local-stt, not as the
   terminal, and closing the terminal no longer quits it. Opening it again shows its window.
 - Windows: background tools (download, update check, Start at login, install) no longer open console windows.
+- The pill shows on the screen you are typing on (the focused window's screen, or the pointer's
+  when no window has focus), keeping its spot in proportion when it was placed on another screen.
 - Install and Restart starts the new version reliably: it waits for the old copy to quit instead of handing back to it.
 - macOS: the Accessibility prompt shows once per build instead of at every start, and the
   shortcut starts working once Accessibility is allowed, without restarting the app.

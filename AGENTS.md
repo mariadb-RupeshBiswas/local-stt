@@ -46,6 +46,7 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/recorder.rs`, `src/audio.rs`, `src/sound.rs` | Microphone capture, resampling, level, cues |
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke; Windows console detach |
+| `src/focus/` | The focused window's centre, so the pill shows on that screen |
 | `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |
 | `src/hwprobe/` | RAM, CPU, GPU, disk |
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |
