@@ -117,10 +117,11 @@ Nothing is logged about the name. The level check logs only "microphone check: h
 - CI: the Windows end-to-end run starts with a fresh data folder, so it lands on onboarding; its
   checks are global (process, pill, report) and do not read the main window.
 
-## Decisions for the owner
+## Decisions
 
-1. Ask for a name at all (built: optional, greeting only)?
-2. Start at login on the Recommended path (built: off)?
+1. Ask for a name: yes, optional and used only for greetings (decided 2026-10-11).
+2. Start at login on the Recommended path: off, one switch away in Customize and Settings
+   (decided 2026-10-11).
 
 ## Not in this version
 
