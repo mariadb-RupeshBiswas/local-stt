@@ -209,6 +209,9 @@ pub fn count(text: &str) -> u64 {
     tokens(text).len() as u64
 }
 
+// Longer runs are pasted links or codes, not words, and would bloat the file.
+const MAX_WORD_CHARS: usize = 30;
+
 /// The words worth counting, each with its tag; names, stop words, digits and short words are left out.
 pub fn extract(text: &str) -> Vec<(String, Tag)> {
     let mut out = Vec::new();
@@ -222,7 +225,7 @@ pub fn extract(text: &str) -> Vec<(String, Tag)> {
         let name = token.capitalised && !token.sentence_start;
         let letters = token.text.chars().count();
         let skip = name
-            || letters < 3
+            || !(3..=MAX_WORD_CHARS).contains(&letters)
             || token.text.chars().any(|c| c.is_ascii_digit() || c == '\'')
             || is_stop(&token.text);
         if !skip {
@@ -235,6 +238,15 @@ pub fn extract(text: &str) -> Vec<(String, Tag)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn long_runs_are_not_words() {
+        let run = "x".repeat(31);
+        assert_eq!(
+            words_of(&format!("we review {run} today")),
+            ["review", "today"]
+        );
+    }
 
     fn words_of(text: &str) -> Vec<String> {
         extract(text).into_iter().map(|(w, _)| w).collect()
