@@ -53,7 +53,7 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |
 | `src/config.rs`, `src/history.rs`, `src/paths.rs` | Local files |
 | `src/format.rs`, `src/clipboard.rs` | Smart formatting of transcripts; private clipboard writes |
-| `src/install.rs`, `src/autostart.rs`, `src/update.rs` | Install and hand-off, start at login, update check and install |
+| `src/install.rs`, `src/autostart.rs`, `src/update.rs` | Install, hand-off and reinstall; start at login; update check and install |
 | `src/instance.rs`, `src/proc.rs`, `src/demo.rs` | One running copy, console-free child processes, the scripted demo |
 | `ui/` | Plain HTML/CSS/JS for the pill and the main window (no bundler); everything here ships |
 | `dev/` | Browser preview with a mock Tauri bus, and the UI checks; never shipped |

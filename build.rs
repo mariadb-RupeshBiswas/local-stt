@@ -74,6 +74,8 @@ fn main() {
         "stop_note",
         "rename_note",
         "delete_notes",
+        "open_accessibility_settings",
+        "reinstall_app",
         "reset_overlay_position",
         "move_overlay",
         "copy_text",

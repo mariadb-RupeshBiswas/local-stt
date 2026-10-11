@@ -23,7 +23,7 @@ steps to reproduce and the impact you see.
 | Synthetic paste keystroke | Type the text for you | After each dictation, when Paste is on |
 | Clipboard (write, marked private) | Hand over the text; clipboard managers, Windows clipboard history and cloud clipboard skip it. macOS Universal Clipboard may still share it with your own nearby devices when Handoff is on | After each dictation |
 | Network | Download a model from `huggingface.co` over HTTPS | First run and when you choose another model |
-| Network | Ask `pypi.org` for the latest version number (nothing else is sent) | 30 s after start, then once a day; Settings > Check automatically turns it off |
+| Network | Ask `pypi.org` for the latest version number (nothing else is sent) | 30 s after start, then once a day; Settings > Check automatically turns it off. Also when you click Check for Updates or Reinstall |
 | Running uv | Install a newer release you chose to install | Only when you click Install and Restart |
 | Files in the app data folder | Settings, history, models | Always; created readable only by your user |
 | Install locations | `~/Applications/local-stt.app` and `~/.local/bin/local-stt` (macOS); `%LOCALAPPDATA%\Programs\local-stt`, a Start menu shortcut and `~\.local\bin\local-stt.cmd` (Windows) | When you install, or the first time you start it from a terminal; uninstall removes exactly these and never a file it did not create |
@@ -32,6 +32,7 @@ steps to reproduce and the impact you see.
 | macOS crash reports | Reads local-stt's own `.ips` files in `~/Library/Logs/DiagnosticReports` and keeps only the cause and crashed thread | Only when you export a report |
 | Diagnostic report | A text file in `diagnostics/` inside the app data folder, the five newest kept; never sent anywhere | Only when you click Export Report or run `local-stt diagnostics` |
 | Notes | One file per note in `notes/` inside the app data folder (lines appended while recording, tidied on Stop), readable only by your user; delete removes the file | From New Note until you delete it |
+| Permission reset (macOS) | `tccutil reset All io.github.localstt` clears local-stt's own privacy entries, never another app's, so macOS asks again | Only when you click Reinstall or run `local-stt reinstall` |
 | Login item | `~/Library/LaunchAgents/io.github.localstt.plist` (macOS) or a `HKCU\...\Run` value (Windows) | Only when Start at login is on |
 
 The app sends no telemetry and no crash reports, and has no account.

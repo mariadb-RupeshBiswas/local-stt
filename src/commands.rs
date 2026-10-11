@@ -37,6 +37,8 @@ pub fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Value {
             "reason": notes_ok.err(),
             "active": crate::notes::session::active(&app).map(|(id, started)| json!({ "id": id, "startedMs": started })),
         },
+        // macOS only: whether the shortcut and paste have the rights they need.
+        "accessibility": cfg!(target_os = "macos").then(|| hotkey::accessibility_ok(false)),
         "demo": crate::demo::active(),
         "toggleDisplay": cfg.toggle_hotkey.as_ref().map(hotkey::display),
         "installed": crate::install::is_installed(),
@@ -306,6 +308,41 @@ pub async fn export_diagnostics(state: State<'_, Arc<Shared>>) -> Result<String,
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_default();
     Ok(format!("Saved {name}. Read it before you share it."))
+}
+
+/// Reinstalls the app (see `install::reinstall`) and restarts into the new copy.
+#[tauri::command]
+pub async fn reinstall_app(app: AppHandle, clean: bool) -> Result<String, String> {
+    if crate::notes::session::active(&app).is_some() {
+        return Err("A note is recording. Stop it first, then reinstall.".into());
+    }
+    if UPDATING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return Err("An update or reinstall is already running.".into());
+    }
+    let _guard = UpdateGuard;
+    diag::log(&format!("reinstall started (clean: {clean})"));
+    let note = tauri::async_runtime::spawn_blocking(move || crate::install::reinstall(clean))
+        .await
+        .map_err(|e| format!("reinstall failed: {e}"))?
+        .inspect_err(|e| diag::log(&format!("reinstall failed: {e}")))?;
+    app::restart_into_installed(&app);
+    Ok(note)
+}
+
+/// Opens System Settings at Privacy & Security > Accessibility (macOS).
+#[tauri::command]
+pub fn open_accessibility_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+        crate::proc::command("/usr/bin/open")
+            .arg(pane)
+            .status()
+            .map(|_| ())
+            .map_err(|e| format!("could not open System Settings: {e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
 }
 
 #[tauri::command]
