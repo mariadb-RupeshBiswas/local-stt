@@ -88,6 +88,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   shortcut starts working once Accessibility is allowed, without restarting the app.
 - The main window reads the app's state off the window thread, so listing microphones and
   checking start at login (reg.exe on Windows) never hold up the window.
+- Smart formatting no longer crashes on a list item that starts with a symbol such as "€",
+  and spoken markers with nothing after them ("point one, point two") stay as spoken.
 
 ### Security
 

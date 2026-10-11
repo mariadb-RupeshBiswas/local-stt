@@ -299,6 +299,14 @@ fn numbered_points(text: &str) -> String {
     if markers.len() < 2 {
         return text.to_string();
     }
+    // A marker with nothing after it ("point one, point two") would paste as "1. .".
+    let has_empty_item = markers.iter().enumerate().any(|(n, m)| {
+        let item_end = markers.get(n + 1).map_or(text.len(), |next| next.start);
+        item_body(trim_joiners(&text[m.end..item_end])).is_empty()
+    });
+    if has_empty_item {
+        return text.to_string();
+    }
     let mut out = String::new();
     let mut intro = count_word_fixed(trim_joiners(&text[..markers[0].start]), markers.len());
     // A spoken lead-in ("So", "Okay") is not a heading.
@@ -341,7 +349,9 @@ fn numbered_points(text: &str) -> String {
 fn item_body(item: &str) -> &str {
     let mut t = item.trim();
     for lead in ["is that ", "is "] {
-        if t.len() > lead.len() && t[..lead.len()].eq_ignore_ascii_case(lead) {
+        // get() is None mid-character ("5€ ..."), where slicing would panic.
+        let head = t.get(..lead.len());
+        if t.len() > lead.len() && head.is_some_and(|h| h.eq_ignore_ascii_case(lead)) {
             t = t[lead.len()..].trim_start();
             break;
         }
@@ -607,6 +617,20 @@ mod tests {
             tidy("I have for points point one apples point two pears point three plums point four figs"),
             "I have four points:\n1. Apples.\n2. Pears.\n3. Plums.\n4. Figs."
         );
+    }
+
+    #[test]
+    fn non_ascii_list_items_do_not_panic() {
+        assert_eq!(
+            tidy("Point one, ab€c. Point two, 5€ is the budget."),
+            "1. Ab€c.\n2. 5€ is the budget."
+        );
+    }
+
+    #[test]
+    fn markers_with_nothing_after_them_stay_prose() {
+        let input = "Agenda: point one, point two";
+        assert_eq!(tidy(input), input);
     }
 
     #[test]
