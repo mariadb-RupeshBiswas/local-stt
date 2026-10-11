@@ -55,6 +55,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   crash summaries and recent logs, saved locally and shown in Finder or Explorer.
 - History select mode: Select, then pick dictations with checkboxes (a whole day at once,
   Shift-click for a run, Select All, Cmd or Ctrl + A) and delete just those.
+- First-run setup: an optional name, a live system check (computer, model fit, microphones,
+  permissions, model download with real progress), Recommended or Customize, a microphone test
+  and Accessibility step, and a first dictation to try. Skippable at every step; Run Setup Again
+  in Settings. People updating from an earlier version are not sent through it.
 - Settings > General > Accessibility (macOS): shows whether the shortcut and paste are
   allowed, with Open Settings and a tip for a switch that stayed on from an older copy.
 - Reinstall in Settings > Troubleshooting and `local-stt reinstall [--clean]`: installs again

@@ -1021,6 +1021,151 @@ body {
 .mw.reduce-motion .mw-banner { animation: none; }
 .mw.reduce-motion .dlg[open] { animation: panel-fade 150ms linear; }
 
+/* ---------- setup (first run) ---------- */
+
+.ob {
+  flex: 1;
+  overflow-y: auto;
+  padding: var(--s6);
+}
+
+.mw.is-onboarding .mw-banner { display: none; }
+
+.ob-page { max-width: 560px; margin: 0 auto; }
+
+.ob-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 28px;
+}
+
+.ob-step { font-size: 12px; font-weight: 600; color: var(--label-2); font-variant-numeric: tabular-nums; }
+
+.ob-title {
+  margin: var(--s3) 0 var(--s5);
+  font-size: 22px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.ob-title:focus { outline: none; }
+
+.ob-card,
+.ob-choice,
+.ob-perm { padding: var(--s4); }
+
+.ob-card > * + *,
+.ob-choice > * + *,
+.ob-perm > * + * { border-top: 0; }
+
+.ob-label { display: block; margin-bottom: var(--s2); font-weight: 600; }
+
+.ob-input,
+.ob-box {
+  width: 100%;
+  border: 0;
+  border-radius: 8px;
+  background: var(--fill);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.ob-input { height: 32px; padding: 0 var(--s3); }
+.ob-input.srow-input { width: 200px; height: 28px; }
+.ob-box { padding: var(--s3); resize: none; font: inherit; color: inherit; }
+.ob-box:disabled { opacity: 0.5; }
+.ob-input::placeholder,
+.ob-box::placeholder { color: var(--label-2); }
+
+.ob-hint,
+.ob-note { margin: var(--s2) 0 0; font-size: 12px; color: var(--label-2); }
+
+.ob-error { margin-top: var(--s2); text-align: left; color: var(--red-ink); }
+
+.ob-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  margin-top: var(--s6);
+}
+
+.ob-actions-start,
+.ob-actions-end { display: flex; gap: var(--s2); }
+.ob-page .btn { height: 32px; padding: 0 var(--s4); }
+.ob-page .btn-quiet { padding: 0 6px; }
+
+.ob-list { margin: 0; padding: 0; list-style: none; }
+
+.ob-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--s3);
+  padding: 10px var(--s4);
+}
+
+.ob-row-title { font-weight: 500; }
+.ob-detail { margin-top: 2px; font-size: 12px; color: var(--label-2); font-variant-numeric: tabular-nums; }
+
+.ob-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--label-2);
+}
+
+.ob-row[data-state="done"] .ob-state { color: var(--green-ink); }
+.ob-row[data-state="needs"] .ob-state { color: var(--orange-ink); }
+.ob-row[data-state="failed"] .ob-state { color: var(--red-ink); }
+.ob-row[data-state="running"] .ob-state { color: var(--accent-ink); }
+.ob-state .ic { width: 14px; height: 14px; stroke-width: 2.2; }
+
+.ob-choices { display: grid; gap: var(--s4); }
+.ob-choice-title { margin: 0; font-size: 15px; font-weight: 600; }
+.ob-choice .btn,
+.ob-perm .btn { margin-top: var(--s3); }
+
+.ob-facts { margin: var(--s3) 0 0; padding: 0; list-style: none; }
+
+.ob-facts li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  padding: 6px 0;
+  border-top: 0.5px solid var(--separator);
+}
+
+.ob-fact-value { color: var(--label-2); }
+
+.ob-perm-actions { display: flex; align-items: center; gap: var(--s2); }
+.ob-perm-status:empty { display: none; }
+.ob-line { margin-top: var(--s3); min-height: 20px; }
+.ob-line:empty { display: none; }
+.ob-waiting { font-size: 12px; font-weight: 500; color: var(--accent-ink); }
+.ob-level { margin-top: var(--s3); transition: none; }
+.ob-level i { transition: transform 60ms linear; }
+
+.ob-prompt { margin: 0 0 var(--s3); display: flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+
+.ob-success {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  margin-top: var(--s3);
+  font-weight: 500;
+  color: var(--green-ink);
+}
+
+.ob-success span { display: inline-flex; align-items: center; gap: var(--s2); flex-wrap: wrap; }
+.ob-dl { margin-top: var(--s3); }
+
+.mw.reduce-motion .ob-level { display: none; }
+
 /* ---------- insights ---------- */
 
 .ins-card { padding: var(--s4); }

@@ -22,6 +22,7 @@ public static class Native {
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int cmd);
     public static string[] VisibleTitles(uint pid) {
         var list = new List<string>();
         EnumWindows((h, l) => {
@@ -86,11 +87,20 @@ $before = [Native]::VisibleTitles([uint32]$proc.Id)
 Check 'pill hidden at rest' (-not ($before -contains 'local-stt recording')) ($before -join ', ')
 Shot '1-idle'
 
+# Dictation targets other apps, and injected keys do not reach the hook while our own window is in front.
+$proc.Refresh()
+[Native]::ShowWindowAsync($proc.MainWindowHandle, 6) | Out-Null
+Start-Sleep -Seconds 2
+
 # Hold Ctrl+Alt: the hook must fire and the pill must appear (no microphone on runners, so it shows an error state).
 [Native]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
 [Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-Start-Sleep -Milliseconds 1200
-$during = [Native]::VisibleTitles([uint32]$proc.Id)
+# Opening the audio device can take a few seconds on a runner with no microphone, so poll for the pill.
+$during = @()
+for ($i = 0; $i -lt 25 -and -not ($during -contains 'local-stt recording'); $i++) {
+    Start-Sleep -Milliseconds 200
+    $during = [Native]::VisibleTitles([uint32]$proc.Id)
+}
 Shot '2-holding-ctrl-alt'
 [Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
 [Native]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)

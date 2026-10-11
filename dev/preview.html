@@ -101,7 +101,9 @@
     ["Notes", "?view=main&tab=notes&scheme=both"],
     ["Insights", "?view=main&tab=insights&scheme=both"],
     ["Model", "?view=main&tab=model&scheme=both"],
-    ["Settings", "?view=main&tab=settings&scheme=both"]
+    ["Settings", "?view=main&tab=settings&scheme=both"],
+    ["Setup", "?view=main&onboarding=1&scheme=both"],
+    ["Setup, Windows", "?view=main&onboarding=1&platform=windows&scheme=both"]
   ];
   navLinks.forEach(function (pair) {
     var a = el("a", "", pair[0]);
@@ -362,6 +364,7 @@
     var hour = 60 * minute;
     var day = 24 * hour;
     var empty = params.get("empty") === "1";
+    var onboarding = params.get("onboarding") === "1";
     var entries = [
       { id: 9001, ts_ms: now - 3 * minute, text: "Please check the September billing numbers before the meeting tomorrow.", duration_ms: 3200, model: "small", ok: true },
       { id: 9002, ts_ms: now - 41 * minute, text: "Here are the notes from the planning call. First, the pricing page needs a clearer comparison between the monthly and annual plans. Second, the onboarding email should mention the free trial limit in the first paragraph. Third, we agreed to review the churn dashboard on Thursday and decide whether to split the Cloud and On-prem views. Finally, please send the updated slide deck to the whole team before the end of the day so everyone can comment.", duration_ms: 27800, model: "small", ok: true },
@@ -385,11 +388,13 @@
         smart_format: true, live_transcription: true, check_updates: true, skip_update: null, diagnostic_log: true, notes_consent_seen: params.get("consent") === "seen",
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
-        save_history: params.get("hist") !== "off", word_insights: true, autostart: false, model: "small"
+        save_history: params.get("hist") !== "off", word_insights: true, autostart: false, model: "small",
+        setup_done: !onboarding, user_name: null
       },
       models: [
-        { id: "small", label: "Small", size_mb: 181, supported: true, recommended: false, downloaded: true, reasons: [] },
-        { id: "medium", label: "Medium", size_mb: 514, supported: true, recommended: true, downloaded: false, reasons: [] },
+        // a fresh install has nothing on disk and Small recommended; ?downloaded=1 keeps it on disk
+        { id: "small", label: "Small", size_mb: 181, supported: true, recommended: onboarding, downloaded: !onboarding || params.get("downloaded") === "1", reasons: [] },
+        { id: "medium", label: "Medium", size_mb: 514, supported: true, recommended: !onboarding, downloaded: false, reasons: [] },
         { id: "large-v3", label: "Large v3", size_mb: 1031, supported: false, recommended: false, downloaded: false,
           reasons: winReasons
             ? ["Needs 16 GB RAM, this PC has 8 GB", "Needs a GPU this app can use; Windows build runs on CPU"]
@@ -398,10 +403,11 @@
       hardware: winReasons
         ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: 8, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
         : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: 8, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: null },
-      activeModel: params.get("active") === "none" ? null : "small",
+      activeModel: params.get("active") === "none" || (onboarding && params.get("downloaded") !== "1") ? null : "small",
+      demo: params.get("demo") === "1",
       downloading: params.get("downloading") || null,
       autostartEnabled: false,
-      inputs: ["MacBook Air Microphone", "USB Audio Device"],
+      inputs: params.get("inputs") === "none" ? [] : ["MacBook Air Microphone", "USB Audio Device"],
       version: "0.1.0",
       platform: platform,
       hotkeyDisplay: comboText(hold),
@@ -464,6 +470,12 @@
       },
       set_config: function (a) {
         window.__cfg.push("set_config:" + JSON.stringify(a.patch));
+        if (typeof a.patch.user_name === "string") {
+          a.patch.user_name = a.patch.user_name.trim();
+          if (a.patch.user_name.length > 60) throw "Name can't be longer than 60 characters.";
+          if (/[\u0000-\u001f]/.test(a.patch.user_name)) throw "Name can't contain control characters.";
+          if (a.patch.user_name === "") a.patch.user_name = null; // empty clears it, like the app
+        }
         var next = Object.assign({}, data.config, a.patch);
         if (next.toggle_hotkey && comboText(next.toggle_hotkey) === comboText(next.hotkey)) throw "Push to talk and hands-free need different shortcuts.";
         data.config = next;
@@ -515,6 +527,23 @@
       get_history: function () { return data.history; },
       clear_history: function () { data.history = []; },
       open_accessibility_settings: function () { window.__calls.push("open_accessibility_settings"); },
+      // about 1 s of levels, then the verdict; ?mic=silent hears nothing, ?mic=error refuses
+      check_microphone: function () {
+        window.__calls.push("check_microphone");
+        if (params.get("mic") === "error" || !data.inputs.length) return Promise.reject("No microphone found.");
+        var silent = params.get("mic") === "silent";
+        var tick = 0;
+        return new Promise(function (resolve) {
+          var timer = setInterval(function () {
+            tick += 1;
+            bus.emit("mic-check-level", { level: silent ? 0.01 : 0.2 + 0.6 * Math.abs(Math.sin(tick / 3)) });
+            if (tick >= 20) {
+              clearInterval(timer);
+              resolve(silent ? { heard: false, levelDb: null } : { heard: true, levelDb: -24 });
+            }
+          }, 50);
+        });
+      },
       reinstall_app: function (a) {
         window.__calls.push("reinstall_app:" + a.clean);
         return "Reinstalled local-stt: reset its macOS permissions, installed this version again. It opens again in a moment.";
@@ -607,33 +636,37 @@
       },
       choose_model: function (a) {
         window.__calls.push("choose_model:" + a.id);
-        var fit = data.models.filter(function (m) { return m.id === a.id; })[0];
-        function activate() {
-          data.config.model = a.id;
-          data.activeModel = a.id;
-          bus.emit("model-done", { id: a.id, ok: true });
-        }
-        if (fit.downloaded) { setTimeout(activate, 500); return; }
-        var done = 0;
-        var total = fit.size_mb * 1048576;
-        data.downloading = a.id;
-        var timer = setInterval(function () {
-          done = Math.min(total, done + total / 20);
-          bus.emit("model-progress", { id: a.id, downloaded: done, total: total });
-          if (params.get("fail") === a.id && done >= total / 2) {
-            clearInterval(timer);
-            data.downloading = null;
-            bus.emit("model-done", { id: a.id, ok: false, error: "The download failed. The previous model is still active." });
-          } else if (done >= total) {
-            clearInterval(timer);
-            data.downloading = null;
-            fit.downloaded = true;
-            activate();
-          }
-        }, 250);
+        simulateDownload(data.models.filter(function (m) { return m.id === a.id; })[0]);
       }
     };
+    var dlMs = parseInt(params.get("dlms"), 10) || 250; // ?dlms slows the fake download so a check can watch it
+    function simulateDownload(fit) {
+      var total = fit.size_mb * 1048576;
+      var done = 0;
+      function activate() {
+        data.config.model = fit.id;
+        data.activeModel = fit.id;
+        bus.emit("model-done", { id: fit.id, ok: true });
+      }
+      if (fit.downloaded) { setTimeout(activate, 500); return; }
+      data.downloading = fit.id;
+      var timer = setInterval(function () {
+        done = Math.min(total, done + total / 20);
+        bus.emit("model-progress", { id: fit.id, downloaded: done, total: total });
+        if (params.get("fail") === fit.id && done >= total / 2) {
+          clearInterval(timer);
+          data.downloading = null;
+          bus.emit("model-done", { id: fit.id, ok: false, error: "The download failed. The previous model is still active." });
+        } else if (done >= total) {
+          clearInterval(timer);
+          data.downloading = null;
+          fit.downloaded = true;
+          activate();
+        }
+      }, dlMs);
+    }
     bus = makeBus(commands);
+    window.__setAccess = function (on) { data.accessibility = on; };
     window.__emit = bus.emit; // lets the checks send app events
 
     var frame = el("div", "pv-window");
@@ -649,6 +682,9 @@
 
     var api = window.mountMain(host, bus.tauri);
     if (tab !== "history") api.showTab(tab);
+
+    // an install that started its download at launch
+    if (params.get("onboarding") === "1" && data.downloading) simulateDownload(data.models.filter(function (m) { return m.id === data.downloading; })[0]);
 
     // freeze a download at 42% for the still screenshot
     var freeze = params.get("download");

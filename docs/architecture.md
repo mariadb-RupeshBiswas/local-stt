@@ -156,6 +156,15 @@ daily check for a new version (can be turned off), and installing an update you 
 3. It loads your settings, starts the keyboard hook and loads the Whisper model in the background.
 4. It waits in the menu bar or system tray for your shortcut.
 
+## First-run setup
+
+A new install opens a five-step setup in the main window (`ui/main.js`, the `ob` functions):
+welcome and an optional name, a system check that ticks off real work (computer, model fit,
+microphones, permissions, model download), Recommended or Customize, permissions with a 2-second
+microphone test (`check_microphone` in `src/commands.rs`), and a first dictation to try. The
+setting `setup_done` decides whether it shows; settings saved before setup existed load as done,
+so people updating never see it unasked.
+
 ## Where to start reading
 
 1. `src/state.rs`: small, pure, and the heart of "what does this key press mean".

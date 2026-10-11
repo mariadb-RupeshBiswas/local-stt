@@ -60,6 +60,10 @@ pub fn active(app: &AppHandle) -> Option<(String, u64)> {
 pub fn start(app: &AppHandle) -> Result<String, String> {
     support()?;
     let shared = app::shared_of(app);
+    // The setup microphone test holds the device; a note now would open a second stream on it.
+    if shared.mic_check.load(std::sync::atomic::Ordering::SeqCst) {
+        return Err("The microphone test is running. Try again in a moment.".into());
+    }
     let mut running = lock(&shared.note);
     if running.is_some() {
         return Err("A note is already recording.".into());
