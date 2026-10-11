@@ -18,13 +18,34 @@ body:
     id: os
     attributes:
       label: Operating system
-      options: [macOS (Apple Silicon), Windows 11, Windows 10, Other]
+      options: [macOS (Apple Silicon), macOS (Intel), Windows 11, Windows 10, Other]
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where is the problem?
+      options:
+        - "Dictation: shortcut, recording or paste"
+        - History
+        - Model download
+        - "Install, update or start at login"
+        - Settings
+        - Other
     validations:
       required: true
   - type: textarea
+    id: report
+    attributes:
+      label: Diagnostic report
+      description: |
+        Settings > Troubleshooting > Export Report, or run `local-stt diagnostics`, then drag the file here.
+        It holds app, system and settings details and recent app events, never audio or dictated text,
+        with your home folder shown as ~ and your user name as <user>. Read it before you attach it.
+  - type: textarea
     id: doctor
     attributes:
-      label: Output of `local-stt doctor`
+      label: Output of `local-stt doctor` (if you cannot attach a report)
       render: text
   - type: textarea
     id: what

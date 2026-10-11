@@ -7,6 +7,7 @@ Guidance for AI coding agents (and humans) working in this repository.
 local-stt: free, local push-to-talk speech-to-text for macOS and Windows. Rust + Tauri 2,
 whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local-stt` runs it.
 
+- Design guide (look, words, code and security design): `docs/design-guide.md`
 - Design spec: `docs/superpowers/specs/2026-10-09-local-stt-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-10-09-local-stt.md`
 
@@ -27,6 +28,10 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 `LOCAL_STT_DATA_DIR` overrides the app data folder, which keeps tests away from real user data.
 `LOCAL_STT_NO_PERMISSION_PROMPTS=1` starts without the Accessibility prompt, and
 `LOCAL_STT_EXIT_AFTER_MS=<ms>` quits the app after that long, for headless start-and-quit checks.
+Any of these also keeps a terminal run in the terminal: a release build of `local-stt` with no
+subcommand otherwise installs or refreshes the app and hands over to it (`install::hand_off`), so
+macOS asks for permissions as local-stt. Debug builds (`cargo run`) never hand over. `LOCAL_STT_IN_PROCESS=1` keeps it in place on its own (debugging with
+stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new copy; do not set it.
 
 ## Layout
 
@@ -45,6 +50,9 @@ Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pin
 | `src/hwprobe/` | RAM, CPU, GPU, disk |
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |
 | `src/config.rs`, `src/history.rs`, `src/paths.rs` | Local files |
+| `src/format.rs`, `src/clipboard.rs` | Smart formatting of transcripts; private clipboard writes |
+| `src/install.rs`, `src/autostart.rs`, `src/update.rs` | Install and hand-off, start at login, update check and install |
+| `src/instance.rs`, `src/proc.rs`, `src/demo.rs` | One running copy, console-free child processes, the scripted demo |
 | `ui/` | Plain HTML/CSS/JS for the pill and the main window (no bundler); everything here ships |
 | `dev/` | Browser preview with a mock Tauri bus, and the UI checks; never shipped |
 

@@ -59,6 +59,10 @@ fn installed_from(exe: &Path, installed: &Path) -> bool {
 /// asks for permissions as local-stt, not as the terminal, and closing the terminal leaves it running.
 /// Returns what to tell the user, or None to run right here (already standalone, a test run, or the hand-off failed).
 pub fn hand_off() -> Option<String> {
+    // A debug build (`cargo run`) stays in the terminal, so developing never installs over the user's app.
+    if cfg!(debug_assertions) {
+        return None;
+    }
     let test_run = [
         IN_PROCESS,
         "LOCAL_STT_EXIT_AFTER_MS",

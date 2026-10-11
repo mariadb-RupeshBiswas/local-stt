@@ -321,6 +321,9 @@ Requested by the owner while testing; each is implemented and tested.
 | Updates | Daily PyPI version check (setting, on by default; only the request is sent). Shown as a tray item and an in-app banner (Install and Restart, Release Notes, Later, Skip This Version), never a modal, following Sparkle and Rogue Amoeba guidance. Install runs `uv tool run --from local-stt==X local-stt install` with a validated version string, then restarts. |
 | Demo | `local-stt demo`: scripted tour with sample history in a throwaway data folder; no hook, no network, no recording or pasting. Used for README screenshots. |
 | Clean quit | The whisper context is freed on exit; ggml's Metal backend otherwise asserts at process exit (found in a real run, reproduced and fixed A/B, now a CI step). |
+| History select and delete | Select mode with a checkbox per row and per day, Shift-click ranges, Select All and Delete; entries carry a random id below 2^53 and are deleted by it (older entries by time). |
+| Troubleshooting | A local event log (events and timings only), stderr kept for launches outside a terminal, and Export Report / `local-stt diagnostics`: an allowlisted, masked plain-text report saved in the data folder. |
+| Standalone launch | A release build typed in a terminal installs or refreshes the app and hands over to it (LaunchServices on macOS, a console-free copy on Windows), so macOS asks for permissions as local-stt and closing the terminal does not quit it. |
 
 ## Out of scope
 
