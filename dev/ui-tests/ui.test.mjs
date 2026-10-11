@@ -64,19 +64,20 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   const timerInk = await live.locator(".ov-time").evaluate((t) => getComputedStyle(t).color);
   const labelInk = await live.locator(".ov-label").evaluate((t) => getComputedStyle(t).color);
   check("timer text is as opaque as the label (contrast fix)", timerInk === labelInk, { timerInk, labelInk });
-  // waits for the scripted switch instead of a fixed sleep, which flaked on loaded CI runners
-  const reachedTranscribing = await ov.evaluate((el) => new Promise((resolve) => {
-    if (el.getAttribute("data-state") === "transcribing") return resolve(true);
+  // waits for each scripted switch instead of fixed sleeps, which flaked on loaded CI runners
+  const reach = (state) => ov.evaluate((el, want) => new Promise((resolve) => {
+    if (el.getAttribute("data-state") === want) return resolve(true);
     const watch = new MutationObserver(() => {
-      if (el.getAttribute("data-state") === "transcribing") { watch.disconnect(); resolve(true); }
+      if (el.getAttribute("data-state") === want) { watch.disconnect(); resolve(true); }
     });
     watch.observe(el, { attributes: true, attributeFilter: ["data-state"] });
     setTimeout(() => { watch.disconnect(); resolve(false); }, 8000);
-  }));
-  check("transcribing after recording", reachedTranscribing);
-  await page.waitForTimeout(1200);
-  check("done shows Pasted", (await ov.getAttribute("data-state")) === "done" && (await live.locator(".ov-label").textContent()) === "Pasted");
-  await page.waitForTimeout(700);
+  }), state);
+  check("transcribing after recording", await reach("transcribing"));
+  // the label crossfades a moment after the state flips, so wait for its text as well
+  const pasted = (await reach("done")) && await live.locator(".ov-label", { hasText: "Pasted" }).waitFor({ state: "attached", timeout: 3000 }).then(() => true, () => false);
+  check("done shows Pasted", pasted);
+  await page.waitForTimeout(900);
   check("auto-hides after done", (await ov.getAttribute("data-visible")) === "false" && (await read()).opacity === 0);
 
   // warning: amber triangle, label from payload, wraps, about 3 s, fades at ~2850 ms
