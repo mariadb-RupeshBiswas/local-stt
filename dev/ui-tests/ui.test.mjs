@@ -34,6 +34,7 @@ async function open(query, opts = {}) {
     const client = await ctx.newCDPSession(page);
     await client.send("Emulation.setEmulatedMedia", { features: opts.media });
   }
+  if (opts.init) await page.addInitScript(opts.init);
   await page.goto(UI + query);
   await page.waitForTimeout(500);
   return { page, ctx, errors };
@@ -1408,6 +1409,373 @@ for (const dark of [false, true]) {
     await page.waitForTimeout(900);
   });
   check(mode + ": banner error text passes 4.5:1", verdict(error), error);
+}
+
+// ---------- Onboarding ----------
+// records row state changes and everything announced to screen readers, from before the first paint
+const obLog = () => {
+  window.__rowLog = [];
+  window.__said = [];
+  new MutationObserver((muts) => {
+    for (const m of muts) {
+      if (m.type === "attributes" && m.target.dataset && m.target.dataset.row) window.__rowLog.push({ id: m.target.dataset.row, state: m.target.dataset.state, t: performance.now() });
+      const el = m.target.nodeType === 3 ? m.target.parentElement : m.target;
+      const live = el && el.closest ? el.closest(".sr-only[role=status]") : null;
+      if (live && live.textContent) window.__said.push(live.textContent);
+    }
+  }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-state"], childList: true, characterData: true });
+};
+const obOpen = (extra = "", opts = {}) => open("?view=main&onboarding=1&scheme=" + (opts.dark ? "dark" : "light") + extra, { init: obLog, ...opts });
+const obTitle = (page) => page.locator("#ob-title").textContent();
+const obStep = (page) => page.locator(".ob-step").textContent();
+const obRow = (page, id) => page.locator('.ob-row[data-row="' + id + '"]');
+const obPrimary = (page) => page.locator(".ob-actions .btn-action");
+const obBtn = (page, name) => page.locator(".ob").getByRole("button", { name, exact: true });
+const cfgCalls = (page) => page.evaluate(() => window.__cfg.filter((c) => c.startsWith("set_config")));
+const focusedId = (page) => page.evaluate(() => document.activeElement && document.activeElement.id);
+const waitRow = (page, id, state, timeout = 12000) => page.waitForSelector('.ob-row[data-row="' + id + '"][data-state="' + state + '"]', { timeout }).then(() => true, () => false);
+
+{
+  const { page, ctx, errors } = await obOpen("&dlms=100");
+  check("first run shows setup in place of the tabs", (await page.locator(".ob").isVisible()) && !(await page.locator(".mw-toolbar").isVisible()) && !(await page.locator("#panel-history").isVisible()));
+  check("step 1: title, Step 1 of 5, no Back, Skip Setup and Skip", (await obTitle(page)) === "Dictate anywhere. Your voice stays on this Mac." && (await obStep(page)) === "Step 1 of 5" && (await obBtn(page, "Back").count()) === 0 && (await obBtn(page, "Skip Setup").isVisible()) && (await obBtn(page, "Skip").isVisible()));
+  check("step 1: the title takes focus and there is one h1", (await focusedId(page)) === "ob-title" && (await page.locator(".ob h1").count()) === 1);
+  check("step 1: name field, hint and Continue", (await page.locator("#ob-name").getAttribute("placeholder")) === "Your name" && (await page.locator("#ob-name-hint").textContent()) === "Optional. Stays on this Mac." && (await obPrimary(page).textContent()) === "Continue");
+  check("no set_config before a choice is made", (await cfgCalls(page)).length === 0);
+  await page.locator("#ob-name").fill("  Ada  ");
+  await page.locator("#ob-name").press("Enter");
+  await page.waitForTimeout(150);
+  check("step 1: Enter continues and the trimmed name goes through set_config", (await obStep(page)) === "Step 2 of 5" && (await cfgCalls(page)).includes('set_config:{"user_name":"Ada"}'), await cfgCalls(page));
+
+  check("step 2: greets by name, Back and Skip Setup, title has focus", (await obTitle(page)) === "Setting things up for you, Ada" && (await obBtn(page, "Back").isVisible()) && (await obBtn(page, "Skip Setup").isVisible()) && (await focusedId(page)) === "ob-title");
+  check("step 2: five rows, a list with text states", (await page.locator("ul.ob-list > li").count()) === 5 && (await obRow(page, "hw").locator(".ob-state").textContent()).length > 0);
+  check("step 2: Continue waits for the checks", await obPrimary(page).isDisabled());
+  check("step 2: computer row reaches Done with the hardware", (await waitRow(page, "hw", "done")) && (await obRow(page, "hw").locator(".ob-detail").textContent()).startsWith("Apple M2, 8 GB memory"));
+  check("step 2: a missing disk size shows a dash", (await obRow(page, "hw").locator(".ob-detail").textContent()).endsWith("free disk -"));
+  check("step 2: model row names the model that fits", (await waitRow(page, "model", "done")) && (await obRow(page, "model").locator(".ob-detail").textContent()) === "Small fits this Mac");
+  check("step 2: microphone row counts the inputs", (await waitRow(page, "mic", "done")) && (await obRow(page, "mic").locator(".ob-detail").textContent()) === "2 microphones found");
+  check("step 2: Accessibility row is Done when allowed", (await waitRow(page, "access", "done")) && (await obRow(page, "access").locator(".ob-detail").textContent()) === "Allowed");
+  const early = await page.evaluate(() => ({ next: !document.querySelector(".ob-actions .btn-action").disabled, download: document.querySelector('.ob-row[data-row="download"]').dataset.state }));
+  check("step 2: Continue is on while the download is still running", early.next && early.download !== "done", early);
+  check("step 2: the download row shows real bytes", await page.waitForFunction(() => /^\d+ of 181 MB$/.test(document.querySelector('.ob-row[data-row="download"] .ob-detail').textContent), null, { timeout: 8000 }).then(() => true, () => false));
+  check("step 2: choose_model started the recommended model once", (await calls(page)).filter((c) => c === "choose_model:small").length === 1, await calls(page));
+  check("step 2: the download row ends Done", await waitRow(page, "download", "done"));
+  const log = await page.evaluate(() => window.__rowLog);
+  const gaps = ["hw", "model", "mic", "access"].map((id) => {
+    const run = log.find((e) => e.id === id && e.state === "running");
+    const done = log.find((e) => e.id === id && e.state === "done");
+    return run && done ? Math.round(done.t - run.t) : null;
+  });
+  check("step 2: each row shows Running for at least 300 ms", gaps.every((g) => g !== null && g >= 290), gaps);
+  const said = await page.evaluate(() => [...new Set(window.__said)]);
+  check("step 2: row results are announced", said.includes("Checking your computer: Done. Apple M2, 8 GB memory, free disk -"), said);
+  const pct = said.filter((m) => /percent/.test(m));
+  check("step 2: the download is announced every 25 percent only", pct.length > 0 && pct.length <= 3 && pct.every((m) => /, (25|50|75) percent\.$/.test(m)), pct);
+
+  await obBtn(page, "Back").click();
+  check("Back from step 2 returns to step 1 with the name kept", (await obStep(page)) === "Step 1 of 5" && (await page.locator("#ob-name").inputValue()) === "Ada");
+  await obPrimary(page).click();
+  await page.waitForTimeout(100);
+  check("coming back to step 2 keeps the finished checks", (await obStep(page)) === "Step 2 of 5" && (await obRow(page, "download").getAttribute("data-state")) === "done" && !(await obPrimary(page).isDisabled()));
+  await obPrimary(page).click();
+
+  check("step 3: title, two choices, Back", (await obTitle(page)) === "How do you want to set up?" && (await obStep(page)) === "Step 3 of 5" && (await obBtn(page, "Use Recommended Settings").isVisible()) && (await obBtn(page, "Customize").isVisible()) && (await obBtn(page, "Back").isVisible()));
+  const facts = await page.locator(".ob-facts li").allTextContents();
+  check("step 3: the recommended list names the model, shortcut, output and switches", facts.length === 7 && facts[0] === "Speech modelSmall" && facts[2] === "OutputEnglish" && facts[3] === "Smart formattingOn" && facts[5] === "Save historyOn" && facts[6] === "Start at loginOff", facts);
+  await obBtn(page, "Customize").click();
+  const titles = await page.locator(".ob .srow-title").allTextContents();
+  check("step 3: Customize lists exactly the setup controls", JSON.stringify(titles) === JSON.stringify(["Push to talk", "Output language", "Spoken language", "Paste into the focused app", "Smart formatting", "Save history", "Start at login"]), titles);
+  check("step 3: Customize keeps Step 3 of 5 and has Back and Continue", (await obStep(page)) === "Step 3 of 5" && (await obBtn(page, "Back").isVisible()) && (await obPrimary(page).textContent()) === "Continue");
+  await page.locator('.ob button[aria-label="Smart formatting"]').click();
+  await page.waitForTimeout(100);
+  check("step 3: a Customize switch saves through set_config", (await cfgCalls(page)).includes('set_config:{"smart_format":false}') && (await page.locator('.ob button[aria-label="Smart formatting"]').getAttribute("aria-checked")) === "false");
+  await obBtn(page, "Back").click();
+  check("step 3: Back from Customize returns to the two choices", (await obTitle(page)) === "How do you want to set up?");
+  await obBtn(page, "Use Recommended Settings").click();
+
+  check("step 4: title, Step 4 of 5, both cards with Skip For Now", (await obTitle(page)) === "Allow what local-stt needs" && (await obStep(page)) === "Step 4 of 5" && (await page.locator(".ob-perm").count()) === 2 && (await obBtn(page, "Skip For Now").count()) === 1);
+  await obBtn(page, "Test Microphone").click();
+  await page.waitForTimeout(300);
+  const level = await page.evaluate(() => { const t = document.querySelector(".ob-level"); return { shown: !t.hidden, now: +t.getAttribute("aria-valuenow"), scale: document.querySelector(".ob-level i").style.transform }; });
+  check("step 4: the microphone test shows a live level", level.shown && level.now > 0 && /scaleX/.test(level.scale), level);
+  check("step 4: Listening state while the test runs", (await obBtn(page, "Listening...").isDisabled()) && (await page.locator('.ob-perm[data-perm="mic"]').textContent()).includes("Say something"));
+  await page.waitForSelector(".ob-perm .tag-green", { timeout: 4000 });
+  check("step 4: the test ends with Heard you and Try Again", (await page.locator('.ob-perm[data-perm="mic"] .tag-green').textContent()) === "Heard you" && (await obBtn(page, "Try Again").isVisible()) && (await calls(page)).includes("check_microphone"));
+  check("step 4: Accessibility card shows Allowed when it is on", (await page.locator('.ob-perm[data-perm="access"] .tag-green').textContent()) === "Allowed" && (await obBtn(page, "Open Settings").count()) === 0);
+  await obPrimary(page).click();
+
+  check("step 5: title, Step 5 of 5, Skip, Finish, Back", (await obTitle(page)) === "Try it" && (await obStep(page)) === "Step 5 of 5" && (await obBtn(page, "Skip").isVisible()) && (await obBtn(page, "Finish").isVisible()) && (await obBtn(page, "Back").isVisible()));
+  check("step 5: asks to hold the shortcut and the box has focus", (await page.locator(".ob-prompt").textContent()).startsWith("Hold ") && (await page.locator(".ob-prompt kbd").count()) === 2 && (await focusedId(page)) === "ob-box" && (await page.locator("#ob-box").isEnabled()));
+  check("step 5: no success before any text", await page.locator(".ob-success").isHidden());
+  await page.locator("#ob-box").pressSequentially("Hello there");
+  check("step 5: success when the box gets text", (await page.locator(".ob-success").isVisible()) && (await page.locator(".ob-success").textContent()).startsWith("That's it. Hold") && (await page.locator(".ob-success").textContent()).endsWith(" in any app."));
+  await obBtn(page, "Finish").click();
+  await page.waitForTimeout(300);
+  check("Finish sends setup_done true with the name", (await cfgCalls(page)).includes('set_config:{"setup_done":true,"user_name":"Ada"}'), await cfgCalls(page));
+  check("Finish shows History and the menu bar toast", (await page.locator(".mw-toolbar").isVisible()) && (await page.locator("#tab-history").getAttribute("aria-selected")) === "true" && (await page.locator("#panel-history").isVisible()) && !(await page.locator(".ob").isVisible()) && (await page.locator(".toast").textContent()) === "local-stt lives in the menu bar");
+  check("no page errors (setup flow)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// Skip Setup on every step, Skip on step 1 and 5
+{
+  const { page, ctx } = await obOpen("&downloaded=1");
+  await obBtn(page, "Skip Setup").click();
+  await page.waitForTimeout(250);
+  check("Skip Setup on step 1 saves setup_done true and shows History", (await cfgCalls(page)).join() === 'set_config:{"setup_done":true,"user_name":""}' && (await page.locator("#panel-history").isVisible()) && !(await page.locator(".ob").isVisible()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&downloaded=1");
+  await obBtn(page, "Skip").click();
+  await page.waitForTimeout(150);
+  check("Skip on step 1 moves on without a name or a set_config call", (await obStep(page)) === "Step 2 of 5" && (await obTitle(page)) === "Setting things up for you" && (await cfgCalls(page)).length === 0);
+  await waitRow(page, "access", "done");
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  check("Recommended changes nothing", (await cfgCalls(page)).length === 0 && (await obStep(page)) === "Step 4 of 5", await cfgCalls(page));
+  await obPrimary(page).click();
+  await obBtn(page, "Skip").click();
+  await page.waitForTimeout(250);
+  check("Skip on step 5 saves setup_done true", (await cfgCalls(page)).join() === 'set_config:{"setup_done":true,"user_name":""}' && (await page.locator("#panel-history").isVisible()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&downloaded=1");
+  await obPrimary(page).click();
+  await waitRow(page, "download", "done");
+  check("an installed model reads Already downloaded and is not fetched again", (await obRow(page, "download").locator(".ob-detail").textContent()) === "Already downloaded" && !(await calls(page)).some((c) => c.startsWith("choose_model")), await calls(page));
+  const seen = [await obBtn(page, "Skip Setup").isVisible()];
+  await obPrimary(page).click();
+  seen.push(await obBtn(page, "Skip Setup").isVisible());
+  await obBtn(page, "Use Recommended Settings").click();
+  seen.push(await obBtn(page, "Skip Setup").isVisible());
+  await obPrimary(page).click();
+  seen.push(await obBtn(page, "Skip Setup").isVisible());
+  check("Skip Setup is in the header on steps 2 to 5", seen.length === 4 && seen.every(Boolean), seen);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&downloading=small&dlms=150");
+  await obPrimary(page).click();
+  check("a download already running at launch is followed, not restarted", (await waitRow(page, "download", "done", 15000)) && !(await calls(page)).some((c) => c.startsWith("choose_model")), await calls(page));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&fail=small&dlms=100");
+  await obPrimary(page).click();
+  check("a failed download shows Failed with Try Again", (await waitRow(page, "download", "failed", 15000)) && (await obRow(page, "download").locator(".ob-detail").textContent()).startsWith("The download failed") && (await obRow(page, "download").getByRole("button", { name: "Try Again" }).isVisible()));
+  await obRow(page, "download").getByRole("button", { name: "Try Again" }).click();
+  await page.waitForTimeout(200);
+  check("Try Again asks for the model again", (await calls(page)).filter((c) => c === "choose_model:small").length === 2, await calls(page));
+  await ctx.close();
+}
+
+// no microphone, access denied
+{
+  const { page, ctx } = await obOpen("&inputs=none&access=denied&downloaded=1");
+  await obPrimary(page).click();
+  check("no microphone is Needs You, not a failure", (await waitRow(page, "mic", "needs")) && (await obRow(page, "mic").locator(".ob-detail").textContent()).startsWith("No microphone found") && (await obRow(page, "mic").locator(".ob-state").textContent()) === "Needs You");
+  check("Accessibility not yet allowed is Needs You", (await waitRow(page, "access", "needs")) && (await obRow(page, "access").locator(".ob-detail").textContent()) === "You'll allow this in a moment");
+  await waitRow(page, "download", "done");
+  check("Needs You rows do not block Continue", !(await obPrimary(page).isDisabled()));
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  await obBtn(page, "Test Microphone").click();
+  await page.waitForSelector('.ob-perm[data-perm="mic"] [role=alert]', { timeout: 3000 });
+  check("a refused microphone test says why and offers Try Again", (await page.locator('.ob-perm[data-perm="mic"]').textContent()).includes("No microphone found.") && (await obBtn(page, "Try Again").isVisible()));
+  const ax = page.locator('.ob-perm[data-perm="access"]');
+  check("Accessibility card offers Open Settings and Skip For Now", (await ax.getByRole("button", { name: "Open Settings" }).isVisible()) && (await ax.getByRole("button", { name: "Skip For Now" }).isVisible()));
+  await ax.getByRole("button", { name: "Open Settings" }).click();
+  check("Open Settings asks the app and shows Waiting for you", (await calls(page)).includes("open_accessibility_settings") && (await ax.textContent()).includes("Waiting for you to turn on local-stt"));
+  await page.evaluate(() => { window.__setAccess(true); window.__emit("permissions-changed", {}); });
+  await ax.locator(".tag-green").waitFor({ timeout: 3000 });
+  check("Accessibility flips to Allowed on permissions-changed", (await ax.locator(".tag-green").textContent()) === "Allowed" && (await ax.getByRole("button", { name: "Open Settings" }).count()) === 0);
+  await obBtn(page, "Skip For Now").first().click();
+  check("Skip For Now marks the microphone card skipped", (await page.locator('.ob-perm[data-perm="mic"]').textContent()).includes("Skipped for now"));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&mic=silent&downloaded=1");
+  await obPrimary(page).click();
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  await obBtn(page, "Test Microphone").click();
+  await page.waitForSelector('.ob-perm[data-perm="mic"] .tag-red', { timeout: 4000 });
+  const text = await page.locator('.ob-perm[data-perm="mic"]').textContent();
+  check("a silent test says Didn't hear anything with the macOS path and Try Again", text.includes("Didn't hear anything") && text.includes("Open System Settings > Privacy & Security > Microphone") && (await obBtn(page, "Try Again").isVisible()), text);
+  await ctx.close();
+}
+
+// step 5 without Accessibility, and with the model still downloading
+{
+  const { page, ctx } = await obOpen("&access=denied&dlms=1000");
+  await obPrimary(page).click();
+  await waitRow(page, "access", "needs");
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  await obPrimary(page).click();
+  check("step 5 on macOS without Accessibility says Allow Accessibility first", (await page.locator(".ob-try").textContent()).includes("Allow Accessibility first") && (await page.locator("#ob-box").count()) === 0 && (await obBtn(page, "Open Settings").isVisible()));
+  await page.evaluate(() => { window.__setAccess(true); window.__emit("permissions-changed", {}); });
+  await page.waitForSelector("#ob-box", { timeout: 3000 });
+  check("step 5 switches to the box on permissions-changed", (await page.locator("#ob-box").count()) === 1);
+  check("step 5 disables the box while the model downloads and shows the bytes", (await page.locator("#ob-box").isDisabled()) && /^\d+ of 181 MB$/.test(await page.locator(".ob-dl .progress-text").textContent()) && (await page.locator(".ob-dl [role=progressbar]").count()) === 1);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&dlms=120");
+  await obPrimary(page).click();
+  await waitRow(page, "access", "done");
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  await obPrimary(page).click();
+  const before = await page.locator("#ob-box").isDisabled();
+  await page.waitForFunction(() => !document.querySelector("#ob-box").disabled, null, { timeout: 10000 });
+  check("step 5 enables and focuses the box when the download ends", before && (await focusedId(page)) === "ob-box");
+  await ctx.close();
+}
+
+// Windows
+{
+  const { page, ctx } = await obOpen("&platform=windows&downloaded=1");
+  check("Windows: title says this PC", (await obTitle(page)) === "Dictate anywhere. Your voice stays on this PC." && (await page.locator("#ob-name-hint").textContent()) === "Optional. Stays on this PC.");
+  await obPrimary(page).click();
+  await waitRow(page, "mic", "done");
+  check("Windows: no Accessibility row", (await page.locator("ul.ob-list > li").count()) === 4 && (await obRow(page, "access").count()) === 0 && (await obRow(page, "model").locator(".ob-detail").textContent()).endsWith("fits this PC"));
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  check("Windows: step 4 has only the microphone card, with a Windows hint", (await obTitle(page)) === "Check your microphone" && (await page.locator(".ob-perm").count()) === 1 && (await page.locator(".ob").textContent()).includes("Audio stays on this PC") && (await page.locator(".ob").textContent()).indexOf("Accessibility") === -1);
+  await obPrimary(page).click();
+  check("Windows: step 5 goes straight to the box", (await page.locator("#ob-box").isEnabled()) && (await page.locator(".ob-prompt").textContent()).includes("Hold Ctrl"));
+  await obBtn(page, "Finish").click();
+  await page.waitForTimeout(250);
+  check("Windows: the toast says system tray", (await page.locator(".toast").textContent()) === "local-stt lives in the system tray");
+  await ctx.close();
+}
+
+// when it shows
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light");
+  check("a finished setup never shows on start", !(await page.locator(".ob").isVisible()) && (await page.locator("#panel-history").isVisible()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&demo=1");
+  check("the demo never shows setup", !(await page.locator(".ob").isVisible()) && (await page.locator(".mw-toolbar").isVisible()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const run = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Run Setup Again" }) });
+  check("Settings has a Run Setup Again row", (await run.locator(".btn").textContent()) === "Run Setup Again");
+  await run.locator(".btn").click();
+  await page.waitForTimeout(150);
+  check("Run Setup Again shows step 1 without resetting settings", (await obStep(page)) === "Step 1 of 5" && !(await page.locator(".mw-toolbar").isVisible()) && (await cfgCalls(page)).length === 0);
+  await obBtn(page, "Skip Setup").click();
+  await page.waitForTimeout(250);
+  check("Skip Setup after a rerun returns to History", (await page.locator("#panel-history").isVisible()) && (await page.locator("#tab-history").getAttribute("aria-selected")) === "true");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Your name$/ }) });
+  const input = row.locator("input");
+  await input.fill("Ada");
+  await input.blur();
+  await page.waitForTimeout(150);
+  check("Your name saves on blur", (await cfgCalls(page)).includes('set_config:{"user_name":"Ada"}') && (await row.locator(".field-error").isHidden()));
+  await input.fill("bad\u0001name");
+  await input.blur();
+  await page.waitForTimeout(150);
+  check("the app's refusal shows under the name field", (await row.locator(".field-error").textContent()) === "Name can't contain control characters." && (await input.getAttribute("maxlength")) === "60");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
+  await page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Reinstall$/ }) }).locator(".btn").click();
+  await page.waitForTimeout(150);
+  const body = () => page.locator("dialog.dlg .dlg-body").textContent();
+  check("the Reinstall dialog stays as before without the delete box", !(await body()).includes("Setup runs again"));
+  await page.locator("#reinstall-clean").check();
+  check("ticking delete adds that Setup runs again afterwards", (await body()).endsWith(" Setup runs again afterwards."));
+  await page.locator("#reinstall-clean").uncheck();
+  check("unticking removes the sentence", !(await body()).includes("Setup runs again"));
+  await ctx.close();
+}
+
+// motion and look
+{
+  const { page, ctx } = await obOpen("&dlms=1500", { reduced: true });
+  await obPrimary(page).click();
+  await waitRow(page, "download", "running");
+  const info = await page.evaluate(() => {
+    const row = document.querySelector('.ob-row[data-row="download"]');
+    return { text: row.querySelector(".ob-state").textContent, anim: getComputedStyle(row.querySelector(".spin")).animationName };
+  });
+  check("reduced motion: the spinner stops and Running stays as text", info.anim === "none" && info.text === "Running", info);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&dlms=1500");
+  await obPrimary(page).click();
+  await waitRow(page, "download", "running");
+  const anim = await page.evaluate(() => getComputedStyle(document.querySelector('.ob-row[data-row="download"] .spin')).animationName);
+  check("normal motion: the spinner turns", anim === "spin", anim);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&downloaded=1", { reduced: true });
+  await obPrimary(page).click();
+  await waitRow(page, "access", "done");
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  await obBtn(page, "Test Microphone").click();
+  await page.waitForTimeout(200);
+  check("reduced motion: the level bar is off and Listening stays as text", (await page.locator(".ob-level").evaluate((n) => getComputedStyle(n).display)) === "none" && (await page.locator('.ob-perm[data-perm="mic"]').textContent()).includes("Listening"));
+  await ctx.close();
+}
+for (const dark of [false, true]) {
+  const mode = dark ? "dark" : "light";
+  const probe = async (extra, sel, token, surface, before) => {
+    const { page, ctx } = await obOpen(extra, { dark });
+    if (before) await before(page);
+    const r = await page.evaluate(inkScript, [sel, token, surface]);
+    await ctx.close();
+    return r;
+  };
+  const verdict = (r) => r !== null && r.color === r.expected && r.ratio >= 4.5;
+  const skip = await probe("&downloaded=1", ".ob-skip", "accent-ink", ".mw");
+  check(mode + ": Skip Setup passes 4.5:1", verdict(skip), skip);
+  const primary = await probe("&downloaded=1", ".ob-actions .btn-action", "accent-ink", ".mw");
+  check(mode + ": the primary button passes 4.5:1", verdict(primary), primary);
+  const done = await probe("&downloaded=1", '.ob-row[data-state="done"] .ob-state', "green-ink", ".ob-list", async (page) => { await obPrimary(page).click(); await waitRow(page, "hw", "done"); });
+  check(mode + ": Done passes 4.5:1", verdict(done), done);
+  const needs = await probe("&inputs=none&downloaded=1", '.ob-row[data-state="needs"] .ob-state', "orange-ink", ".ob-list", async (page) => { await obPrimary(page).click(); await waitRow(page, "mic", "needs"); });
+  check(mode + ": Needs You passes 4.5:1", verdict(needs), needs);
+  const failed = await probe("&fail=small&dlms=100", '.ob-row[data-state="failed"] .ob-state', "red-ink", ".ob-list", async (page) => { await obPrimary(page).click(); await waitRow(page, "download", "failed", 15000); });
+  check(mode + ": Failed passes 4.5:1", verdict(failed), failed);
+  const hint = await probe("&downloaded=1", ".ob-hint", "label-2", ".ob-card");
+  check(mode + ": the hint text passes 4.5:1", verdict(hint), hint);
+  const step = await probe("&downloaded=1", ".ob-step", "label-2", ".mw");
+  check(mode + ": Step N of 5 passes 4.5:1", verdict(step), step);
+  const waiting = await probe("&access=denied&downloaded=1", ".ob-waiting", "accent-ink", ".ob-perm", async (page) => {
+    await obPrimary(page).click();
+    await waitRow(page, "access", "needs");
+    await obPrimary(page).click();
+    await obBtn(page, "Use Recommended Settings").click();
+    await page.locator('.ob-perm[data-perm="access"]').getByRole("button", { name: "Open Settings" }).click();
+  });
+  check(mode + ": Waiting for you passes 4.5:1", verdict(waiting), waiting);
+}
+for (const dark of [false, true]) {
+  const { page, ctx } = await obOpen("&downloaded=1", { dark });
+  await page.evaluate(() => document.querySelector(".ob-page").scrollIntoView());
+  const info = await page.evaluate(() => {
+    const cs = getComputedStyle(document.querySelector(".ob-input"));
+    return { bg: cs.backgroundColor, page: getComputedStyle(document.querySelector(".mw")).backgroundColor };
+  });
+  check((dark ? "dark" : "light") + ": setup draws on the theme tokens", info.bg !== info.page && /^rgba?\(/.test(info.bg), info);
+  await ctx.close();
 }
 
 // ---------- static hygiene ----------

@@ -271,6 +271,7 @@
 
     var S = {
       loaded: false,
+      demo: false,
       loadError: "",
       config: null,
       models: [],
@@ -315,6 +316,8 @@
       checkingUpdates: false
     };
     var syncers = []; // settings controls, refreshed after every config change
+    var OB = { on: false, step: 1, name: "", nameError: "", custom: false, rows: null, run: 0, dl: null, mic: { state: "idle", level: 0, error: "" }, access: "idle", syncers: [], refs: {}, primary: null }; // setup state
+    var sink = syncers; // where the control builders register their sync, so setup can build its own copies
     var progressRefs = {}; // model id -> { bar, text, track }
     var unlisten = [];
     var toastTimer = 0;
@@ -391,6 +394,8 @@
         event.preventDefault();
         stopMoving();
         win.close();
+      } else if (OB.on) {
+        return; // setup replaces the tabs
       } else if (tab) {
         event.preventDefault();
         showTab(tab);
@@ -437,6 +442,7 @@
 
     function applyState(state) {
       S.config = state.config;
+      S.demo = state.demo === true;
       S.models = Array.isArray(state.models) ? state.models : [];
       S.hardware = state.hardware || null;
       S.inputs = Array.isArray(state.inputs) ? state.inputs : [];
@@ -471,6 +477,7 @@
       return Promise.resolve(invoke("get_state")).then(function (state) {
         applyState(state);
         renderAll();
+        obSync();
       }).catch(function (err) {
         if (!S.loaded) {
           S.loadError = errText(err);
@@ -498,6 +505,7 @@
         applyState(state);
         syncSettings();
         renderHistoryEmptyHint();
+        obSync();
       }).catch(function () {});
     }
 
@@ -1554,6 +1562,7 @@
 
     function syncSettings() {
       syncers.forEach(function (fn) { fn(); });
+      OB.syncers.forEach(function (fn) { fn(); });
       if (S.insightsSync) S.insightsSync(); // the Insights switch lives outside the settings syncers
     }
 
@@ -1562,7 +1571,7 @@
       var desc = description ? h("div", { class: "srow-desc" }) : null;
       if (typeof description === "function") {
         desc.textContent = description();
-        syncers.push(function () { desc.textContent = description(); });
+        sink.push(function () { desc.textContent = description(); });
       } else if (desc) {
         desc.textContent = description;
       }
@@ -1581,8 +1590,106 @@
     }
 
     function addSync(control) {
-      syncers.push(control.sync);
+      sink.push(control.sync);
       return control.el;
+    }
+
+    // builds with controls registering into list, then restores the Settings list
+    function withSink(list, build) {
+      var saved = sink;
+      sink = list;
+      try { return build(); } finally { sink = saved; }
+    }
+
+    function cfg() {
+      return S.config;
+    }
+
+    function langOptions() {
+      return [{ value: "auto", label: "Auto-detect" }].concat(LANGUAGES);
+    }
+
+    // the controls below serve both Settings and the Customize step of setup
+    function pushRow() {
+      return settingRow("Push to talk", "Hold to talk, release to paste.", addSync(hotkeyControl("hold")));
+    }
+
+    function outputLanguageRow() {
+      return settingRow("Output language", "English translates what you say. Spoken language keeps it as spoken.", addSync(segmented({
+        role: "radiogroup", label: "Output language",
+        items: [{ value: "english", label: "English" }, { value: "spoken", label: "Spoken language" }],
+        value: function () { return cfg().translate ? "english" : "spoken"; },
+        onChange: function (v) { patchConfig({ translate: v === "english" }); }
+      })));
+    }
+
+    function spokenLanguageRow() {
+      return settingRow("Spoken language", "Auto-detect works for most speech.", addSync(select({
+        label: "Spoken language", options: langOptions,
+        value: function () { return cfg().language; },
+        onChange: function (v) { patchConfig({ language: v }); }
+      })));
+    }
+
+    function pasteRow() {
+      return settingRow("Paste into the focused app", "Off copies to the clipboard only.", addSync(toggle({
+        label: "Paste into the focused app",
+        value: function () { return cfg().paste; },
+        onChange: function (v) { patchConfig({ paste: v }); }
+      })));
+    }
+
+    function smartFormatRow() {
+      return settingRow("Smart formatting", "Turns spoken lists (\"point one, point two\" or \"first, second\") into numbered lists, removes \"uh\" and \"um\", and fixes spacing.", addSync(toggle({
+        label: "Smart formatting",
+        value: function () { return cfg().smart_format; },
+        onChange: function (v) { patchConfig({ smart_format: v }); }
+      })));
+    }
+
+    function saveHistoryRow() {
+      return settingRow("Save history", "Off keeps nothing on disk and deletes what is saved.", addSync(toggle({
+        label: "Save history",
+        value: function () { return cfg().save_history; },
+        onChange: function (v) {
+          if (v) patchConfig({ save_history: true });
+          else askTurnOffHistory();
+        }
+      })));
+    }
+
+    function startAtLoginRow() {
+      return settingRow("Start at login", "Opens local-stt when you log in. Turning it on installs local-stt first if needed.", addSync(toggle({
+        label: "Start at login",
+        value: function () { return typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfg().autostart; },
+        onChange: function (v) { patchConfig({ autostart: v }); }
+      })));
+    }
+
+    // saves on change (blur or Enter) and shows the app's refusal under the field
+    function nameControl() {
+      var input = h("input", { class: "ob-input srow-input", type: "text", maxlength: "60", placeholder: "Your name", autocomplete: "off", spellcheck: "false", "aria-label": "Your name" });
+      var error = h("div", { class: "field-error", role: "alert", hidden: true });
+      input.addEventListener("change", function () {
+        var name = input.value.trim();
+        if (name === savedName()) {
+          error.hidden = true;
+          return;
+        }
+        Promise.resolve(invoke("set_config", { patch: { user_name: name } })).then(function (saved) {
+          if (saved && typeof saved === "object") S.config = saved;
+          error.hidden = true;
+          syncSettings();
+        }).catch(function (err) {
+          error.textContent = errText(err);
+          error.hidden = false;
+        });
+      });
+      function sync() {
+        if (document.activeElement !== input) input.value = savedName();
+      }
+      sync();
+      return { el: h("div", { class: "hk-wrap" }, input, error), sync: sync };
     }
 
     function startCapture(slot) {
@@ -1697,7 +1804,9 @@
         clear(dialog);
         dialog.appendChild(h("h2", { class: "dlg-title", id: "dlg-title", text: "Reinstall local-stt?" }));
         var mac = S.platform !== "windows";
-        dialog.appendChild(h("p", { class: "dlg-body", text: "local-stt quits, installs again (the newest version when one is out) and opens again." + (mac ? " macOS then asks for its permissions afresh." : "") }));
+        var intro = "local-stt quits, installs again (the newest version when one is out) and opens again." + (mac ? " macOS then asks for its permissions afresh." : "");
+        var body = h("p", { class: "dlg-body", text: intro });
+        dialog.appendChild(body);
         var wipe = h("input", { type: "checkbox", class: "check", id: "reinstall-clean" });
         dialog.appendChild(h("label", { class: "dlg-check", for: "reinstall-clean" }, wipe, h("span", { text: "Also delete my settings, history, notes, insights and logs. Downloaded models stay." })));
         var cancel = h("button", { class: "btn", type: "button", text: "Cancel", onclick: function () { closeDialog(); } });
@@ -1716,6 +1825,7 @@
         } });
         // deleting data turns the confirm red, like every other delete
         wipe.addEventListener("change", function () {
+          body.textContent = intro + (wipe.checked ? " Setup runs again afterwards." : "");
           go.className = "btn " + (wipe.checked ? "btn-danger-solid" : "btn-action");
           go.textContent = wipe.checked ? "Delete and Reinstall" : "Reinstall";
         });
@@ -1908,45 +2018,24 @@
       clear(settingsPanel);
       syncers = [];
       if (!S.loaded) return;
-      var cfg = function () { return S.config; };
-      var langOptions = function () { return [{ value: "auto", label: "Auto-detect" }].concat(LANGUAGES); };
+      sink = syncers;
       var micOptions = function () {
         return [{ value: "", label: "System default" }].concat(S.inputs.map(function (name) { return { value: name, label: name }; }));
       };
 
-      var pushKey = hotkeyControl("hold");
       var freeKey = hotkeyControl("toggle");
-      syncers.push(pushKey.sync, freeKey.sync);
-
-      var output = segmented({
-        role: "radiogroup", label: "Output language",
-        items: [{ value: "english", label: "English" }, { value: "spoken", label: "Spoken language" }],
-        value: function () { return cfg().translate ? "english" : "spoken"; },
-        onChange: function (v) { patchConfig({ translate: v === "english" }); }
-      });
+      syncers.push(freeKey.sync);
 
       var dictation = card([
-        settingRow("Push to talk", "Hold to talk, release to paste.", pushKey.el),
+        pushRow(),
         settingRow("Hands-free", "Press once to start listening, again to stop. Adding the extra key while holding push to talk switches to hands-free.", freeKey.el),
-        settingRow("Output language", "English translates what you say. Spoken language keeps it as spoken.", addSync(output)),
-        settingRow("Spoken language", "Auto-detect works for most speech.", addSync(select({
-          label: "Spoken language", options: langOptions,
-          value: function () { return cfg().language; },
-          onChange: function (v) { patchConfig({ language: v }); }
-        })))
+        outputLanguageRow(),
+        spokenLanguageRow()
       ]);
 
       var outputCard = card([
-        settingRow("Paste into the focused app", "Off copies to the clipboard only.", addSync(toggle({
-          label: "Paste into the focused app",
-          value: function () { return cfg().paste; },
-          onChange: function (v) { patchConfig({ paste: v }); }
-        }))),
-        settingRow("Smart formatting", "Turns spoken lists (\"point one, point two\" or \"first, second\") into numbered lists, removes \"uh\" and \"um\", and fixes spacing.", addSync(toggle({
-          label: "Smart formatting",
-          value: function () { return cfg().smart_format; },
-          onChange: function (v) { patchConfig({ smart_format: v }); }
-        }))),
+        pasteRow(),
+        smartFormatRow(),
         settingRow("Restore clipboard", "Put back what you had copied before, after pasting.", addSync(toggle({
           label: "Restore clipboard",
           value: function () { return cfg().restore_clipboard; },
@@ -1987,20 +2076,11 @@
 
       var general = card([
         S.platform === "macos" && S.accessibility !== null ? settingRow("Accessibility", accessDescription, addSync(accessControl())) : null,
-        settingRow("Save history", "Off keeps nothing on disk and deletes what is saved.", addSync(toggle({
-          label: "Save history",
-          value: function () { return cfg().save_history; },
-          onChange: function (v) {
-            if (v) patchConfig({ save_history: true });
-            else askTurnOffHistory();
-          }
-        }))),
+        saveHistoryRow(),
         installRow(),
-        settingRow("Start at login", "Opens local-stt when you log in. Turning it on installs local-stt first if needed.", addSync(toggle({
-          label: "Start at login",
-          value: function () { return typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfg().autostart; },
-          onChange: function (v) { patchConfig({ autostart: v }); }
-        }))),
+        startAtLoginRow(),
+        settingRow("Your name", "Used for greetings. Stays on " + thisDevice() + ".", addSync(nameControl())),
+        settingRow("Run Setup Again", "Walks through setup again. Your settings stay as they are.", h("button", { class: "btn", type: "button", text: "Run Setup Again", onclick: openOnboarding })),
         settingRow("Updates", "local-stt " + dash(S.version), addSync(checkControl())),
         settingRow("Check automatically", "Looks for a new version once a day. Only the request is sent.", addSync(toggle({
           label: "Check automatically",
@@ -2264,6 +2344,639 @@
       });
     }
 
+    // ---------- Onboarding ----------
+
+    var OB_STEPS = 5;
+    var obView = h("section", { class: "ob", "aria-label": "Setup", hidden: true });
+    root.appendChild(obView);
+
+    function savedName() {
+      return S.config && typeof S.config.user_name === "string" ? S.config.user_name : "";
+    }
+
+    function openOnboarding() {
+      OB.on = true;
+      OB.name = savedName();
+      OB.nameError = "";
+      OB.custom = false;
+      OB.rows = null;
+      OB.dl = null;
+      OB.mic = { state: "idle", level: 0, error: "" };
+      OB.access = "idle";
+      OB.run += 1;
+      stopMoving();
+      toolbar.hidden = true;
+      scroller.hidden = true;
+      root.classList.add("is-onboarding");
+      obView.hidden = false;
+      obGo(1);
+    }
+
+    function closeOnboarding() {
+      OB.on = false;
+      OB.run += 1;
+      obView.hidden = true;
+      clear(obView);
+      toolbar.hidden = false;
+      scroller.hidden = false;
+      root.classList.remove("is-onboarding");
+      showTab("history");
+      if (S.historyStale) loadHistory();
+      document.getElementById("tab-" + S.tab).focus();
+    }
+
+    // saves the name and marks setup done; a name the app rejects sends the user back to step 1
+    function obFinish() {
+      var name = OB.name.trim();
+      return Promise.resolve(invoke("set_config", { patch: { setup_done: true, user_name: name } })).then(function (saved) {
+        if (saved && typeof saved === "object") S.config = saved;
+        closeOnboarding();
+        toast("local-stt lives in the " + (S.platform === "windows" ? "system tray" : "menu bar"));
+      }).catch(function (err) {
+        OB.nameError = errText(err);
+        obGo(1);
+      });
+    }
+
+    function obGo(step) {
+      OB.step = step;
+      OB.syncers = [];
+      OB.refs = {};
+      OB.primary = null;
+      clear(obView);
+      var body = [obWelcome, obCheck, obChoice, obPerms, obTry][step - 1]();
+      var head = h("header", { class: "ob-head" },
+        h("div", { class: "ob-step", text: "Step " + step + " of " + OB_STEPS }),
+        h("button", { class: "linklike ob-skip", type: "button", text: "Skip Setup", onclick: obFinish })
+      );
+      var title = h("h1", { class: "ob-title", tabindex: "-1", id: "ob-title", text: body.title });
+      obView.appendChild(h("div", { class: "ob-page" }, head, title, body.el, obActions(body)));
+      obSyncContinue();
+      if (body.focus) body.focus.focus();
+      else title.focus();
+      obView.scrollTop = 0;
+    }
+
+    function obActions(body) {
+      var back = OB.step > 1 ? h("button", { class: "btn", type: "button", text: "Back", onclick: function () {
+        if (OB.step === 3 && OB.custom) {
+          OB.custom = false;
+          obGo(3);
+        } else {
+          obGo(OB.step - 1);
+        }
+      } }) : null;
+      var buttons = (body.buttons || []).map(function (b) {
+        var node = h("button", { class: "btn" + (b.primary ? " btn-action" : ""), type: "button", text: b.label, disabled: b.disabled, onclick: b.onClick });
+        if (b.primary) OB.primary = node;
+        if (b.ref) OB.refs[b.ref] = node;
+        return node;
+      });
+      return h("div", { class: "ob-actions" }, h("div", { class: "ob-actions-start" }, back), h("div", { class: "ob-actions-end" }, buttons));
+    }
+
+    // Enter presses the primary button, except in a multi-line box or on another button
+    obView.addEventListener("keydown", function (event) {
+      if (event.key !== "Enter" || event.isComposing || !OB.primary || OB.primary.disabled) return;
+      var tag = event.target.tagName;
+      if (tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT" || tag === "A") return;
+      event.preventDefault();
+      OB.primary.click();
+    });
+
+    // ----- step 1 -----
+
+    function obWelcome() {
+      var input = h("input", { class: "ob-input", type: "text", id: "ob-name", maxlength: "60", placeholder: "Your name", autocomplete: "off", spellcheck: "false", "aria-describedby": "ob-name-hint" });
+      input.value = OB.name;
+      var error = h("div", { class: "field-error ob-error", role: "alert", text: OB.nameError, hidden: OB.nameError === "" });
+      input.addEventListener("input", function () {
+        OB.name = input.value;
+        OB.nameError = "";
+        error.hidden = true;
+      });
+      function next() {
+        var name = OB.name.trim();
+        OB.name = name;
+        input.value = name;
+        if (name === savedName()) return obGo(2);
+        Promise.resolve(invoke("set_config", { patch: { user_name: name } })).then(function (saved) {
+          if (saved && typeof saved === "object") S.config = saved;
+          obGo(2);
+        }).catch(function (err) {
+          OB.nameError = errText(err);
+          error.textContent = OB.nameError;
+          error.hidden = false;
+          input.focus();
+        });
+      }
+      var el = h("div", { class: "card ob-card" },
+        h("label", { class: "ob-label", for: "ob-name", text: "What should we call you?" }),
+        input,
+        h("div", { class: "ob-hint", id: "ob-name-hint", text: "Optional. Stays on " + thisDevice() + "." }),
+        error
+      );
+      return {
+        title: "Dictate anywhere. Your voice stays on " + thisDevice() + ".",
+        el: el,
+        buttons: [
+          { label: "Skip", onClick: function () { OB.name = ""; input.value = ""; next(); } },
+          { label: "Continue", primary: true, onClick: next }
+        ]
+      };
+    }
+
+    // ----- step 2 -----
+
+    var ROW_MIN_MS = 300;
+
+    function obRows() {
+      var rows = [
+        { id: "hw", title: "Checking your computer", doing: "Reading the chip, memory and disk" },
+        { id: "model", title: "Choosing a speech model", doing: "Comparing models with " + thisDevice() },
+        { id: "mic", title: "Finding a microphone", doing: "Looking for microphones" }
+      ];
+      if (S.platform === "macos" && S.accessibility !== null) rows.push({ id: "access", title: "Checking Accessibility", doing: "Asking macOS what local-stt may do" });
+      rows.push({ id: "download", title: "Downloading the speech model", doing: "Starting the download" });
+      rows.forEach(function (r) { r.state = "waiting"; r.detail = ""; });
+      return rows;
+    }
+
+    function obRow(id) {
+      return OB.rows ? OB.rows.filter(function (r) { return r.id === id; })[0] : null;
+    }
+
+    function setRow(row, state, detail) {
+      row.state = state;
+      row.detail = detail;
+      paintRow(row);
+      if (state === "done" || state === "needs" || state === "failed") announce(row.title + ": " + ROW_STATES[state].label + ". " + detail);
+    }
+
+    var ROW_STATES = {
+      waiting: { label: "Waiting" },
+      running: { label: "Running" },
+      done: { label: "Done" },
+      needs: { label: "Needs You" },
+      failed: { label: "Failed" }
+    };
+
+    function rowNode(row) {
+      var state = h("span", { class: "ob-state" });
+      var detail = h("div", { class: "ob-detail" });
+      var retry = h("button", { class: "btn btn-quiet ob-retry", type: "button", text: "Try Again", hidden: true, onclick: function () { retryRow(row); } });
+      var node = h("li", { class: "ob-row", "data-row": row.id }, h("div", { class: "ob-row-main" }, h("div", { class: "ob-row-title", text: row.title }), detail), state, retry);
+      row.node = { li: node, state: state, detail: detail, retry: retry };
+      paintRow(row);
+      return node;
+    }
+
+    function paintRow(row) {
+      var n = row.node;
+      if (!n) return;
+      n.li.dataset.state = row.state;
+      clear(n.state);
+      if (row.state === "running") n.state.appendChild(h("i", { class: "spin", "aria-hidden": "true" }));
+      if (row.state === "done") n.state.appendChild(icon("check"));
+      if (row.state === "needs") n.state.appendChild(icon("info"));
+      n.state.appendChild(document.createTextNode(ROW_STATES[row.state].label));
+      n.detail.textContent = row.state === "running" && row.detail === "" ? row.doing : row.detail;
+      n.retry.hidden = row.state !== "failed";
+      obSyncContinue();
+    }
+
+    function hardwareText() {
+      var hw = S.hardware || {};
+      var memory = typeof hw.ram_gb === "number" ? hw.ram_gb + " GB memory" : "memory -";
+      var disk = typeof hw.free_disk_gb === "number" ? Math.round(hw.free_disk_gb) + " GB free" : "free disk -";
+      return dash(hw.cpu) + ", " + memory + ", " + disk;
+    }
+
+    // the model setup uses: the loaded one when it is on disk, else the recommended one
+    function setupModel() {
+      var active = S.models.filter(function (m) { return m.id === S.activeModel && m.downloaded; })[0];
+      if (active) return active;
+      var pick = S.models.filter(function (m) { return m.recommended && m.supported; })[0];
+      return pick || S.models.filter(function (m) { return m.supported; })[0] || null;
+    }
+
+    function dlText(info) {
+      var known = info && typeof info.total === "number" && info.total > 0 && typeof info.downloaded === "number";
+      return known ? Math.round(info.downloaded / 1048576) + " of " + mb(info.total) : "Starting the download";
+    }
+
+    // shows Running for ROW_MIN_MS so rows do not flicker, then reads the live result
+    function runRow(row, run, work) {
+      setRow(row, "running", "");
+      return new Promise(function (resolve) {
+        setTimeout(resolve, ROW_MIN_MS);
+      }).then(function () {
+        if (run !== OB.run) return;
+        var result = work();
+        setRow(row, result.state, result.detail);
+      });
+    }
+
+    function startChecks() {
+      var run = ++OB.run;
+      OB.rows = obRows();
+      OB.dl = { id: null, status: "none", info: null, announced: 0 };
+      paintAllRows();
+      Promise.resolve(invoke("get_state")).then(function (state) {
+        if (run !== OB.run) return null;
+        applyState(state);
+        syncSettings();
+        var model = setupModel();
+        planDownload(model);
+        var chain = Promise.resolve();
+        OB.rows.forEach(function (row) {
+          chain = chain.then(function () {
+            if (run !== OB.run) return null;
+            return runRow(row, run, function () { return evalRow(row, model); });
+          });
+        });
+        return chain;
+      }).catch(function (err) {
+        if (run !== OB.run) return;
+        var first = OB.rows[0];
+        setRow(first, "failed", errText(err));
+      });
+    }
+
+    function paintAllRows() {
+      if (OB.rows) OB.rows.forEach(paintRow);
+    }
+
+    function retryRow(row) {
+      if (row.id === "download") {
+        var model = setupModel();
+        row.state = "running";
+        row.detail = "";
+        paintRow(row);
+        planDownload(model);
+        applyDownloadRow();
+      } else {
+        startChecks();
+      }
+    }
+
+    function evalRow(row, model) {
+      if (row.id === "hw") return { state: "done", detail: hardwareText() };
+      if (row.id === "model") {
+        return model ? { state: "done", detail: dash(model.label) + " fits " + thisDevice() } : { state: "needs", detail: "No speech model fits " + thisDevice() + "." };
+      }
+      if (row.id === "mic") {
+        var n = S.inputs.length;
+        return n > 0 ? { state: "done", detail: n === 1 ? "1 microphone found" : n + " microphones found" } : { state: "needs", detail: "No microphone found. Connect one, then try the microphone test." };
+      }
+      if (row.id === "access") {
+        return S.accessibility === true ? { state: "done", detail: "Allowed" } : { state: "needs", detail: "You'll allow this in a moment" };
+      }
+      return downloadResult(row);
+    }
+
+    // decides what the download row follows; starts a download only when nothing is running or on disk
+    function planDownload(model) {
+      var dl = OB.dl;
+      dl.announced = 0;
+      if (S.downloading) {
+        dl.id = S.downloading;
+        dl.status = "running";
+        dl.info = S.progress[S.downloading] || null;
+      } else if (!model) {
+        dl.status = "none";
+      } else if (model.downloaded) {
+        dl.id = model.id;
+        dl.status = "already";
+      } else {
+        dl.id = model.id;
+        dl.status = "running";
+        dl.info = null;
+        S.progress[model.id] = { downloaded: null, total: null };
+        Promise.resolve(invoke("choose_model", { id: model.id })).catch(function (err) {
+          delete S.progress[model.id];
+          dl.status = "failed";
+          dl.error = errText(err);
+          applyDownloadRow();
+        });
+      }
+    }
+
+    function downloadResult() {
+      var dl = OB.dl;
+      if (dl.status === "already") return { state: "done", detail: "Already downloaded" };
+      if (dl.status === "done") return { state: "done", detail: "Downloaded" };
+      if (dl.status === "failed") return { state: "failed", detail: dl.error || "The download failed." };
+      if (dl.status === "none") return { state: "needs", detail: "Nothing to download." };
+      return { state: "running", detail: dlText(dl.info) };
+    }
+
+    // pushes the live download state into its row once that row has had its turn
+    function applyDownloadRow() {
+      var row = obRow("download");
+      if (!row || row.state === "waiting") return;
+      var result = downloadResult();
+      if (result.state === "running") {
+        row.state = "running";
+        row.detail = result.detail;
+        paintRow(row);
+      } else {
+        setRow(row, result.state, result.detail);
+      }
+      if (OB.step === 5) obTryDownload();
+    }
+
+    function obDownloadProgress(p) {
+      var dl = OB.dl;
+      if (!OB.on || !dl || p.id !== dl.id) return;
+      dl.status = "running";
+      dl.info = { downloaded: p.downloaded, total: p.total };
+      var pct = p.total > 0 ? Math.floor((p.downloaded / p.total) * 4) : 0;
+      if (pct > dl.announced && pct < 4) announce("Downloading the speech model, " + pct * 25 + " percent.");
+      dl.announced = Math.max(dl.announced, pct);
+      applyDownloadRow();
+    }
+
+    function obDownloadDone(p) {
+      var dl = OB.dl;
+      if (!OB.on || !dl || p.id !== dl.id) return;
+      dl.status = p.ok === false ? "failed" : "done";
+      dl.error = p.error || "";
+      applyDownloadRow();
+    }
+
+    function obSyncContinue() {
+      var go = OB.refs.next;
+      if (!go || !OB.rows) return;
+      var ready = OB.rows.every(function (r) { return r.id === "download" || r.state === "done" || r.state === "needs"; });
+      go.disabled = !ready;
+    }
+
+    function obCheck() {
+      if (!OB.rows) startChecks();
+      var list = h("ul", { class: "card ob-list", "aria-label": "System check" });
+      OB.rows.forEach(function (row) { list.appendChild(rowNode(row)); });
+      var name = OB.name.trim();
+      return {
+        title: name ? "Setting things up for you, " + name : "Setting things up for you",
+        el: list,
+        buttons: [{ label: "Continue", primary: true, ref: "next", disabled: true, onClick: function () { obGo(3); } }]
+      };
+    }
+
+    // ----- step 3 -----
+
+    function yesNo(on) {
+      return on ? "On" : "Off";
+    }
+
+    function recommendedList() {
+      var model = setupModel();
+      var cfgNow = S.config || {};
+      var items = [
+        ["Speech model", dash(model && model.label)],
+        ["Push to talk", keycaps(slotParts("hold"))],
+        ["Output", cfgNow.translate === false ? "Spoken language" : "English"],
+        ["Smart formatting", yesNo(cfgNow.smart_format !== false)],
+        ["Paste into the focused app", yesNo(cfgNow.paste !== false)],
+        ["Save history", yesNo(cfgNow.save_history !== false)],
+        ["Start at login", yesNo(typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfgNow.autostart === true)]
+      ];
+      var list = h("ul", { class: "ob-facts", "aria-label": "Recommended settings" });
+      items.forEach(function (item) {
+        list.appendChild(h("li", {}, h("span", { class: "ob-fact-name", text: item[0] }), h("span", { class: "ob-fact-value" }, item[1])));
+      });
+      return list;
+    }
+
+    function obChoice() {
+      if (OB.custom) return obCustomize();
+      var recommended = h("div", { class: "card ob-choice" },
+        h("h2", { class: "ob-choice-title", text: "Use Recommended Settings" }),
+        h("p", { class: "ob-note", text: "Works well on " + thisDevice() + ". Nothing changes when you pick this." }),
+        recommendedList(),
+        h("button", { class: "btn btn-action", type: "button", text: "Use Recommended Settings", onclick: function () { obGo(4); } })
+      );
+      var customize = h("div", { class: "card ob-choice" },
+        h("h2", { class: "ob-choice-title", text: "Customize" }),
+        h("p", { class: "ob-note", text: "Pick the shortcut, language, paste, formatting, history and start at login yourself. Everything else stays in Settings." }),
+        h("button", { class: "btn", type: "button", text: "Customize", onclick: function () { OB.custom = true; obGo(3); } })
+      );
+      return { title: "How do you want to set up?", el: h("div", { class: "ob-choices" }, recommended, customize), buttons: [] };
+    }
+
+    function obCustomize() {
+      var rows = withSink(OB.syncers, function () {
+        return [pushRow(), outputLanguageRow(), spokenLanguageRow(), pasteRow(), smartFormatRow(), saveHistoryRow(), startAtLoginRow()];
+      });
+      OB.syncers.forEach(function (fn) { fn(); });
+      return {
+        title: "Customize your setup",
+        el: card(rows),
+        buttons: [{ label: "Continue", primary: true, onClick: function () { obGo(4); } }]
+      };
+    }
+
+    // ----- step 4 -----
+
+    function levelBar() {
+      var bar = h("i");
+      var track = h("div", { class: "track ob-level", role: "progressbar", "aria-label": "Microphone level", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": "0" }, bar);
+      return { track: track, bar: bar };
+    }
+
+    function permCard(title, text, ref) {
+      var status = h("div", { class: "ob-perm-status", role: "status" });
+      var actions = h("div", { class: "ob-perm-actions" });
+      var el = h("div", { class: "card ob-perm", "data-perm": ref }, h("h2", { class: "ob-choice-title", text: title }), h("p", { class: "ob-note", text: text }), status, actions);
+      return { el: el, status: status, actions: actions };
+    }
+
+    function obPerms() {
+      var cards = [];
+      var mic = permCard("Microphone", "Needed to hear you. Audio stays on " + thisDevice() + " and is never saved.", "mic");
+      OB.refs.mic = mic;
+      mic.level = levelBar();
+      mic.test = h("button", { class: "btn btn-action", type: "button", text: "Test Microphone", onclick: testMicrophone });
+      mic.skip = h("button", { class: "btn btn-quiet", type: "button", text: "Skip For Now", onclick: function () { OB.mic.state = "skipped"; paintMic(); } });
+      mic.actions.appendChild(mic.test);
+      mic.actions.appendChild(mic.skip);
+      mic.status.appendChild(mic.level.track);
+      mic.line = h("div", { class: "ob-line" });
+      mic.status.appendChild(mic.line);
+      cards.push(mic.el);
+      paintMic();
+
+      if (S.platform === "macos" && S.accessibility !== null) {
+        var ax = permCard("Accessibility", "Needed for the shortcut and to paste into the app you are using.", "access");
+        OB.refs.ax = ax;
+        ax.open = h("button", { class: "btn btn-action", type: "button", text: "Open Settings", onclick: function () {
+          OB.access = "waiting";
+          paintAccess();
+          Promise.resolve(invoke("open_accessibility_settings")).catch(function (err) { toast(errText(err)); });
+        } });
+        ax.skip = h("button", { class: "btn btn-quiet", type: "button", text: "Skip For Now", onclick: function () { OB.access = "skipped"; paintAccess(); } });
+        ax.actions.appendChild(ax.open);
+        ax.actions.appendChild(ax.skip);
+        ax.line = h("div", { class: "ob-line" });
+        ax.status.appendChild(ax.line);
+        cards.push(ax.el);
+        paintAccess();
+      }
+      return {
+        title: S.platform === "macos" ? "Allow what local-stt needs" : "Check your microphone",
+        el: h("div", { class: "ob-choices" }, cards),
+        buttons: [{ label: "Continue", primary: true, onClick: function () { obGo(5); } }]
+      };
+    }
+
+    function tagLine(kind, text) {
+      return h("span", { class: "tag tag-" + kind, text: text });
+    }
+
+    function paintMic() {
+      var m = OB.refs.mic;
+      if (!m) return;
+      var s = OB.mic.state;
+      var hint = S.platform === "macos" ? "Open System Settings > Privacy & Security > Microphone and turn on local-stt." : "Check that your microphone is connected and not muted.";
+      clear(m.line);
+      m.level.track.hidden = s !== "testing";
+      m.test.disabled = s === "testing";
+      m.test.textContent = s === "testing" ? "Listening..." : s === "heard" || s === "silent" || s === "error" ? "Try Again" : "Test Microphone";
+      m.test.classList.toggle("btn-action", s !== "heard");
+      m.skip.hidden = s === "testing" || s === "heard" || s === "skipped";
+      if (s === "testing") m.line.appendChild(document.createTextNode("Listening... Say something."));
+      if (s === "heard") m.line.appendChild(tagLine("green", "Heard you"));
+      if (s === "silent") m.line.appendChild(h("div", {}, tagLine("red", "Didn't hear anything"), h("div", { class: "ob-note", text: hint })));
+      if (s === "error") m.line.appendChild(h("div", { role: "alert" }, tagLine("red", "Couldn't test"), h("div", { class: "ob-note", text: OB.mic.error })));
+      if (s === "skipped") m.line.appendChild(tagLine("grey", "Skipped for now"));
+    }
+
+    function paintMicLevel() {
+      var m = OB.refs.mic;
+      if (!m) return;
+      var level = Math.max(0, Math.min(1, OB.mic.level));
+      m.level.bar.style.transform = "scaleX(" + level.toFixed(3) + ")";
+      m.level.track.setAttribute("aria-valuenow", String(Math.round(level * 100)));
+    }
+
+    function testMicrophone() {
+      if (OB.mic.state === "testing") return;
+      OB.mic = { state: "testing", level: 0, error: "" };
+      paintMic();
+      paintMicLevel();
+      announce("Listening for 2 seconds. Say something.");
+      Promise.resolve(invoke("check_microphone")).then(function (result) {
+        OB.mic.state = result && result.heard === true ? "heard" : "silent";
+        paintMic();
+        announce(OB.mic.state === "heard" ? "Heard you." : "Didn't hear anything.");
+      }).catch(function (err) {
+        OB.mic.state = "error";
+        OB.mic.error = errText(err);
+        paintMic();
+      });
+    }
+
+    function paintAccess() {
+      var a = OB.refs.ax;
+      if (!a) return;
+      var allowed = S.accessibility === true;
+      clear(a.line);
+      a.open.hidden = allowed;
+      a.skip.hidden = allowed || OB.access === "skipped";
+      if (allowed) a.line.appendChild(tagLine("green", "Allowed"));
+      else if (OB.access === "waiting") a.line.appendChild(h("span", { class: "ob-waiting", text: "Waiting for you to turn on local-stt" }));
+      else if (OB.access === "skipped") a.line.appendChild(tagLine("grey", "Skipped for now"));
+    }
+
+    // ----- step 5 -----
+
+    function obTry() {
+      var el = h("div", { class: "ob-try" });
+      OB.refs.try = el;
+      var step = { title: "Try it", el: el, buttons: [{ label: "Skip", onClick: obFinish }, { label: "Finish", primary: true, onClick: obFinish }] };
+      step.focus = paintTry();
+      return step;
+    }
+
+    function tryBlocked() {
+      return S.platform === "macos" && S.accessibility === false;
+    }
+
+    // repaints the Try it body for the current permission and download state; returns the node to focus
+    function paintTry() {
+      var el = OB.refs.try;
+      clear(el);
+      var keys = keycaps(slotParts("hold"));
+      OB.tryBlocked = tryBlocked();
+      if (OB.tryBlocked) {
+        el.appendChild(h("div", { class: "card ob-perm" },
+          h("h2", { class: "ob-choice-title", text: "Allow Accessibility first" }),
+          h("p", { class: "ob-note", text: "The shortcut and paste need it." }),
+          h("div", { class: "ob-perm-actions" }, h("button", { class: "btn btn-action", type: "button", text: "Open Settings", onclick: function () {
+            Promise.resolve(invoke("open_accessibility_settings")).catch(function (err) { toast(errText(err)); });
+          } })),
+          h("div", { class: "ob-line" }, h("span", { class: "ob-waiting", text: "Waiting for you to turn on local-stt" }))
+        ));
+        return null;
+      }
+      var downloading = OB.dl ? OB.dl.status === "running" : !!S.downloading;
+      var failed = !!OB.dl && OB.dl.status === "failed";
+      var box = h("textarea", { class: "ob-box", id: "ob-box", rows: "4", placeholder: "Your words appear here", "aria-labelledby": "ob-title ob-prompt", disabled: downloading || failed });
+      var prompt = h("p", { class: "ob-prompt", id: "ob-prompt" }, "Hold ", keys, " and say something.");
+      var success = h("div", { class: "ob-success", role: "status", hidden: true }, icon("check"), h("span", {}, "That's it. Hold ", keycaps(slotParts("hold")), " in any app."));
+      box.addEventListener("input", function () {
+        var had = !success.hidden;
+        success.hidden = box.value.trim() === "";
+        if (!had && !success.hidden) announce("That's it. Hold " + slotParts("hold").join(" plus ") + " in any app.");
+      });
+      el.appendChild(prompt);
+      el.appendChild(box);
+      el.appendChild(success);
+      OB.refs.box = box;
+      if (failed) {
+        el.appendChild(h("p", { class: "ob-note ob-error", role: "alert", text: "The speech model did not download. Pick a model in the Model tab once setup is done." }));
+        return null;
+      }
+      if (downloading) {
+        var track = h("div", { class: "track", role: "progressbar", "aria-label": "Download progress", "aria-valuemin": "0", "aria-valuemax": "100" }, h("i"));
+        var line = h("div", { class: "progress-text", role: "status" });
+        OB.refs.dl = { track: track, bar: track.firstChild, line: line };
+        el.appendChild(h("div", { class: "ob-dl" }, h("p", { class: "ob-note", text: "The speech model is still downloading. You can try it as soon as it is ready." }), track, line));
+        obTryDownload();
+        return null;
+      }
+      return box;
+    }
+
+    function obTryDownload() {
+      var ref = OB.refs.dl;
+      var dl = OB.dl;
+      if (OB.step !== 5 || !OB.refs.try) return;
+      if (!ref || dl.status !== "running") {
+        // the download finished while this step was open
+        var focus = paintTry();
+        if (focus) focus.focus();
+        return;
+      }
+      var info = dl.info;
+      var known = info && typeof info.total === "number" && info.total > 0 && typeof info.downloaded === "number";
+      ref.bar.style.transform = "scaleX(" + (known ? Math.min(1, info.downloaded / info.total) : 0).toFixed(4) + ")";
+      ref.line.textContent = known ? dlText(info) : "Starting the download";
+    }
+
+    // permission changes arrive through get_state; repaint whatever depends on them
+    function obSync() {
+      if (!OB.on) return;
+      var row = obRow("access");
+      if (row && row.state === "needs" && S.accessibility === true) setRow(row, "done", "Allowed");
+      if (OB.step === 4) paintAccess();
+      if (OB.step === 5 && OB.refs.try && OB.tryBlocked !== tryBlocked()) {
+        var focus = paintTry();
+        if (focus) focus.focus();
+      }
+    }
+
     // ---------- render ----------
 
     function renderAll() {
@@ -2306,6 +3019,7 @@
       S.progress[p.id] = { downloaded: p.downloaded, total: p.total };
       if (progressRefs[p.id]) paintProgress(p.id);
       else if (S.loaded) renderModels();
+      obDownloadProgress(p);
     });
 
     subscribe("model-done", function (p) {
@@ -2316,7 +3030,14 @@
         S.modelErrors[p.id] = p.error || "The download failed. The previous model is still active.";
         toast(S.modelErrors[p.id]);
       }
+      obDownloadDone(p);
       refreshState();
+    });
+
+    subscribe("mic-check-level", function (p) {
+      if (!p || OB.mic.state !== "testing") return;
+      OB.mic.level = typeof p.level === "number" ? p.level : 0;
+      paintMicLevel();
     });
 
     // the app saves a captured shortcut itself, so this only repaints; "Cancelled" is Escape, not a failure
@@ -2380,6 +3101,7 @@
       if (S.loaded) {
         loadHistory();
         loadNotes();
+        if (S.config && S.config.setup_done === false && !S.demo) openOnboarding();
       }
     });
 
