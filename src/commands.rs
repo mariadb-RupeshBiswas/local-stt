@@ -13,8 +13,9 @@ const MAX_DELETE_IDS: usize = 10_000;
 // A four-hour meeting note is about 250,000 characters.
 const MAX_COPY_CHARS: usize = 1_000_000;
 
+// Async keeps the device list and the start-at-login check (reg.exe on Windows) off the UI thread.
 #[tauri::command]
-pub fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Value {
+pub async fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Result<Value, String> {
     let cfg = state.config();
     let notes_ok = crate::notes::session::support();
     let fits = models::evaluate(&state.hardware, &paths::models_dir());
@@ -23,7 +24,7 @@ pub fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Value {
     } else {
         "windows"
     };
-    json!({
+    Ok(json!({
         "config": cfg,
         "models": fits,
         "hardware": state.hardware,
@@ -46,7 +47,7 @@ pub fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Value {
         "activeModel": *lock(&state.active_model),
         "downloading": *lock(&state.downloading),
         "autostartEnabled": autostart::is_enabled(),
-    })
+    }))
 }
 
 pub fn valid_language(lang: &str) -> bool {

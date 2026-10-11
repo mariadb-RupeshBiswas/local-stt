@@ -82,6 +82,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Install and Restart starts the new version reliably: it waits for the old copy to quit instead of handing back to it.
 - macOS: the Accessibility prompt shows once per build instead of at every start, and the
   shortcut starts working once Accessibility is allowed, without restarting the app.
+- The main window reads the app's state off the window thread, so listing microphones and
+  checking start at login (reg.exe on Windows) never hold up the window.
 
 ### Security
 

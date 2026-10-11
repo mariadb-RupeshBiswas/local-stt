@@ -5,6 +5,7 @@
 **Free, private, offline speech-to-text for macOS and Windows.**
 Hold a shortcut, talk, let go: your words are typed into any app.
 A small Whisper model runs on your own laptop. No cloud, no account, no subscription. Free forever.
+A free, local, open-source alternative to Wispr Flow and Superwhisper.
 
 [![CI](https://github.com/mariadb-RupeshBiswas/local-stt/actions/workflows/ci.yml/badge.svg)](https://github.com/mariadb-RupeshBiswas/local-stt/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -221,7 +222,7 @@ Yes, after the first model download.
 Any language Whisper supports, including English and Hindi. Text comes out in English by default; switch "Output language" to keep the spoken language.
 
 **Does smart formatting use an AI model?**
-No. Whisper writes the words and the punctuation. Smart formatting is a set of rules in the app that runs on that text: it removes fillers, fixes spacing and turns spoken list markers into a numbered list. Nothing is sent anywhere, and the same words always format the same way.
+No. Whisper writes the words and the punctuation. Smart formatting is a set of rules in the app that runs on that text: it removes fillers, fixes spacing and turns spoken list markers into a numbered list. Nothing is sent anywhere, and the same words always format the same way. Small local AI models we tested (350M to 3B parameters) dropped or changed words, so the app keeps rules.
 
 **Does it work on Windows?**
 Yes, Windows 10 and 11 on x64. The default shortcut is Ctrl + Alt.
@@ -272,6 +273,8 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 ## License
 
 [MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org.
+
+Wispr Flow, Superwhisper and other product names mentioned here are trademarks of their owners. local-stt is an independent open-source project and is not affiliated with, endorsed by or sponsored by them; the names are used only to say what local-stt can be used instead of.
 
 ---
 
