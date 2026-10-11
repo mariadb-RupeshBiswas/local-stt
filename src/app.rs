@@ -931,7 +931,10 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                 }
             }
             match msg {
-                Ok(Msg::Hotkey(HotkeyEvent::Captured(combo))) => on_captured(&app, combo),
+                Ok(Msg::Hotkey(HotkeyEvent::Captured(combo))) => {
+                    diag::log("diag: controller got Captured");
+                    on_captured(&app, combo)
+                }
                 Ok(Msg::Hotkey(HotkeyEvent::Cancel))
                     if lock(&shared(&app).capture_slot).is_some() =>
                 {
@@ -943,6 +946,7 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                     emit_captured(&app, slot, &cfg, Some("Cancelled".to_string()));
                 }
                 Ok(Msg::Hotkey(ev)) => {
+                    diag::log(&format!("diag: controller got {ev:?}"));
                     let input = match ev {
                         HotkeyEvent::Pressed => Input::Pressed,
                         HotkeyEvent::Released => Input::Released,
