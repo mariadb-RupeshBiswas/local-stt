@@ -244,7 +244,7 @@ mod tests {
     }
     #[test]
     fn names_are_trimmed_capped_and_plain() {
-        assert_eq!(clean_name("  Rupesh "), Ok(Some("Rupesh".into())));
+        assert_eq!(clean_name("  Avery "), Ok(Some("Avery".into())));
         assert_eq!(clean_name("   "), Ok(None));
         assert_eq!(
             clean_name(&"\u{e9}".repeat(60)),
