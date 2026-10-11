@@ -142,10 +142,6 @@ mod imp {
             return false;
         };
         let state = ctx.keys.update(vk_code, is_down);
-        crate::diag::log(&format!(
-            "diag: hook vk {vk_code:#x} down={is_down} held {:x?}",
-            ctx.keys.down
-        ));
         let key = super::key_name(vk_code);
         dispatch(&ctx.core, &ctx.tx, &state, Some(&key))
     }

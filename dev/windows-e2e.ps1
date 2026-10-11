@@ -23,8 +23,6 @@ public static class Native {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
     [DllImport("user32.dll")] public static extern bool ShowWindowAsync(IntPtr h, int cmd);
-    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
-    public static string ForegroundTitle() { var sb = new StringBuilder(256); GetWindowText(GetForegroundWindow(), sb, 256); return sb.ToString(); }
     public static string[] VisibleTitles(uint pid) {
         var list = new List<string>();
         EnumWindows((h, l) => {
@@ -89,6 +87,11 @@ $before = [Native]::VisibleTitles([uint32]$proc.Id)
 Check 'pill hidden at rest' (-not ($before -contains 'local-stt recording')) ($before -join ', ')
 Shot '1-idle'
 
+# Dictation targets other apps, and injected keys do not reach the hook while our own window is in front.
+$proc.Refresh()
+[Native]::ShowWindowAsync($proc.MainWindowHandle, 6) | Out-Null
+Start-Sleep -Seconds 2
+
 # Hold Ctrl+Alt: the hook must fire and the pill must appear (no microphone on runners, so it shows an error state).
 [Native]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
 [Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
@@ -102,21 +105,6 @@ Shot '2-holding-ctrl-alt'
 [Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
 [Native]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
 Check 'pill appears while the shortcut is held' ($during -contains 'local-stt recording') ($during -join ', ')
-Write-Host "diag: foreground during the press: $([Native]::ForegroundTitle())"
-$proc.Refresh()
-[Native]::ShowWindowAsync($proc.MainWindowHandle, 6) | Out-Null
-Start-Sleep -Seconds 2
-Write-Host "diag: foreground after minimizing setup: $([Native]::ForegroundTitle())"
-[Native]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
-[Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
-$during2 = @()
-for ($i = 0; $i -lt 25 -and -not ($during2 -contains 'local-stt recording'); $i++) {
-    Start-Sleep -Milliseconds 200
-    $during2 = [Native]::VisibleTitles([uint32]$proc.Id)
-}
-[Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
-[Native]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
-Write-Host "diag: second press with setup minimized: $($during2 -join ', ')"
 Start-Sleep -Seconds 4
 Shot '3-after-release'
 Check 'app still running after a dictation attempt' (-not $proc.HasExited)

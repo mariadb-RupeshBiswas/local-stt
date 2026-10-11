@@ -115,7 +115,9 @@ Nothing is logged about the name. The level check logs only "microphone check: h
   Run Setup Again shows step 1, Windows has no Accessibility row or card, both themes, contrast.
 - Real app: a fresh data folder (`LOCAL_STT_DATA_DIR`) shows onboarding; an existing config does not.
 - CI: the Windows end-to-end run starts with a fresh data folder, so it lands on onboarding; its
-  checks are global (process, pill, report) and do not read the main window.
+  checks are global (process, pill, report) and do not read the main window. It minimizes setup
+  before pressing Ctrl + Alt: injected keys never reach the hook while setup is in front.
+- Unverified on a real Windows keyboard: holding Ctrl + Alt in the Try it step, with setup in front.
 
 ## Decisions
 
