@@ -66,6 +66,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   also delete settings, history, notes, insights and logs. Models stay.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
+- Releases publish on merge: a merge to main with a new version in `Cargo.toml` and
+  `pyproject.toml` builds the wheels, publishes to PyPI and creates the `v<version>` tag and
+  GitHub release. Merges that keep the version publish nothing.
 
 ### Fixed
 

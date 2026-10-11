@@ -1,39 +1,49 @@
 name: Release
 
+# Every merge to main runs this; only a version with no v<version> tag yet is published.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
 
 permissions:
   contents: read
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: release
   cancel-in-progress: false
 
 jobs:
-  verify:
-    name: Verify tag
+  check:
+    name: New version?
     runs-on: ubuntu-latest
     timeout-minutes: 5
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      release: ${{ steps.version.outputs.release }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Tag is on main and matches both package versions
-        env:
-          TAG: ${{ github.ref_name }}
+      - name: Both package versions match and are not released yet
+        id: version
         run: |
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "tag commit is not on main"; exit 1; }
           cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
           py_version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)"
-          [ "$TAG" = "v$cargo_version" ] || { echo "tag $TAG does not match Cargo.toml $cargo_version"; exit 1; }
-          [ "$TAG" = "v$py_version" ] || { echo "tag $TAG does not match pyproject.toml $py_version"; exit 1; }
+          [ "$cargo_version" = "$py_version" ] || { echo "Cargo.toml $cargo_version and pyproject.toml $py_version differ"; exit 1; }
+          echo "$cargo_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$' || { echo "not a version: $cargo_version"; exit 1; }
+          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
+          if git rev-parse -q --verify "refs/tags/v$cargo_version" > /dev/null; then
+            echo "v$cargo_version is already released; nothing to publish."
+            echo "release=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "release=true" >> "$GITHUB_OUTPUT"
+          fi
 
   build:
     name: Build wheel (${{ matrix.target }})
-    needs: verify
+    needs: check
+    if: needs.check.outputs.release == 'true'
     strategy:
       fail-fast: true
       matrix:
@@ -81,10 +91,13 @@ jobs:
         with:
           subject-path: dist/*.whl
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          # A rerun after a failed GitHub release step must not fail on files PyPI already has.
+          skip-existing: true
 
   github-release:
     name: GitHub release
-    needs: publish
+    needs: [check, publish]
     runs-on: ubuntu-latest
     permissions:
       contents: write # create the GitHub release and attach wheels
@@ -94,9 +107,9 @@ jobs:
           pattern: wheel-*
           path: dist
           merge-multiple: true
-      - name: Create release with wheels attached
+      - name: Tag the merge commit and create the release with wheels attached
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-          TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/*.whl --title "$TAG" --notes "See CHANGELOG.md for details." --verify-tag
+          VERSION: ${{ needs.check.outputs.version }}
+        run: gh release create "v$VERSION" dist/*.whl --target "$GITHUB_SHA" --title "v$VERSION" --notes "See CHANGELOG.md for details."

@@ -51,6 +51,16 @@ uvx --from target/wheels/*.whl local-stt
 - Keep `unsafe` inside the platform modules, each block with a one-line `SAFETY:` comment.
 - Add a line to `CHANGELOG.md` under Unreleased.
 
+## Releasing
+
+1. In a pull request, set the same new `version` in `Cargo.toml` and `pyproject.toml`, refresh
+   `Cargo.lock` with `cargo check`, and move the Unreleased notes under that version.
+2. Merge it. `release.yml` sees a version with no `v<version>` tag, builds the macOS and Windows
+   wheels, publishes them to PyPI (environment `pypi`), then tags the merge commit and creates
+   the GitHub release with the wheels attached.
+
+A merge that keeps the version publishes nothing.
+
 ## Project layout and design
 
 See [AGENTS.md](AGENTS.md) for the module map and conventions, and the
