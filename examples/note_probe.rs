@@ -9,10 +9,17 @@ use local_stt::{models, paths};
 use std::time::{Duration, Instant};
 
 fn main() {
-    let secs: u64 = std::env::args().nth(1).and_then(|s| s.parse().ok()).unwrap_or(20);
+    let secs: u64 = std::env::args()
+        .nth(1)
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(20);
     let model = models::path(&paths::models_dir(), models::ModelId::Small);
     let engine = Engine::load(&model).expect("the small model is downloaded");
-    let opts = Opts { translate: true, language: "auto".into(), threads: 8 };
+    let opts = Opts {
+        translate: true,
+        language: "auto".into(),
+        threads: 8,
+    };
     let channels = [(Source::System, OTHERS), (Source::Mic(None), ME)];
     let mut open = Vec::new();
     for (source, speaker) in channels {
