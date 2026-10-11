@@ -663,10 +663,16 @@ fn animate_to(app: &AppHandle, win: &WebviewWindow, from: (f64, f64), to: (f64, 
 // ---------- hotkey ----------
 
 fn start_hotkey(app: &AppHandle) {
-    let allowed = hotkey::accessibility_ok(should_prompt(app));
+    let prompt = should_prompt(app);
+    let allowed = hotkey::accessibility_ok(prompt);
     diag::log(&format!(
-        "accessibility: {}",
-        if allowed { "allowed" } else { "not allowed" }
+        "accessibility: {}{}",
+        if allowed { "allowed" } else { "not allowed" },
+        if prompt && !allowed {
+            " (system prompt shown)"
+        } else {
+            ""
+        }
     ));
     install_hook(app);
     if !allowed {
