@@ -77,7 +77,7 @@ Open the app from the menu bar or tray icon.
 |---|---|---|
 | Push to talk | Hold to talk, release to paste. Any combo with at least one modifier | Fn + Shift (Mac), Ctrl + Alt (Windows) |
 | Hands-free | Press once to start listening, again to stop; can be turned off | Fn + Shift + Space (Mac), Ctrl + Alt + Space (Windows) |
-| Output language | English (translate) or keep the language you spoke | English |
+| Output language | English (translate) or keep the language you spoke; see [Languages](#languages) | English |
 | Spoken language | Auto-detect or a fixed language | Auto-detect |
 | Paste | Paste into the focused app, or only copy to the clipboard | Paste |
 | Smart formatting | Numbered lists from spoken markers, mixed freely ("first point ... point two ... number three"); removes "uh", "um" and "er"; fixes spacing. English output only | On |
@@ -106,6 +106,27 @@ local-stt checks your computer (memory, processor, graphics, free disk) and only
 Run `local-stt doctor` to see your hardware and which models fit, right in the terminal.
 
 ![Model picker with hardware check](docs/screenshots/main-model.png)
+
+## Languages
+
+**Speak in any of 99 languages and get English text**, ready to paste into Claude, ChatGPT or any other AI assistant. Or keep the language you spoke.
+
+| Output language | You speak | You get |
+|---|---|---|
+| **English** (default) | Any of the 99 languages | English, translated on your computer |
+| **Spoken language** | Any of the 99 languages | The same language, every word as spoken |
+
+- **Indian and South Asian languages:** Hindi, Bengali, Tamil, Telugu, Marathi, Gujarati, Kannada, Malayalam, Punjabi, Urdu, Assamese, Nepali, Sindhi, Sanskrit and Sinhala.
+- **Also:** English, Chinese, Spanish, French, German, Arabic, Japanese, Korean, Portuguese, Russian, Indonesian, Swahili and more. The full list is under Settings > **Spoken language**, which detects the language by itself unless you pick one.
+- **Every model speaks every language.** Whisper Small, Medium and Large v3 all handle all 99; the larger models are more accurate, especially for languages with less training data.
+- **Translation goes into English only.** That is how Whisper is built.
+
+> [!NOTE]
+> **Translating to English can shorten what you said.** English output uses Whisper's built-in translation, which writes its own English version rather than every word, and can leave parts out, most of all in long dictations and with Whisper Small.
+> - For every word, set **Output language** to **Spoken language**.
+> - For better translations, pick Whisper Medium or Large v3 on the Model tab.
+> - If a long translated dictation comes back short, try shorter pieces.
+
 
 ## Privacy and security
 
