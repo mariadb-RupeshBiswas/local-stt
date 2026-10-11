@@ -28,7 +28,7 @@ uvx local-stt
 - **Speaks your language.** Dictate in English or Hindi (and the other languages Whisper knows). By default everything comes out as English text.
 - **Small and fast.** The default model is 181 MB. On an Apple M4 Pro a short sentence comes back in about half a second.
 - **Hands-free when you want it.** Hold to talk, or press a second shortcut to keep listening while you think out loud.
-- **Live preview, tidy result.** See your words as you speak; Smart formatting turns "point one, point two" into a numbered list.
+- **Live preview, tidy result.** See your words as you speak; Smart formatting turns "point one, point two" (or "number one", "first, second") into a numbered list.
 - **No telemetry.** No analytics, no crash reporting, no account. The only optional ping is a once-a-day version check you can switch off.
 
 ## How it works
@@ -94,7 +94,7 @@ Open the app from the menu bar or tray icon.
 | Output language | English (translate) or keep the language you spoke | English |
 | Spoken language | Auto-detect or a fixed language | Auto-detect |
 | Paste | Paste into the focused app, or only copy to the clipboard | Paste |
-| Smart formatting | Numbered lists from "point one, point two", removes "uh" and "um", fixes spacing | On |
+| Smart formatting | Numbered lists from "point one, point two", "number one", "first, second"; removes "uh", "um" and "er"; fixes spacing | On |
 | Restore clipboard | Put your previous clipboard back after pasting | Off |
 | Microphone | System default or a specific input | System default |
 | Recording style | Pill, Waveform or Minimal | Pill |

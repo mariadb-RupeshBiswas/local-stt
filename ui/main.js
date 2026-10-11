@@ -1865,7 +1865,7 @@
           value: function () { return cfg().paste; },
           onChange: function (v) { patchConfig({ paste: v }); }
         }))),
-        settingRow("Smart formatting", "Turns spoken \"point one, point two\" into a numbered list, removes \"uh\" and \"um\", and fixes spacing.", addSync(toggle({
+        settingRow("Smart formatting", "Turns spoken lists (\"point one, point two\" or \"first, second\") into numbered lists, removes \"uh\" and \"um\", and fixes spacing.", addSync(toggle({
           label: "Smart formatting",
           value: function () { return cfg().smart_format; },
           onChange: function (v) { patchConfig({ smart_format: v }); }

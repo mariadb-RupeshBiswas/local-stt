@@ -25,8 +25,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Hands-free can be turned off.
 - Install row in Settings (Applications or Start menu, plus the `local-stt` terminal command),
   and a notice when turning on Start at login installs the app first.
-- Smart formatting setting: spoken "point one, point two" becomes a numbered list, "uh" and
-  "um" are removed, and spacing is fixed before pasting.
+- Smart formatting setting: spoken lists ("point one ... point two", "number one ...",
+  "first, ... second, ...", "the first point is ...") become a numbered list, "uh", "um" and
+  "er" are removed, and spacing is fixed before pasting. Markers count mid-sentence too, unless
+  they follow words like "this", "my" or "at"; "point one is how ..." lists "How ..."; "to
+  points" before a two-item list reads "two points"; a closing remark stays out of the last item.
 - Live transcription popover above the pill (below it near the top of the screen) that shows
   your latest words while you speak, with a Live transcription setting.
 - Update banner at the top of the main window (Install and Restart, Release Notes, Later,
