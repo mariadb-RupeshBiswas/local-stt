@@ -1615,7 +1615,7 @@
     }
 
     function outputLanguageRow() {
-      return settingRow("Output language", "English translates what you say. Spoken language keeps it as spoken.", addSync(segmented({
+      return settingRow("Output language", "English translates what you say and can shorten long speech. Spoken language keeps every word.", addSync(segmented({
         role: "radiogroup", label: "Output language",
         items: [{ value: "english", label: "English" }, { value: "spoken", label: "Spoken language" }],
         value: function () { return cfg().translate ? "english" : "spoken"; },
