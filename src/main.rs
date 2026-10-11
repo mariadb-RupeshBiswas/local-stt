@@ -14,7 +14,7 @@ USAGE:
   local-stt check-update         see whether a newer release is available
   local-stt diagnostics          save a troubleshooting report to share (no audio or dictated text)
   local-stt reinstall [--clean]  repair the install: reset permissions, install again; --clean also
-                                 deletes settings, history and logs (models stay)
+                                 deletes settings, history, notes and logs (models stay)
   local-stt install              add local-stt to Applications / Start menu and your terminal
   local-stt uninstall            remove what install added (settings and history are kept)
   local-stt --autostart on|off   start local-stt when you log in

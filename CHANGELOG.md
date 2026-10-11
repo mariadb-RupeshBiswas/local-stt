@@ -39,6 +39,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Daily update check against PyPI (can be turned off), shown as a tray menu item, never a pop-up.
 - Windows end-to-end CI job: installs the wheel, checks the Start menu shortcut and terminal
   command, downloads the model, holds Ctrl + Alt and checks the pill appears, then uninstalls.
+- Meeting notes: a Notes tab that records your microphone as Me and system audio as Others,
+  transcribes both locally while the call runs, and tidies the transcript on Stop. Notes list
+  with search, rename, copy and select-to-delete; a one-time consent reminder with a line to
+  paste in the meeting chat; a Notes state on the pill; New Note and Stop Notes in the tray.
+  Audio is never saved. macOS 14.6+ or Windows 10/11.
 - Troubleshooting: a local event log (no words, audio, keys or device names; home folder and
   user name masked), error output kept for launches outside a terminal, and Export Report in
   Settings or `local-stt diagnostics`, a plain-text report with app, system, settings, macOS
@@ -49,7 +54,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   allowed, with Open Settings and a tip for a switch that stayed on from an older copy.
 - Reinstall in Settings > Troubleshooting and `local-stt reinstall [--clean]`: installs again
   (the newest version when one is out), resets local-stt's macOS permissions, reopens, and can
-  also delete settings, history and logs. Models stay.
+  also delete settings, history, notes and logs. Models stay.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
 

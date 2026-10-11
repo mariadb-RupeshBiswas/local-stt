@@ -28,6 +28,7 @@ body:
       options:
         - "Dictation: shortcut, recording or paste"
         - History
+        - Meeting notes
         - Model download
         - "Install, update or start at login"
         - Settings

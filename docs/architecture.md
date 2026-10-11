@@ -73,6 +73,21 @@ becomes a paste.**
 | One copy only | `src/instance.rs` | A second launch shows the running app instead of starting another |
 | Screens | `ui/` | Plain HTML, CSS and JavaScript for the pill, the live text and the main window |
 
+## Meeting notes
+
+Notes reuse the same engine for a whole call instead of one dictation:
+
+1. **Two sources at once.** Your microphone is **Me**; what your computer plays (the call) is
+   **Others**, captured with the sound card's loopback, so no bot joins the meeting.
+2. **Cut at pauses.** Each source goes through the **segmenter** (`src/notes/segmenter.rs`), which
+   ends a piece of speech after 0.6 seconds of quiet, or at 25 seconds, whichever comes first.
+3. **Dictation goes first.** Each piece becomes a job for the same worker; a dictation you make during
+   a call always jumps the queue, so your shortcut never waits behind the meeting.
+4. **Written as it happens.** Every finished line is added to the note's file in `notes/` at once,
+   so a crash keeps everything up to that moment. The audio is still never saved.
+5. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
+   lines from one side and drops lines that appear twice because of echo between speakers and mic.
+
 ## Why there are several threads
 
 A thread is a part of the program that runs at the same time as the others. local-stt uses a few,
@@ -112,6 +127,7 @@ on a Mac, `%APPDATA%\local-stt` on Windows.
 | `models/` | The downloaded Whisper models |
 | `logs/` | The troubleshooting log: events and timings, never your words |
 | `diagnostics/` | Reports you export |
+| `notes/` | One file per meeting note |
 
 ## What uses the internet
 

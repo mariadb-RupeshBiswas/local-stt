@@ -71,12 +71,17 @@ pub(crate) fn home() -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("."))
 }
 
+/// Tests that point LOCAL_STT_DATA_DIR somewhere hold this, since the variable is process-wide.
+#[cfg(test)]
+pub(crate) static TEST_DATA_DIR: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
     fn override_env_wins() {
+        let _env = TEST_DATA_DIR.lock().unwrap_or_else(|e| e.into_inner());
         let dir = std::env::temp_dir().join("lstt-paths-test");
         std::env::set_var("LOCAL_STT_DATA_DIR", &dir);
         assert_eq!(data_dir(), dir);

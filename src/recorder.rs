@@ -1,4 +1,4 @@
-//! Microphone capture on a dedicated thread.
+//! Microphone or system-audio capture on a dedicated thread.
 
 use crate::audio::{resample_linear, to_mono};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -20,6 +20,15 @@ pub struct Recording {
 
 type Shared = Arc<Mutex<Vec<f32>>>;
 type Ready = Result<(u16, u32), String>;
+
+/// What to record: a microphone (None is the system default), or what the computer plays.
+#[derive(Clone)]
+pub enum Source {
+    Mic(Option<String>),
+    /// The default output device opened for input: cpal makes that a system-audio tap on macOS 14.6+
+    /// and WASAPI loopback on Windows.
+    System,
+}
 
 pub struct Recorder {
     stop_tx: Sender<()>,
@@ -47,14 +56,20 @@ impl Recorder {
         device: Option<&str>,
         on_level: Box<dyn Fn(f32) + Send + 'static>,
     ) -> Result<Recorder, String> {
+        Self::start_from(Source::Mic(device.map(str::to_string)), on_level)
+    }
+
+    pub fn start_from(
+        source: Source,
+        on_level: Box<dyn Fn(f32) + Send + 'static>,
+    ) -> Result<Recorder, String> {
         let samples: Shared = Arc::new(Mutex::new(Vec::new()));
         let (ready_tx, ready_rx) = channel::<Ready>();
         let (stop_tx, stop_rx) = channel::<()>();
-        let device_name = device.map(str::to_string);
         let shared = samples.clone();
         let thread = std::thread::Builder::new()
             .name("local-stt-capture".into())
-            .spawn(move || capture_thread(device_name, shared, on_level, ready_tx, stop_rx))
+            .spawn(move || capture_thread(source, shared, on_level, ready_tx, stop_rx))
             .map_err(|e| format!("Could not start audio thread: {e}"))?;
         // Blocks through the first-run permission prompt, which can take a while.
         let (channels, rate) = match ready_rx.recv() {
@@ -87,6 +102,18 @@ impl Recorder {
             tail(&guard, self.channels, self.rate, secs).to_vec()
         };
         finish(copied, self.channels, self.rate).samples_16k
+    }
+
+    /// Everything captured since the last drain, as 16 kHz mono, while capture keeps running.
+    /// ponytail: each piece is resampled on its own, which drifts well under a second an hour; carry the remainder if that matters.
+    pub fn drain(&self) -> Vec<f32> {
+        let channels = self.channels.max(1) as usize;
+        let taken: Vec<f32> = {
+            let mut guard = self.samples.lock().unwrap_or_else(|e| e.into_inner());
+            let whole = guard.len() / channels * channels;
+            guard.drain(..whole).collect()
+        };
+        finish(taken, self.channels, self.rate).samples_16k
     }
 
     pub fn cancel(self) {
@@ -122,13 +149,13 @@ fn finish(interleaved: Vec<f32>, channels: u16, rate: u32) -> Recording {
 }
 
 fn capture_thread(
-    device_name: Option<String>,
+    source: Source,
     samples: Shared,
     on_level: Box<dyn Fn(f32) + Send + 'static>,
     ready: Sender<Ready>,
     stop: Receiver<()>,
 ) {
-    let (stream, channels, rate) = match open(device_name.as_deref(), samples, on_level) {
+    let (stream, channels, rate) = match open(&source, samples, on_level) {
         Ok(opened) => opened,
         Err(msg) => {
             let _ = ready.send(Err(msg));
@@ -142,13 +169,27 @@ fn capture_thread(
 }
 
 fn open(
-    name: Option<&str>,
+    source: &Source,
     samples: Shared,
     on_level: Box<dyn Fn(f32) + Send + 'static>,
 ) -> Result<(cpal::Stream, u16, u32), String> {
     let host = cpal::default_host();
-    let device = pick_input(&host, name)?;
-    let supported = device.default_input_config().map_err(describe)?;
+    let system = matches!(source, Source::System);
+    let describe = |e: cpal::Error| describe(e, system);
+    let (device, supported) = match source {
+        Source::Mic(name) => {
+            let device = pick_input(&host, name.as_deref())?;
+            let supported = device.default_input_config().map_err(describe)?;
+            (device, supported)
+        }
+        Source::System => {
+            let device = host
+                .default_output_device()
+                .ok_or_else(|| "No system audio device found".to_string())?;
+            let supported = device.default_output_config().map_err(describe)?;
+            (device, supported)
+        }
+    };
     let config = supported.config();
     let format = supported.sample_format();
     let stream = match format {
@@ -164,7 +205,7 @@ fn open(
         SampleFormat::U64 => build::<u64>(&device, config, samples, on_level),
         SampleFormat::F32 => build::<f32>(&device, config, samples, on_level),
         SampleFormat::F64 => build::<f64>(&device, config, samples, on_level),
-        other => return Err(format!("Unsupported microphone sample format: {other}")),
+        other => return Err(format!("Unsupported audio sample format: {other}")),
     }
     .map_err(describe)?;
     stream.play().map_err(describe)?;
@@ -234,14 +275,18 @@ where
     device.build_input_stream(config, on_data, on_error, None)
 }
 
-fn describe(err: cpal::Error) -> String {
+fn describe(err: cpal::Error, system: bool) -> String {
+    let what = if system { "System audio" } else { "Microphone" };
     match err.kind() {
+        ErrorKind::PermissionDenied if system => {
+            "System audio recording is not allowed. Allow it in system privacy settings.".into()
+        }
         ErrorKind::PermissionDenied => {
             "Microphone access denied. Allow it in system privacy settings.".into()
         }
-        ErrorKind::DeviceNotAvailable => "Microphone not available".into(),
-        ErrorKind::DeviceBusy => "Microphone is busy in another app".into(),
-        _ => format!("Microphone error: {err}"),
+        ErrorKind::DeviceNotAvailable => format!("{what} not available"),
+        ErrorKind::DeviceBusy => format!("{what} is busy in another app"),
+        _ => format!("{what} error: {err}"),
     }
 }
 

@@ -10,12 +10,14 @@ use tauri::{AppHandle, State};
 
 const HISTORY_LIMIT: usize = 500;
 const MAX_DELETE_IDS: usize = 10_000;
-const MAX_COPY_CHARS: usize = 100_000;
+// A four-hour meeting note is about 250,000 characters.
+const MAX_COPY_CHARS: usize = 1_000_000;
 
 // Async keeps the device list and the start-at-login check (reg.exe on Windows) off the UI thread.
 #[tauri::command]
-pub async fn get_state(state: State<'_, Arc<Shared>>) -> Result<Value, String> {
+pub async fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Result<Value, String> {
     let cfg = state.config();
+    let notes_ok = crate::notes::session::support();
     let fits = models::evaluate(&state.hardware, &paths::models_dir());
     let platform = if cfg!(target_os = "macos") {
         "macos"
@@ -31,6 +33,11 @@ pub async fn get_state(state: State<'_, Arc<Shared>>) -> Result<Value, String> {
         "platform": platform,
         "hotkeyDisplay": hotkey::display(&cfg.hotkey),
         "smartFormatActive": cfg.smart_format && app::english_output(&cfg),
+        "notes": {
+            "supported": notes_ok.is_ok(),
+            "reason": notes_ok.err(),
+            "active": crate::notes::session::active(&app).map(|(id, started)| json!({ "id": id, "startedMs": started })),
+        },
         // macOS only: whether the shortcut and paste have the rights they need.
         "accessibility": cfg!(target_os = "macos").then(|| hotkey::accessibility_ok(false)),
         "demo": crate::demo::active(),
@@ -307,6 +314,9 @@ pub async fn export_diagnostics(state: State<'_, Arc<Shared>>) -> Result<String,
 /// Reinstalls the app (see `install::reinstall`) and restarts into the new copy.
 #[tauri::command]
 pub async fn reinstall_app(app: AppHandle, clean: bool) -> Result<String, String> {
+    if crate::notes::session::active(&app).is_some() {
+        return Err("A note is recording. Stop it first, then reinstall.".into());
+    }
     if UPDATING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("An update or reinstall is already running.".into());
     }
@@ -338,6 +348,58 @@ pub fn open_accessibility_settings() -> Result<(), String> {
     }
     #[cfg(not(target_os = "macos"))]
     Ok(())
+}
+
+#[tauri::command]
+pub fn list_notes() -> Vec<crate::notes::Listed> {
+    crate::notes::list()
+}
+
+#[tauri::command]
+pub fn get_note(id: String) -> Result<crate::notes::Note, String> {
+    if !crate::notes::valid_id(&id) {
+        return Err("Unknown note.".into());
+    }
+    crate::notes::get(&id).map_err(|_| "This note could not be opened.".to_string())
+}
+
+#[tauri::command]
+pub fn start_note(app: AppHandle) -> Result<String, String> {
+    crate::notes::session::start(&app)
+}
+
+#[tauri::command]
+pub fn stop_note(app: AppHandle) -> Result<(), String> {
+    crate::notes::session::stop(&app)
+}
+
+#[tauri::command]
+pub fn rename_note(
+    app: AppHandle,
+    id: String,
+    title: String,
+) -> Result<crate::notes::Note, String> {
+    if !crate::notes::valid_id(&id) || title.chars().count() > 1_000 {
+        return Err("Unknown note.".into());
+    }
+    let note = crate::notes::rename(&id, &title).map_err(|e| format!("Could not rename: {e}"))?;
+    let _ = tauri::Emitter::emit_to(&app, app::MAIN, "notes-changed", ());
+    Ok(note)
+}
+
+/// Deletes the chosen notes, never the one recording, and returns how many went.
+#[tauri::command]
+pub fn delete_notes(app: AppHandle, ids: Vec<String>) -> Result<usize, String> {
+    if ids.is_empty() || ids.len() > MAX_DELETE_IDS {
+        return Err("Choose between 1 and 10,000 notes to delete.".into());
+    }
+    let recording = crate::notes::session::active(&app).map(|(id, _)| id);
+    let ids = ids.into_iter().collect();
+    let removed = crate::notes::delete(&ids, recording.as_deref())
+        .map_err(|e| format!("cannot delete notes: {e}"))?;
+    diag::log(&format!("notes deleted: {removed}"));
+    let _ = tauri::Emitter::emit_to(&app, app::MAIN, "notes-changed", ());
+    Ok(removed)
 }
 
 #[tauri::command]
