@@ -45,7 +45,7 @@ Every dictation is kept in a local history you can search and copy from. Click S
 
 **Under the hood:** a Rust app built with Tauri. A keyboard hook spots your shortcut, the microphone is recorded in memory, Whisper (whisper.cpp) turns it into text on your computer, simple rules tidy it, and the app pastes it. The full tour, written for newcomers, is in [docs/architecture.md](docs/architecture.md).
 
-## Install
+## Get started
 
 ### Requirements
 
@@ -58,15 +58,42 @@ Every dictation is kept in a local history you can search and copy from. Click S
 | Installer | [uv](https://docs.astral.sh/uv/getting-started/installation/) | [uv](https://docs.astral.sh/uv/getting-started/installation/) |
 
 > [!IMPORTANT]
-> **uv is the only thing you install yourself.** You do not need Python: if your computer has none, uv downloads its own copy the first time. Install uv with `brew install uv` on a Mac, or `winget install --id=astral-sh.uv -e` on Windows (other ways are on the uv page above). Everything else, the speech model and the microphone and Accessibility permissions, is set up inside the app on first run.
+> **uv is the only thing you install yourself.** You do not need Python: if your computer has none, uv downloads its own copy the first time. Everything else, the speech model and the microphone and Accessibility permissions, is set up inside the app on first run.
 
-> The first release is not on PyPI yet. Until it is, build from source in a minute or two: see [CONTRIBUTING.md](CONTRIBUTING.md).
+### macOS
+
+Open **Terminal** and run:
 
 ```bash
-uvx local-stt                # installs the app (Applications or Start menu, plus a terminal command) and opens it
+brew install uv        # once; without Homebrew, see the uv link above
+uvx local-stt          # installs local-stt in Applications and opens it
+```
+
+### Windows
+
+Open **PowerShell** and run:
+
+```powershell
+winget install --id=astral-sh.uv -e   # once
+# close PowerShell and open a new one, so the uv command is found
+uvx local-stt                          # installs local-stt in the Start menu and opens it
+```
+
+### Linux
+
+> [!WARNING]
+> **Linux is not supported yet.** The shortcut and the paste need code for each desktop system, and that code exists only for macOS and Windows today.
+
+> [!NOTE]
+> **Before the first release:** local-stt is not on PyPI yet, so `uvx local-stt` does not find it. If someone gave you a wheel file, run `uvx --from <path to the .whl file> local-stt` instead (the same on macOS and Windows), or build it yourself in a few minutes with [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### More commands
+
+```bash
 uvx local-stt install        # install without opening
 local-stt --autostart on     # start it when you log in
 uvx local-stt demo           # a 30-second tour with sample data; nothing is recorded or pasted
+local-stt --help             # every command
 ```
 
 Started from a terminal, local-stt runs as its own app, not as part of the terminal: you can close the terminal, and macOS asks for permissions in local-stt's name. On first start it downloads the default speech model (181 MB, checked against a pinned SHA-256 checksum) and puts a microphone icon in your menu bar or system tray. **Settings > General > Install** does the same as `install`, and turning on **Start at login** installs it first if needed.
