@@ -58,7 +58,19 @@ uvx local-stt demo           # a 30-second tour with sample data; nothing is rec
 
 Started from a terminal, local-stt runs as its own app, not as part of the terminal: you can close the terminal, and macOS asks for permissions in local-stt's name. On first start it downloads the default speech model (181 MB, checked against a pinned SHA-256 checksum) and puts a microphone icon in your menu bar or system tray. **Settings > General > Install** does the same as `install`, and turning on **Start at login** installs it first if needed.
 
-### First run on macOS
+### First run
+
+A short setup opens the first time, about a minute:
+
+1. **Welcome**: what should local-stt call you (optional, stays on your computer).
+2. **System check**: your computer, the speech model that fits it, microphones, permissions, and the model download, each ticked off as it really finishes.
+3. **Recommended or Customize**: the recommended settings work for most people; Customize shows the shortcut, language, paste, smart formatting, history and start at login.
+4. **Permissions**: a microphone test and, on macOS, Accessibility.
+5. **Try it**: hold the shortcut and watch your words appear.
+
+Every step can be skipped, and Settings > General > **Run Setup Again** brings it back.
+
+### Permissions on macOS
 
 macOS asks for two permissions, in local-stt's name. Both are needed and both stay on your Mac:
 
