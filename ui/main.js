@@ -1928,7 +1928,7 @@
       var dictation = card([
         settingRow("Push to talk", "Hold to talk, release to paste.", pushKey.el),
         settingRow("Hands-free", "Press once to start listening, again to stop. Adding the extra key while holding push to talk switches to hands-free.", freeKey.el),
-        settingRow("Output language", "English translates what you say. Spoken language keeps it as spoken.", addSync(output)),
+        settingRow("Output language", "English translates what you say and can shorten long speech. Spoken language keeps every word.", addSync(output)),
         settingRow("Spoken language", "Auto-detect works for most speech.", addSync(select({
           label: "Spoken language", options: langOptions,
           value: function () { return cfg().language; },
