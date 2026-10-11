@@ -158,6 +158,8 @@ const NOT_A_LIST_AFTER: &[&str] = &[
     "per", "by", "from",
 ];
 
+const LEAD_INS: &[&str] = &["so", "okay", "ok", "alright", "right", "well", "now"];
+
 fn lower(text: &str, w: Word) -> String {
     text[w.start..w.end].to_lowercase()
 }
@@ -269,12 +271,16 @@ fn marker_at(text: &str, ws: &[Word], i: usize, kind: Kind, expected: u32) -> Op
     }
 }
 
-fn find_markers(text: &str, ws: &[Word], kind: Kind) -> Vec<Marker> {
+// People mix forms ("first point ... point two"), so each number may come in any of them.
+fn find_markers(text: &str, ws: &[Word]) -> Vec<Marker> {
     let mut markers: Vec<Marker> = Vec::new();
     let mut i = 0;
     while i < ws.len() {
         let expected = markers.len() as u32 + 1;
-        match marker_at(text, ws, i, kind, expected) {
+        let found = [Kind::Point, Kind::Number, Kind::Ordinal]
+            .into_iter()
+            .find_map(|kind| marker_at(text, ws, i, kind, expected));
+        match found {
             Some(m) => {
                 i = ws.iter().position(|w| w.start >= m.end).unwrap_or(ws.len());
                 markers.push(m);
@@ -289,18 +295,17 @@ fn find_markers(text: &str, ws: &[Word], kind: Kind) -> Vec<Marker> {
 /// numbered list, only when the markers count up from one.
 fn numbered_points(text: &str) -> String {
     let ws = words(text);
-    let markers = [Kind::Point, Kind::Number, Kind::Ordinal]
-        .into_iter()
-        .map(|k| find_markers(text, &ws, k))
-        .fold(
-            Vec::new(),
-            |best, m| if m.len() > best.len() { m } else { best },
-        );
+    let markers = find_markers(text, &ws);
     if markers.len() < 2 {
         return text.to_string();
     }
     let mut out = String::new();
-    let intro = count_word_fixed(trim_joiners(&text[..markers[0].start]), markers.len());
+    let mut intro = count_word_fixed(trim_joiners(&text[..markers[0].start]), markers.len());
+    // A spoken lead-in ("So", "Okay") is not a heading.
+    let bare = intro.trim_end_matches([',', '.']).to_lowercase();
+    if LEAD_INS.contains(&bare.as_str()) {
+        intro.clear();
+    }
     if !intro.is_empty() {
         out.push_str(&intro);
         if !intro.ends_with(['.', ':', '?', '!']) {
@@ -523,6 +528,20 @@ mod tests {
     fn owner_sample_points_after_points_become_a_list() {
         let input = "Hello, are you listening? So I need to points point one is how we are going to go there point two is how we are going to s";
         let want = "Hello, are you listening? So I need two points:\n1. How we are going to go there.\n2. How we are going to s.";
+        assert_eq!(tidy(input), want);
+    }
+
+    #[test]
+    fn owner_sample_mixed_markers_become_a_list() {
+        let input = "So first point we need to check how the work is going on. Point two like this should be worked on and we should be working on it.";
+        let want = "1. We need to check how the work is going on.\n2. Like this should be worked on and we should be working on it.";
+        assert_eq!(tidy(input), want);
+    }
+
+    #[test]
+    fn mixed_markers_count_up_in_any_form() {
+        let input = "Point one, book the room. The second point is the agenda. Number three, send the invite.";
+        let want = "1. Book the room.\n2. The agenda.\n3. Send the invite.";
         assert_eq!(tidy(input), want);
     }
 

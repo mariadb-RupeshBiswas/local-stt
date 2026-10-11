@@ -29,6 +29,10 @@ impl Screen {
     }
 }
 
+pub fn on_screen(screens: &[Screen], p: (f64, f64)) -> bool {
+    screens.iter().any(|s| s.contains(p))
+}
+
 pub fn screen_for_point(screens: &[Screen], p: (f64, f64)) -> Option<&Screen> {
     screens.iter().find(|s| s.contains(p)).or(screens.first())
 }
@@ -40,19 +44,41 @@ pub fn default_pos(screens: &[Screen], pointer: (f64, f64), size: (f64, f64)) ->
     }
 }
 
+/// Where the pill shows: on the screen holding `focus`, at the saved spot (carried over in proportion
+/// when it was saved on another screen), or in that screen's bottom-right corner.
 pub fn resolve(
     screens: &[Screen],
     saved: Option<&OverlayPos>,
-    pointer: (f64, f64),
+    focus: (f64, f64),
     size: (f64, f64),
 ) -> (f64, f64) {
-    let Some(saved) = saved else {
-        return default_pos(screens, pointer, size);
-    };
-    match screens.iter().find(|s| s.name == saved.monitor) {
-        Some(screen) => snap(screen, (saved.x, saved.y), size),
-        None => default_pos(screens, pointer, size),
+    let from = saved.and_then(|p| screens.iter().find(|s| s.name == p.monitor).map(|s| (s, p)));
+    match (screen_for_point(screens, focus), from) {
+        (Some(to), Some((from, p))) => snap(to, carry(from, to, (p.x, p.y), size), size),
+        _ => default_pos(screens, focus, size),
     }
+}
+
+// The same spot in proportion, so bottom right stays bottom right on a screen of another size.
+fn carry(from: &Screen, to: &Screen, pos: (f64, f64), size: (f64, f64)) -> (f64, f64) {
+    if from == to {
+        return pos;
+    }
+    (
+        carry_axis(pos.0, size.0, (from.x, from.w), (to.x, to.w)),
+        carry_axis(pos.1, size.1, (from.y, from.h), (to.y, to.h)),
+    )
+}
+
+fn carry_axis(pos: f64, len: f64, from: (f64, f64), to: (f64, f64)) -> f64 {
+    let (lo, hi) = (from.0 + MARGIN, from.0 + from.1 - MARGIN - len);
+    let share = if hi > lo {
+        ((pos - lo) / (hi - lo)).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let (to_lo, to_hi) = (to.0 + MARGIN, to.0 + to.1 - MARGIN - len);
+    to_lo + share * (to_hi - to_lo).max(0.0)
 }
 
 /// Pulls the pill to the margin when it is near or past an edge; free positions are kept.
@@ -177,8 +203,37 @@ mod tests {
             y: 300.0,
         };
         assert_eq!(
-            resolve(&screens, Some(&saved), (0.0, 0.0), (220.0, 44.0)),
+            resolve(&screens, Some(&saved), (2500.0, 100.0), (220.0, 44.0)),
             (2000.0, 300.0)
+        );
+    }
+
+    #[test]
+    fn saved_position_follows_focus_to_another_monitor() {
+        let screens = [
+            mon("A", 0.0, 0.0, 1440.0, 900.0),
+            mon("B", 1440.0, -200.0, 1920.0, 1080.0),
+        ];
+        let size = (220.0, 44.0);
+        // Middle of B's free range lands in the middle of A's.
+        let middle = OverlayPos {
+            monitor: "B".into(),
+            x: 2290.0,
+            y: 318.0,
+        };
+        assert_eq!(
+            resolve(&screens, Some(&middle), (700.0, 400.0), size),
+            (610.0, 428.0)
+        );
+        // Bottom right stays bottom right.
+        let corner = OverlayPos {
+            monitor: "B".into(),
+            x: 1440.0 + 1920.0 - 24.0 - 220.0,
+            y: -200.0 + 1080.0 - 24.0 - 44.0,
+        };
+        assert_eq!(
+            resolve(&screens, Some(&corner), (700.0, 400.0), size),
+            (1196.0, 832.0)
         );
     }
 

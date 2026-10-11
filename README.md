@@ -105,7 +105,7 @@ Open the app from the menu bar or tray icon.
 | Check for updates | Looks for a new version once a day; an update shows as a menu item and a banner, never a pop-up | On |
 | Troubleshooting log | Keeps app events (starts, errors, timings) on this computer, never your words, audio or keys | On |
 
-The recording pill can be dragged anywhere, on any monitor. It snaps to corners and edges and remembers where you put it.
+The recording pill shows on the screen you are typing on. Drag it anywhere: it snaps to corners and edges and keeps that spot, in proportion, on every screen.
 
 ## Models
 

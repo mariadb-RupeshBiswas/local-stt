@@ -574,26 +574,26 @@ fn set_overlay_pos(app: &AppHandle, win: &WebviewWindow, pos: (f64, f64)) {
     });
 }
 
+// The pill shows on the screen being typed into; the pointer stands in when no window has focus.
+fn focus_point(app: &AppHandle, screens: &[Screen]) -> (f64, f64) {
+    crate::focus::window_centre()
+        .filter(|p| overlay::on_screen(screens, *p))
+        .unwrap_or_else(|| pointer(app))
+}
+
 fn place_overlay(app: &AppHandle, win: &WebviewWindow) {
     let cfg = shared(app).config();
     let list = screens(app);
     let plain: Vec<Screen> = list.iter().map(|(s, _)| s.clone()).collect();
-    let ptr = pointer(app);
-    let target_scale = match cfg
-        .overlay_pos
-        .as_ref()
-        .and_then(|p| list.iter().find(|(s, _)| s.name == p.monitor))
-    {
-        Some((_, scale)) => *scale,
-        None => overlay::screen_for_point(&plain, ptr)
-            .and_then(|s| list.iter().find(|(x, _)| x.name == s.name))
-            .map(|(_, scale)| *scale)
-            .unwrap_or(1.0),
-    };
+    let focus = focus_point(app, &plain);
+    let target_scale = overlay::screen_for_point(&plain, focus)
+        .and_then(|s| list.iter().find(|(x, _)| x.name == s.name))
+        .map(|(_, scale)| *scale)
+        .unwrap_or(1.0);
     let size = size_in_units(cfg.theme, target_scale);
     let (lw, lh) = pill_size(cfg.theme);
     let _ = win.set_size(tauri::LogicalSize::new(lw, lh));
-    let pos = overlay::resolve(&plain, cfg.overlay_pos.as_ref(), ptr, size);
+    let pos = overlay::resolve(&plain, cfg.overlay_pos.as_ref(), focus, size);
     set_overlay_pos(app, win, pos);
     let centre = (pos.0 + size.0 / 2.0, pos.1 + size.1 / 2.0);
     if let Some(screen) = overlay::screen_for_point(&plain, centre).cloned() {
