@@ -22,6 +22,16 @@ public static class Native {
     [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr h);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] static extern int GetWindowText(IntPtr h, StringBuilder s, int n);
     [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr h, out uint pid);
+    [DllImport("user32.dll")] static extern IntPtr GetForegroundWindow();
+    [DllImport("user32.dll")] static extern bool ShowWindow(IntPtr h, int cmd);
+    public static string ForegroundTitle() { var sb = new StringBuilder(256); GetWindowText(GetForegroundWindow(), sb, 256); return sb.ToString(); }
+    public static void MinimizeTitled(uint pid, string title) {
+        EnumWindows((h, l) => {
+            uint p; GetWindowThreadProcessId(h, out p);
+            if (p == pid && IsWindowVisible(h)) { var sb = new StringBuilder(256); GetWindowText(h, sb, 256); if (sb.ToString() == title) ShowWindow(h, 6); }
+            return true;
+        }, IntPtr.Zero);
+    }
     public static string[] VisibleTitles(uint pid) {
         var list = new List<string>();
         EnumWindows((h, l) => {
@@ -87,6 +97,18 @@ Shot '2-holding-ctrl-alt'
 [Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
 [Native]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
 Check 'pill appears while the shortcut is held' ($during -contains 'local-stt recording') ($during -join ', ')
+Write-Host "foreground during the press: $([Native]::ForegroundTitle())"
+# Diagnostic: the same press with the app's own window minimized, to tell focus problems from hook problems.
+[Native]::MinimizeTitled([uint32]$proc.Id, 'local-stt')
+Start-Sleep -Seconds 2
+[Native]::keybd_event(0x11, 0, 0, [UIntPtr]::Zero)
+[Native]::keybd_event(0x12, 0, 0, [UIntPtr]::Zero)
+Start-Sleep -Milliseconds 1200
+$minimized = [Native]::VisibleTitles([uint32]$proc.Id)
+[Native]::keybd_event(0x12, 0, 2, [UIntPtr]::Zero)
+[Native]::keybd_event(0x11, 0, 2, [UIntPtr]::Zero)
+Write-Host "diagnostic, own window minimized: foreground '$([Native]::ForegroundTitle())', visible: $($minimized -join ', ')"
+Get-Content (Join-Path $data 'logs\local-stt.log') -ErrorAction SilentlyContinue | Select-Object -Last 8 | ForEach-Object { Write-Host "app log: $_" }
 Start-Sleep -Seconds 4
 Shot '3-after-release'
 Check 'app still running after a dictation attempt' (-not $proc.HasExited)
