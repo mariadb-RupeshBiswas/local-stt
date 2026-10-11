@@ -659,8 +659,8 @@ mod tests {
         assert!(s.contains("abort() called"));
         assert!(s.contains("libsystem_kernel.dylib __pthread_kill + 8"));
         assert!(s.contains("local-stt 0x1000"));
-        for secret in ["SECRET", "Mac16,8", "/Users/", "someone", "procPath"] {
-            assert!(!s.contains(secret), "{secret} leaked: {s}");
+        for dropped in ["SECRET", "Mac16,8", "/Users/", "someone", "procPath"] {
+            assert!(!s.contains(dropped), "{dropped} leaked: {s}");
         }
     }
 
