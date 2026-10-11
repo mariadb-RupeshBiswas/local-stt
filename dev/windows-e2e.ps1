@@ -116,7 +116,10 @@ Get-Content -ErrorAction SilentlyContinue (Join-Path $data 'logs\local-stt.log')
 $savedData = $env:LOCAL_STT_DATA_DIR
 Remove-Item Env:LOCAL_STT_DATA_DIR, Env:LOCAL_STT_NO_PERMISSION_PROMPTS -ErrorAction SilentlyContinue
 $clock = [Diagnostics.Stopwatch]::StartNew()
-$said = (& $shim) -join ' '
+# Run in a job with a deadline, so a launcher that never returns fails the check instead of hanging the job.
+$launch = Start-Job -ScriptBlock { param($cmd) (& $cmd) -join ' ' } -ArgumentList $shim
+if (Wait-Job $launch -Timeout 60) { $said = Receive-Job $launch } else { $said = 'still running after 60 s'; Stop-Job $launch }
+Remove-Job $launch -Force
 Check 'a terminal launch returns at once' ($clock.Elapsed.TotalSeconds -lt 60) "$($clock.Elapsed.TotalSeconds) s"
 Check 'a terminal launch says where the app runs' ($said -match 'system tray') $said
 Start-Sleep -Seconds 8

@@ -51,6 +51,23 @@ pub fn send_paste() -> Result<(), String> {
     ))
 }
 
+/// Stops children from inheriting this process's stdin, stdout and stderr, which may be a caller's pipe.
+pub fn keep_std_handles_private() {
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
+    for which in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: GetStdHandle only reads this process's table; a null or invalid handle makes SetHandleInformation fail harmlessly.
+        unsafe {
+            let handle = GetStdHandle(which);
+            if !handle.is_null() {
+                SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0);
+            }
+        }
+    }
+}
+
 pub fn console_process_count() -> u32 {
     use windows_sys::Win32::System::Console::GetConsoleProcessList;
     let mut ids = [0u32; 2];
