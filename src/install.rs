@@ -130,20 +130,12 @@ pub fn reinstall(clean: bool) -> Result<String, String> {
             done.push(format!("installed version {version}"));
         }
         None => {
-            // A copy outside the install, since uninstall may remove the running binary.
+            // Installing over the same copy rewrites the bundle in place, so it is never missing.
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
-            let kept = installed_exe().and_then(|i| kept_stamp(&exe, &i));
-            let spare = crate::paths::data_dir().join(format!("reinstall-{EXE_NAME}"));
-            std::fs::copy(&exe, &spare).map_err(|e| format!("cannot copy the app: {e}"))?;
-            if cfg!(target_os = "macos") {
-                uninstall()?;
-            }
-            let result = match kept {
-                Some(source) => install_stamped(&spare, &source),
-                None => install(&spare),
+            match installed_exe().and_then(|i| kept_stamp(&exe, &i)) {
+                Some(source) => install_stamped(&exe, &source)?,
+                None => install(&exe)?,
             };
-            let _ = std::fs::remove_file(&spare);
-            result?;
             done.push("installed this version again".to_string());
         }
     }
@@ -151,30 +143,57 @@ pub fn reinstall(clean: bool) -> Result<String, String> {
     if platform::reset_permissions() {
         done.push("reset its macOS permissions".to_string());
     }
-    let data = crate::paths::data_dir();
+    // The new copy does the rest before it reads anything, once this one has quit and stopped writing.
+    let mode = if clean { "clean" } else { "reprompt" };
+    std::fs::write(crate::paths::data_dir().join(PENDING), mode)
+        .map_err(|e| format!("cannot leave the reinstall note: {e}"))?;
     if clean {
-        // Logging stops first, so this copy's last lines do not bring the logs back.
-        crate::diag::set_enabled(false);
-        crate::diag::clear();
-        let _ = std::fs::remove_dir_all(crate::diag::logs_dir());
-        let _ = std::fs::remove_dir_all(crate::notes::dir());
-        for name in ["config.json", "config.json.bak", "history.jsonl"] {
+        done.push(
+            "deletes settings, history, notes and logs as it opens (models kept)".to_string(),
+        );
+    }
+    Ok(format!(
+        "Reinstalled local-stt: {}. It opens again in a moment.",
+        done.join(", ")
+    ))
+}
+
+const PENDING: &str = "reinstall-pending";
+
+/// Run at start, before the config is read: finishes what a reinstall left for the new copy.
+pub fn finish_pending_reinstall() {
+    finish_pending_in(&crate::paths::data_dir());
+}
+
+fn finish_pending_in(data: &Path) {
+    let marker = data.join(PENDING);
+    let Ok(mode) = std::fs::read_to_string(&marker) else {
+        return;
+    };
+    if mode.trim() == "clean" {
+        // Nothing has opened these yet at start, so plain deletes are enough.
+        for dir in ["logs", "diagnostics", "notes"] {
+            let _ = std::fs::remove_dir_all(data.join(dir));
+        }
+        for name in [
+            "config.json",
+            "config.json.bak",
+            "config.json.tmp",
+            "history.jsonl",
+            "history.jsonl.tmp",
+        ] {
             let _ = std::fs::remove_file(data.join(name));
         }
-        done.push("deleted settings, history, notes and logs (models kept)".to_string());
     } else {
-        // The permissions were reset, so the new copy asks for Accessibility again.
-        let path = crate::paths::config_path();
+        // Permissions were reset, so this copy asks for Accessibility again.
+        let path = data.join("config.json");
         if path.is_file() {
             let mut cfg = crate::config::load(&path);
             cfg.accessibility_prompted = None;
             let _ = crate::config::save(&path, &cfg);
         }
     }
-    Ok(format!(
-        "Reinstalled local-stt: {}. It opens again in a moment.",
-        done.join(", ")
-    ))
+    let _ = std::fs::remove_file(&marker);
 }
 
 /// Removes everything `install` created, but never a command file it did not create.
@@ -764,6 +783,46 @@ mod tests {
             None,
             "another build is hashed afresh"
         );
+    }
+
+    #[test]
+    fn pending_clean_deletes_user_data_but_keeps_models() {
+        let d = scratch("pending-clean");
+        for f in ["config.json", "history.jsonl", "history.jsonl.tmp", PENDING] {
+            std::fs::write(d.join(f), "clean").unwrap();
+        }
+        for dir in ["logs", "diagnostics", "notes", "models"] {
+            std::fs::create_dir_all(d.join(dir)).unwrap();
+            std::fs::write(d.join(dir).join("f"), "x").unwrap();
+        }
+        finish_pending_in(&d);
+        let left: Vec<String> = std::fs::read_dir(&d)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(left, ["models"], "only models survive a clean reinstall");
+        finish_pending_in(&d);
+        assert!(
+            d.join("models").join("f").exists(),
+            "no marker, nothing happens"
+        );
+    }
+
+    #[test]
+    fn pending_reprompt_keeps_settings_and_asks_again() {
+        let d = scratch("pending-reprompt");
+        let cfg = crate::config::Config {
+            accessibility_prompted: Some("old-build".into()),
+            paste: false,
+            ..Default::default()
+        };
+        crate::config::save(&d.join("config.json"), &cfg).unwrap();
+        std::fs::write(d.join(PENDING), "reprompt").unwrap();
+        finish_pending_in(&d);
+        let after = crate::config::load(&d.join("config.json"));
+        assert_eq!(after.accessibility_prompted, None);
+        assert!(!after.paste, "other settings stay");
+        assert!(!d.join(PENDING).exists());
     }
 
     fn scratch(name: &str) -> PathBuf {
