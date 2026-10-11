@@ -13,6 +13,8 @@ USAGE:
   local-stt demo                 a short tour with sample data (nothing is recorded or pasted)
   local-stt check-update         see whether a newer release is available
   local-stt diagnostics          save a troubleshooting report to share (no audio or dictated text)
+  local-stt reinstall [--clean]  repair the install: reset permissions, install again; --clean also
+                                 deletes settings, history and logs (models stay)
   local-stt install              add local-stt to Applications / Start menu and your terminal
   local-stt uninstall            remove what install added (settings and history are kept)
   local-stt --autostart on|off   start local-stt when you log in
@@ -36,6 +38,7 @@ fn main() -> ExitCode {
         Some("install") => install(),
         Some("check-update") => check_update(),
         Some("diagnostics") => diagnostics(),
+        Some("reinstall") => reinstall(args.get(1).map(String::as_str)),
         Some("demo") => local_stt::demo::prepare().and_then(|()| local_stt::app::run()),
         Some("uninstall") => uninstall(),
         Some("--version") | Some("-V") => {
@@ -55,6 +58,26 @@ fn main() -> ExitCode {
             ExitCode::FAILURE
         }
     }
+}
+
+// Reinstalling under a running copy would leave the old one in charge, so it must be quit first.
+fn reinstall(flag: Option<&str>) -> Result<(), String> {
+    let clean = match flag {
+        None => false,
+        Some("--clean") => true,
+        Some(other) => return Err(format!("unknown option: {other} (only --clean)")),
+    };
+    paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
+    match local_stt::instance::claim(&paths::data_dir()) {
+        local_stt::instance::Claim::Other => {
+            return Err("local-stt is running. Quit it from the menu bar first, or use Settings > Troubleshooting > Reinstall.".into());
+        }
+        // Only a check: the reinstalled app takes the lock when it starts.
+        local_stt::instance::Claim::Owner { lock, .. } => local_stt::instance::release(&lock),
+    }
+    let note = local_stt::install::reinstall(clean)?;
+    println!("{note}");
+    local_stt::install::launch_installed(std::process::id())
 }
 
 // Works even when the app will not start, which is when a report matters most.

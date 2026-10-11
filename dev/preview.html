@@ -405,6 +405,7 @@
       hotkeyDisplay: comboText(hold),
       toggleDisplay: toggle ? comboText(toggle) : null,
       installed: params.get("installed") === "1",
+      accessibility: platform === "windows" ? null : params.get("access") !== "denied",
       update: params.get("update") === "1" ? { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" } : null,
       history: empty ? [] : entries
     };
@@ -474,6 +475,11 @@
       },
       get_history: function () { return data.history; },
       clear_history: function () { data.history = []; },
+      open_accessibility_settings: function () { window.__calls.push("open_accessibility_settings"); },
+      reinstall_app: function (a) {
+        window.__calls.push("reinstall_app:" + a.clean);
+        return "Reinstalled local-stt: reset its macOS permissions, installed this version again. It opens again in a moment.";
+      },
       export_diagnostics: function () {
         window.__calls.push("export_diagnostics");
         return new Promise(function (resolve) {

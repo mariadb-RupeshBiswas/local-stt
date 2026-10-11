@@ -50,6 +50,8 @@ pub struct Config {
     pub skip_update: Option<String>,
     /// A local troubleshooting log of app events, never content; see diag.rs.
     pub diagnostic_log: bool,
+    /// The build that last showed the macOS Accessibility prompt, so it shows once per build.
+    pub accessibility_prompted: Option<String>,
     pub model: ModelId,
 }
 
@@ -74,6 +76,7 @@ impl Default for Config {
             check_updates: true,
             skip_update: None,
             diagnostic_log: true,
+            accessibility_prompted: None,
             model: ModelId::Small,
         }
     }

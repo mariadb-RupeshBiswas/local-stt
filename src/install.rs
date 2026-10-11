@@ -98,6 +98,59 @@ pub fn hand_off() -> Option<String> {
     }
 }
 
+/// Starts the installed copy as its own app, telling it to wait for `replaces` (this process) to quit.
+pub fn launch_installed(replaces: u32) -> Result<(), String> {
+    platform::launch_installed(replaces)
+}
+
+/// Repairs a broken install: forgets this app's macOS permissions, installs again (the newest
+/// release when one is out, else this build) and, with `clean`, deletes settings, history and
+/// logs too. Models stay, so nothing large is downloaded again. Returns what was done.
+pub fn reinstall(clean: bool) -> Result<String, String> {
+    let mut done = Vec::new();
+    // A stale permission entry survives a reinstall, so the reset comes first.
+    if platform::reset_permissions() {
+        done.push("reset its macOS permissions".to_string());
+    }
+    let newer = crate::update::check()
+        .ok()
+        .filter(|u| u.available)
+        .and_then(|u| u.latest);
+    match newer {
+        Some(version) => {
+            crate::update::install(&version)?;
+            done.push(format!("installed version {version}"));
+        }
+        None => {
+            // A copy outside the install, since uninstall may remove the running binary.
+            let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let spare = crate::paths::data_dir().join(format!("reinstall-{EXE_NAME}"));
+            std::fs::copy(&exe, &spare).map_err(|e| format!("cannot copy the app: {e}"))?;
+            if cfg!(target_os = "macos") {
+                uninstall()?;
+            }
+            let result = install(&spare);
+            let _ = std::fs::remove_file(&spare);
+            result?;
+            done.push("installed this version again".to_string());
+        }
+    }
+    if clean {
+        let data = crate::paths::data_dir();
+        for name in ["config.json", "config.json.bak", "history.jsonl"] {
+            let _ = std::fs::remove_file(data.join(name));
+        }
+        for dir in ["logs", "diagnostics"] {
+            let _ = std::fs::remove_dir_all(data.join(dir));
+        }
+        done.push("deleted settings, history and logs (models kept)".to_string());
+    }
+    Ok(format!(
+        "Reinstalled local-stt: {}. It opens again in a moment.",
+        done.join(", ")
+    ))
+}
+
 /// Removes everything `install` created, but never a command file it did not create.
 pub fn uninstall() -> Result<Vec<String>, String> {
     let mut notes = Vec::new();
@@ -289,6 +342,31 @@ mod platform {
         std::os::unix::process::parent_id() != 1
     }
 
+    // `tccutil reset All <bundle id>` (from its man page) clears every privacy decision for this app only.
+    pub fn reset_permissions() -> bool {
+        crate::proc::command("/usr/bin/tccutil")
+            .args(["reset", "All", "io.github.localstt"])
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
+    // A new instance through LaunchServices, so the update or reinstall asks for permissions as itself.
+    pub fn launch_installed(replaces: u32) -> Result<(), String> {
+        let app = app_dir().ok_or("HOME is not set")?;
+        let status = crate::proc::command("/usr/bin/open")
+            .arg("-n")
+            .arg("--env")
+            .arg(format!("{}={replaces}", crate::instance::REPLACES))
+            .arg(&app)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if status.success() {
+            Ok(())
+        } else {
+            Err(format!("open exited with {status}"))
+        }
+    }
+
     // A changed binary or Info.plist breaks the ad-hoc seal; such a copy is reinstalled, never opened.
     pub fn intact(_installed: &Path) -> bool {
         let Some(app) = app_dir() else {
@@ -451,6 +529,24 @@ mod platform {
         true
     }
 
+    // Windows keeps no per-app permission decisions to reset.
+    pub fn reset_permissions() -> bool {
+        false
+    }
+
+    pub fn launch_installed(replaces: u32) -> Result<(), String> {
+        let exe = installed_exe().ok_or("LOCALAPPDATA is not set")?;
+        crate::output::keep_std_handles_private();
+        crate::proc::command(exe)
+            .env(crate::instance::REPLACES, replaces.to_string())
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    }
+
     // The installed copy starts with no console, so it does not belong to this terminal.
     pub fn open_app(installed: &Path) -> Result<(), String> {
         crate::output::keep_std_handles_private();
@@ -565,6 +661,14 @@ mod platform {
 
     pub fn intact(_installed: &Path) -> bool {
         true
+    }
+
+    pub fn reset_permissions() -> bool {
+        false
+    }
+
+    pub fn launch_installed(_replaces: u32) -> Result<(), String> {
+        Err("not supported here".into())
     }
 
     pub fn open_app(_installed: &Path) -> Result<(), String> {

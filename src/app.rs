@@ -169,6 +169,8 @@ pub fn run() -> Result<(), String> {
             crate::commands::clear_history,
             crate::commands::delete_history,
             crate::commands::export_diagnostics,
+            crate::commands::open_accessibility_settings,
+            crate::commands::reinstall_app,
             crate::commands::reset_overlay_position,
             crate::commands::move_overlay,
             crate::commands::copy_text,
@@ -661,20 +663,64 @@ fn animate_to(app: &AppHandle, win: &WebviewWindow, from: (f64, f64), to: (f64, 
 // ---------- hotkey ----------
 
 fn start_hotkey(app: &AppHandle) {
-    let s = shared(app);
-    // LOCAL_STT_NO_PERMISSION_PROMPTS lets developers and CI start the app without a system dialog.
-    let prompt = std::env::var_os("LOCAL_STT_NO_PERMISSION_PROMPTS").is_none();
-    let allowed = hotkey::accessibility_ok(prompt);
+    let allowed = hotkey::accessibility_ok(should_prompt(app));
     diag::log(&format!(
         "accessibility: {}",
         if allowed { "allowed" } else { "not allowed" }
     ));
+    install_hook(app);
     if !allowed {
-        set_tray_problem(
-            app,
-            "allow Accessibility in System Settings, then restart local-stt",
-        );
+        set_tray_problem(app, "allow Accessibility in System Settings");
+        watch_accessibility(app.clone());
     }
+}
+
+// The system prompt shows once per build, not at every start; Settings explains the rest.
+// LOCAL_STT_NO_PERMISSION_PROMPTS lets developers and CI start the app without a system dialog.
+fn should_prompt(app: &AppHandle) -> bool {
+    if std::env::var_os("LOCAL_STT_NO_PERMISSION_PROMPTS").is_some() {
+        return false;
+    }
+    let build = build_fingerprint();
+    let s = shared(app);
+    if s.config().accessibility_prompted.as_deref() == Some(build.as_str()) {
+        return false;
+    }
+    s.update_config(|c| c.accessibility_prompted = Some(build));
+    true
+}
+
+// Version plus the binary's size and time: changes with every build macOS treats as a new app.
+fn build_fingerprint() -> String {
+    let meta = std::env::current_exe().and_then(std::fs::metadata);
+    let (len, secs) = meta.map_or((0, 0), |m| {
+        let secs = m
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map_or(0, |d| d.as_secs());
+        (m.len(), secs)
+    });
+    format!("{}-{len}-{secs}", env!("CARGO_PKG_VERSION"))
+}
+
+// Accessibility granted while running takes effect at once: the keyboard hook is rebuilt with full rights.
+fn watch_accessibility(app: AppHandle) {
+    std::thread::spawn(move || loop {
+        std::thread::sleep(Duration::from_secs(2));
+        if hotkey::accessibility_ok(false) {
+            diag::log("accessibility: allowed now; keyboard hook restarted");
+            drop(lock(&shared(&app).hook).take());
+            install_hook(&app);
+            refresh_tray(&app);
+            let _ = app.emit("permissions-changed", ());
+            return;
+        }
+    });
+}
+
+fn install_hook(app: &AppHandle) {
+    let s = shared(app);
     let (tx, rx) = mpsc::channel::<HotkeyEvent>();
     let cfg = s.config();
     match hotkey::start(cfg.hotkey, tx) {
@@ -1285,20 +1331,16 @@ pub fn start_download(app: AppHandle, id: ModelId) -> Result<(), String> {
 
 /// Starts the freshly installed copy and quits this one (the exit handler frees the engine first).
 pub fn restart_into_installed(app: &AppHandle) {
-    if let Some(exe) = crate::install::installed_exe().filter(|p| p.is_file()) {
-        let replaced = std::process::id().to_string();
-        // The new copy waits for this one to quit instead of handing its window back to it.
-        if crate::proc::command(exe)
-            .env(crate::instance::REPLACES, replaced)
-            .spawn()
-            .is_ok()
-        {
+    // The new copy waits for this one to quit instead of handing its window back to it.
+    match crate::install::launch_installed(std::process::id()) {
+        Ok(()) => {
             let app = app.clone();
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(400));
                 app.exit(0);
             });
         }
+        Err(e) => diag::log(&format!("restart into the installed copy failed: {e}")),
     }
 }
 

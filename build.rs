@@ -68,6 +68,8 @@ fn main() {
         "clear_history",
         "delete_history",
         "export_diagnostics",
+        "open_accessibility_settings",
+        "reinstall_app",
         "reset_overlay_position",
         "move_overlay",
         "copy_text",

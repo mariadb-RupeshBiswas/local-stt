@@ -477,6 +477,35 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- Settings: Accessibility and Reinstall ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&access=denied", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Accessibility$/ }) });
+  check("Accessibility row says Not allowed and how to fix a stale switch", (await row.locator(".tag").textContent()) === "Not allowed" && (await row.locator(".srow-desc").textContent()).includes("minus button and add it again"));
+  await row.locator(".btn", { hasText: "Open Settings" }).click();
+  check("Open Settings asks the app to open the pane", (await calls(page)).includes("open_accessibility_settings"));
+  await page.evaluate(() => window.__emit("permissions-changed", {}));
+  await page.waitForTimeout(200);
+  check("a granted permission is announced", (await page.locator(".sr-only[role=status]").textContent()).startsWith("Accessibility is allowed"));
+  const reinstall = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Reinstall$/ }) }).locator(".btn");
+  await reinstall.click();
+  await page.waitForTimeout(200);
+  check("Reinstall asks first and focuses Cancel", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Reinstall local-stt?" && (await page.evaluate(() => document.activeElement.textContent)) === "Cancel");
+  await page.locator("#reinstall-clean").check();
+  check("choosing to delete data turns the confirm into Delete and Reinstall", (await page.locator("dialog.dlg .btn-danger-solid").textContent()) === "Delete and Reinstall");
+  await page.locator("#reinstall-clean").uncheck();
+  await page.locator("dialog.dlg .btn-action", { hasText: "Reinstall" }).click();
+  await page.waitForTimeout(300);
+  check("Reinstall keeps data by default and reports back", (await calls(page)).includes("reinstall_app:false") && (await page.locator(".toast").textContent()).startsWith("Reinstalled local-stt"));
+  check("no page errors (reinstall)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows", { tall: true });
+  check("Windows shows no Accessibility row", (await page.locator(".srow-title", { hasText: /^Accessibility$/ }).count()) === 0);
+  await ctx.close();
+}
+
 // ---------- README images carry no metadata ----------
 {
   // Lists a PNG's chunk types; anything beyond what is needed to draw (text, time, profile, EXIF) is metadata.
@@ -773,7 +802,7 @@ for (const how of ["visibilitychange", "pagehide"]) {
 // ---------- main: Settings, install and notices ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&h=1200", { tall: true });
-  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Install$/ }) });
   const button = row.locator(".btn");
   check("Install row copy on macOS", (await row.locator(".srow-desc").textContent()) === "Add local-stt to Applications so Spotlight finds it, and add the local-stt terminal command.");
   check("Install is an enabled 28 pt button", (await button.textContent()) === "Install" && (await button.isEnabled()) && (await button.boundingBox()).height >= 28);
@@ -791,14 +820,14 @@ for (const how of ["visibilitychange", "pagehide"]) {
 }
 {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&installed=1&h=1200", { tall: true });
-  const button = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) }).locator(".btn");
+  const button = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Install$/ }) }).locator(".btn");
   check("installed state shows a disabled Installed button with a check", (await button.textContent()) === "Installed" && (await button.isDisabled()) && (await button.locator("svg.ic-check").count()) === 1);
   check("installed state never calls install_app", !(await calls(page)).includes("install_app"));
   await ctx.close();
 }
 {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows&h=1200", { tall: true });
-  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Install$/ }) });
   check("Install row copy on Windows", (await row.locator(".srow-desc").textContent()) === "Add local-stt to the Start menu so Windows search finds it, and add the local-stt terminal command.");
   await row.locator(".btn").click();
   await page.waitForTimeout(400);
@@ -817,7 +846,7 @@ for (const how of ["visibilitychange", "pagehide"]) {
   await page.waitForTimeout(5800);
   await page.getByRole("switch", { name: "Start at login" }).click();
   await page.waitForTimeout(400);
-  check("turning Start at login on toasts the app's notice and flips Install to Installed", (await page.locator(".toast").textContent()) === "Installed local-stt and set it to open at login." && (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Install" }) }).locator(".btn").textContent()) === "Installed");
+  check("turning Start at login on toasts the app's notice and flips Install to Installed", (await page.locator(".toast").textContent()) === "Installed local-stt and set it to open at login." && (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Install$/ }) }).locator(".btn").textContent()) === "Installed");
   check("no page errors (notices)", errors.length === 0, errors);
   await ctx.close();
 }
