@@ -24,7 +24,11 @@ pub fn is_installed() -> bool {
 /// Installs from `exe` (usually the running binary) and returns the installed binary plus notes.
 pub fn install(exe: &Path) -> Result<(PathBuf, Vec<String>), String> {
     let source = crate::download::sha256_file(exe).unwrap_or_default();
-    let target = platform::install(exe, &source)?;
+    install_stamped(exe, &source)
+}
+
+fn install_stamped(exe: &Path, source: &str) -> Result<(PathBuf, Vec<String>), String> {
+    let target = platform::install(exe, source)?;
     let mut notes = vec![platform::installed_note(&target)];
     if let Some(bin) = user_bin_dir() {
         let path_env = std::env::var_os("PATH").unwrap_or_default();
@@ -43,6 +47,14 @@ fn stamp_path(installed: &Path) -> Option<PathBuf> {
     } else {
         Some(dir.join(STAMP))
     }
+}
+
+/// The stamp to keep when reinstalling from the installed copy itself: re-signing changed its hash.
+fn kept_stamp(exe: &Path, installed: &Path) -> Option<String> {
+    if !same_file(exe, installed) {
+        return None;
+    }
+    stamp_path(installed).and_then(|p| std::fs::read_to_string(p).ok())
 }
 
 /// True when the installed copy was made from this very build.
@@ -108,10 +120,6 @@ pub fn launch_installed(replaces: u32) -> Result<(), String> {
 /// logs too. Models stay, so nothing large is downloaded again. Returns what was done.
 pub fn reinstall(clean: bool) -> Result<String, String> {
     let mut done = Vec::new();
-    // A stale permission entry survives a reinstall, so the reset comes first.
-    if platform::reset_permissions() {
-        done.push("reset its macOS permissions".to_string());
-    }
     let newer = crate::update::check()
         .ok()
         .filter(|u| u.available)
@@ -124,26 +132,43 @@ pub fn reinstall(clean: bool) -> Result<String, String> {
         None => {
             // A copy outside the install, since uninstall may remove the running binary.
             let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+            let kept = installed_exe().and_then(|i| kept_stamp(&exe, &i));
             let spare = crate::paths::data_dir().join(format!("reinstall-{EXE_NAME}"));
             std::fs::copy(&exe, &spare).map_err(|e| format!("cannot copy the app: {e}"))?;
             if cfg!(target_os = "macos") {
                 uninstall()?;
             }
-            let result = install(&spare);
+            let result = match kept {
+                Some(source) => install_stamped(&spare, &source),
+                None => install(&spare),
+            };
             let _ = std::fs::remove_file(&spare);
             result?;
             done.push("installed this version again".to_string());
         }
     }
+    // After the install, so a failed download or copy leaves the permissions as they were.
+    if platform::reset_permissions() {
+        done.push("reset its macOS permissions".to_string());
+    }
+    let data = crate::paths::data_dir();
     if clean {
-        let data = crate::paths::data_dir();
+        // Logging stops first, so this copy's last lines do not bring the logs back.
+        crate::diag::set_enabled(false);
+        crate::diag::clear();
+        let _ = std::fs::remove_dir_all(crate::diag::logs_dir());
         for name in ["config.json", "config.json.bak", "history.jsonl"] {
             let _ = std::fs::remove_file(data.join(name));
         }
-        for dir in ["logs", "diagnostics"] {
-            let _ = std::fs::remove_dir_all(data.join(dir));
-        }
         done.push("deleted settings, history and logs (models kept)".to_string());
+    } else {
+        // The permissions were reset, so the new copy asks for Accessibility again.
+        let path = crate::paths::config_path();
+        if path.is_file() {
+            let mut cfg = crate::config::load(&path);
+            cfg.accessibility_prompted = None;
+            let _ = crate::config::save(&path, &cfg);
+        }
     }
     Ok(format!(
         "Reinstalled local-stt: {}. It opens again in a moment.",
@@ -725,6 +750,18 @@ mod tests {
         assert!(
             installed_from(&installed, &installed),
             "the installed copy itself"
+        );
+        let built_from = crate::download::sha256_file(&source).unwrap();
+        std::fs::write(&stamp, &built_from).unwrap();
+        assert_eq!(
+            kept_stamp(&installed, &installed),
+            Some(built_from),
+            "reinstalling from the installed copy keeps its build's stamp"
+        );
+        assert_eq!(
+            kept_stamp(&source, &installed),
+            None,
+            "another build is hashed afresh"
         );
     }
 
