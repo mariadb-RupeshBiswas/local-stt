@@ -64,8 +64,16 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   const timerInk = await live.locator(".ov-time").evaluate((t) => getComputedStyle(t).color);
   const labelInk = await live.locator(".ov-label").evaluate((t) => getComputedStyle(t).color);
   check("timer text is as opaque as the label (contrast fix)", timerInk === labelInk, { timerInk, labelInk });
-  await page.waitForTimeout(3700);
-  check("transcribing after recording", (await ov.getAttribute("data-state")) === "transcribing");
+  // waits for the scripted switch instead of a fixed sleep, which flaked on loaded CI runners
+  const reachedTranscribing = await ov.evaluate((el) => new Promise((resolve) => {
+    if (el.getAttribute("data-state") === "transcribing") return resolve(true);
+    const watch = new MutationObserver(() => {
+      if (el.getAttribute("data-state") === "transcribing") { watch.disconnect(); resolve(true); }
+    });
+    watch.observe(el, { attributes: true, attributeFilter: ["data-state"] });
+    setTimeout(() => { watch.disconnect(); resolve(false); }, 8000);
+  }));
+  check("transcribing after recording", reachedTranscribing);
   await page.waitForTimeout(1200);
   check("done shows Pasted", (await ov.getAttribute("data-state")) === "done" && (await live.locator(".ov-label").textContent()) === "Pasted");
   await page.waitForTimeout(700);
