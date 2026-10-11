@@ -196,6 +196,8 @@ pub fn run() -> Result<(), String> {
             crate::commands::get_history,
             crate::commands::clear_history,
             crate::commands::delete_history,
+            crate::commands::get_insights,
+            crate::commands::reset_insights,
             crate::commands::export_diagnostics,
             crate::commands::list_notes,
             crate::commands::get_note,
@@ -1107,6 +1109,10 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
     }
     record(&cfg, &model, &text, duration_ms, true);
     let _ = app.emit("history-changed", ());
+    // Beside record(), not in it: insights keep counting when history is off.
+    let count_words = cfg.word_insights && english_output(&cfg);
+    crate::insights::record(&crate::localtime::now(), &text, duration_ms, count_words);
+    let _ = app.emit("insights-changed", ());
     if pasted {
         let label = if cfg.paste { "Pasted" } else { "Copied" };
         show_overlay(app, "done", label, None);

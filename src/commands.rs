@@ -106,6 +106,11 @@ pub async fn set_config(
             .map_err(|e| format!("cannot delete history: {e}"))?;
         let _ = tauri::Emitter::emit(&app, "history-changed", ());
     }
+    if before.word_insights && !next.word_insights {
+        // "Off" deletes the word counts, like history.
+        crate::insights::clear_words();
+        let _ = tauri::Emitter::emit(&app, "insights-changed", ());
+    }
     if before.diagnostic_log != next.diagnostic_log {
         if next.diagnostic_log {
             diag::set_enabled(true);
@@ -206,6 +211,22 @@ pub fn delete_history(app: AppHandle, ids: Vec<u64>) -> Result<usize, String> {
         .map_err(|e| format!("cannot delete dictations: {e}"))?;
     let _ = tauri::Emitter::emit(&app, "history-changed", ());
     Ok(removed)
+}
+
+#[tauri::command]
+pub async fn get_insights(state: State<'_, Arc<Shared>>) -> Result<crate::insights::View, String> {
+    let word_insights = state.config().word_insights;
+    tauri::async_runtime::spawn_blocking(move || {
+        crate::insights::view(&crate::localtime::now(), word_insights)
+    })
+    .await
+    .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub fn reset_insights(app: AppHandle) {
+    crate::insights::reset();
+    let _ = tauri::Emitter::emit(&app, "insights-changed", ());
 }
 
 #[tauri::command]

@@ -67,6 +67,8 @@ fn main() {
         "get_history",
         "clear_history",
         "delete_history",
+        "get_insights",
+        "reset_insights",
         "export_diagnostics",
         "list_notes",
         "get_note",

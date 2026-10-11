@@ -52,6 +52,8 @@ pub struct Config {
     pub diagnostic_log: bool,
     /// The one-time Notes consent sheet was read.
     pub notes_consent_seen: bool,
+    /// Counts the words you use most for Insights; off deletes those counts.
+    pub word_insights: bool,
     pub model: ModelId,
 }
 
@@ -77,6 +79,7 @@ impl Default for Config {
             skip_update: None,
             diagnostic_log: true,
             notes_consent_seen: false,
+            word_insights: true,
             model: ModelId::Small,
         }
     }
