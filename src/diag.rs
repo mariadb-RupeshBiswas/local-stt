@@ -614,6 +614,7 @@ mod tests {
             "overlay_pos",
             "skip_update",
             "accessibility_prompted",
+            "user_name",
         ];
         let json: Value = serde_json::from_str(&settings_json(&Config::default())).unwrap();
         for (key, value) in json.as_object().unwrap() {

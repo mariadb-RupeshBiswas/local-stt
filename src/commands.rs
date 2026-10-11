@@ -388,6 +388,12 @@ pub async fn reinstall_app(app: AppHandle, clean: bool) -> Result<String, String
     if crate::notes::session::active(&app).is_some() {
         return Err("A note is recording. Stop it first, then reinstall.".into());
     }
+    let shared = app::shared_of(&app);
+    let busy =
+        |flag: &std::sync::atomic::AtomicBool| flag.load(std::sync::atomic::Ordering::SeqCst);
+    if busy(&shared.dictating) || busy(&shared.mic_check) {
+        return Err("The microphone is in use. Try again when it is done.".into());
+    }
     if UPDATING.swap(true, std::sync::atomic::Ordering::SeqCst) {
         return Err("An update or reinstall is already running.".into());
     }

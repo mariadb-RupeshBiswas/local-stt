@@ -181,6 +181,10 @@ pub fn load(path: &Path) -> Config {
     if !had_setup {
         cfg.setup_done = true;
     }
+    // A hand-edited file gets the same name rules as Settings.
+    if let Some(raw) = cfg.user_name.take() {
+        cfg.user_name = clean_name(&raw).ok().flatten();
+    }
     if crate::hotkey::validate(&cfg.hotkey).is_err() {
         cfg.hotkey = crate::hotkey::default_combo();
         repaired = true;
@@ -241,6 +245,14 @@ mod tests {
         );
         std::fs::write(&p, r#"{"setup_done": false}"#).unwrap();
         assert!(!load(&p).setup_done);
+        std::fs::write(&p, r#"{"user_name": "  Avery\u0007 "}"#).unwrap();
+        assert_eq!(
+            load(&p).user_name,
+            None,
+            "a hand-edited bad name is dropped"
+        );
+        std::fs::write(&p, r#"{"user_name": "  Avery "}"#).unwrap();
+        assert_eq!(load(&p).user_name.as_deref(), Some("Avery"));
     }
     #[test]
     fn names_are_trimmed_capped_and_plain() {
