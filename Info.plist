@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>io.github.localstt</string>
+  <key>CFBundleName</key>
+  <string>local-stt</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>local-stt listens only while you hold your shortcut, and turns your speech into text on this computer. Audio never leaves your device.</string>
+  <key>LSUIElement</key>
+  <true/>
+</dict>
+</plist>

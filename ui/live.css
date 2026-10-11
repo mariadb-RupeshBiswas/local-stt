@@ -1,0 +1,95 @@
+/* The native window provides the glass on macOS; the page itself stays transparent. */
+html,
+body {
+  margin: 0;
+  height: 100%;
+  background: transparent;
+  overflow: hidden;
+}
+
+[hidden] { display: none !important; }
+
+.lv {
+  --lv-line: 18px;
+  position: relative;
+  width: 100%;
+  height: 100%;
+  font: 400 13px/18px var(--font);
+  color: var(--label);
+  -webkit-font-smoothing: antialiased;
+  -webkit-user-select: none;
+  user-select: none;
+  cursor: default;
+}
+
+/* same card as the pill capsule, with the pill's corner radius */
+.lv-card {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  padding: 0 18px 14px;
+  border-radius: var(--r-lg);
+  background: var(--ov-tint);
+  box-shadow: inset 0 0 0 0.5px var(--ov-border), inset 0 0.5px 0 var(--ov-highlight);
+}
+
+/* the pill is below the popover, so the newest words sit at the bottom, next to it */
+.lv.below .lv-card {
+  justify-content: flex-start;
+  padding: 14px 18px 0;
+}
+
+/* three lines at most; JS keeps the newest line in view, so older words clip away at the top */
+.lv-text {
+  flex: none;
+  max-height: calc(3 * var(--lv-line));
+  margin: 0;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  white-space: pre-line;
+}
+
+.lv-text.clipped {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 var(--lv-line));
+  mask-image: linear-gradient(to bottom, transparent 0, #000 var(--lv-line));
+}
+
+.lv-text.is-empty { color: var(--label-2); }
+
+.lv-new { animation: lv-in 120ms ease-out; }
+
+@keyframes lv-in {
+  from { opacity: 0; }
+}
+
+/* fixed in the corner away from the pill, so it never moves as the text changes */
+.lv-tag {
+  position: absolute;
+  top: 8px;
+  right: 16px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--fill);
+  color: var(--label);
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 16px;
+  white-space: nowrap;
+}
+
+.lv.below .lv-tag {
+  top: auto;
+  bottom: 8px;
+}
+
+/* ---- accessibility modes ---- */
+
+.lv.solid .lv-card {
+  background: var(--ov-solid);
+  box-shadow: inset 0 0 0 1px var(--ov-solid-border);
+}
+
+.lv.reduce-motion .lv-new { animation: none; }
