@@ -43,6 +43,8 @@ uvx local-stt
 
 Every dictation is kept in a local history you can search and copy from. Click Select to tick the ones you no longer need (one, a whole day, or all of them) and delete them, or switch history off.
 
+**Under the hood:** a Rust app built with Tauri. A keyboard hook spots your shortcut, the microphone is recorded in memory, Whisper (whisper.cpp) turns it into text on your computer, simple rules tidy it, and the app pastes it. The full tour, written for newcomers, is in [docs/architecture.md](docs/architecture.md).
+
 ## Install
 
 You need [uv](https://docs.astral.sh/uv/getting-started/installation/), the fast Python package manager. You do not need Python, Rust or anything else.
