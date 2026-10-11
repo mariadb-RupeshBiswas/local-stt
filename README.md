@@ -181,6 +181,12 @@ Your settings, history and models live in `~/Library/Application Support/local-s
 
 Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+### Report a bug
+
+1. Save a diagnostic report: **Settings > Troubleshooting > Export Report**, or `local-stt diagnostics` in a terminal. Read it; it never holds audio or dictated text.
+2. [Open a bug report](https://github.com/mariadb-RupeshBiswas/local-stt/issues/new/choose), describe what happened and attach the report.
+3. Security problems go to [private reporting](https://github.com/mariadb-RupeshBiswas/local-stt/security/advisories/new), never a public issue.
+
 ## License
 
 [MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org.

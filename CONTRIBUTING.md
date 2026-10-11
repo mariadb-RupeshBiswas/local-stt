@@ -19,7 +19,12 @@ git clone --recurse-submodules https://github.com/mariadb-RupeshBiswas/local-stt
 cd local-stt
 cargo build
 cargo test
+cargo run      # a debug build runs right here in the terminal
 ```
+
+A release build started from a terminal installs itself in Applications (or the Start menu)
+and hands over to that copy, as users get it. Set `LOCAL_STT_IN_PROCESS=1` to keep a release
+build in the terminal, for example to watch its error output.
 
 Run the engine integration tests with a model on disk:
 
@@ -46,6 +51,7 @@ uvx --from target/wheels/*.whl local-stt
 - Keep `unsafe` inside the platform modules, each block with a one-line `SAFETY:` comment.
 - Add a line to `CHANGELOG.md` under Unreleased.
 
-## Project layout
+## Project layout and design
 
-See [AGENTS.md](AGENTS.md) for the module map and conventions.
+See [AGENTS.md](AGENTS.md) for the module map and conventions, and the
+[design guide](docs/design-guide.md) for how the app should look, read and be built.
