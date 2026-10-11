@@ -12,8 +12,9 @@ const HISTORY_LIMIT: usize = 500;
 const MAX_DELETE_IDS: usize = 10_000;
 const MAX_COPY_CHARS: usize = 100_000;
 
+// Async keeps the device list and the start-at-login check (reg.exe on Windows) off the UI thread.
 #[tauri::command]
-pub fn get_state(state: State<'_, Arc<Shared>>) -> Value {
+pub async fn get_state(state: State<'_, Arc<Shared>>) -> Result<Value, String> {
     let cfg = state.config();
     let fits = models::evaluate(&state.hardware, &paths::models_dir());
     let platform = if cfg!(target_os = "macos") {
@@ -21,7 +22,7 @@ pub fn get_state(state: State<'_, Arc<Shared>>) -> Value {
     } else {
         "windows"
     };
-    json!({
+    Ok(json!({
         "config": cfg,
         "models": fits,
         "hardware": state.hardware,
@@ -39,7 +40,7 @@ pub fn get_state(state: State<'_, Arc<Shared>>) -> Value {
         "activeModel": *lock(&state.active_model),
         "downloading": *lock(&state.downloading),
         "autostartEnabled": autostart::is_enabled(),
-    })
+    }))
 }
 
 pub fn valid_language(lang: &str) -> bool {
