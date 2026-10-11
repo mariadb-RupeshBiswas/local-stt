@@ -821,7 +821,7 @@ for (const how of ["visibilitychange", "pagehide"]) {
   const descOf = (title) => page.locator(".srow", { has: page.locator(".srow-title", { hasText: title }) }).locator(".srow-desc").first().textContent();
   const smart = page.getByRole("switch", { name: "Smart formatting" });
   check("Smart formatting sits right after Paste into the focused app", titles.indexOf("Smart formatting") === titles.indexOf("Paste into the focused app") + 1, titles);
-  check("Smart formatting copy", (await descOf("Smart formatting")) === 'Turns spoken "point one, point two" into a numbered list, removes "uh" and "um", and fixes spacing.');
+  check("Smart formatting copy", (await descOf("Smart formatting")) === 'Turns spoken lists ("point one, point two" or "first, second") into numbered lists, removes "uh" and "um", and fixes spacing.');
   check("Smart formatting starts on", (await smart.getAttribute("aria-checked")) === "true");
   await smart.click();
   await page.waitForTimeout(250);
