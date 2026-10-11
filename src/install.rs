@@ -76,7 +76,7 @@ pub fn hand_off() -> Option<String> {
     }
     let exe = std::env::current_exe().ok()?;
     let installed = match installed_exe() {
-        Some(p) if installed_from(&exe, &p) => p,
+        Some(p) if installed_from(&exe, &p) && platform::intact(&p) => p,
         _ => match install(&exe) {
             Ok((p, _)) => p,
             Err(e) => {
@@ -289,6 +289,18 @@ mod platform {
         std::os::unix::process::parent_id() != 1
     }
 
+    // A changed binary or Info.plist breaks the ad-hoc seal; such a copy is reinstalled, never opened.
+    pub fn intact(_installed: &Path) -> bool {
+        let Some(app) = app_dir() else {
+            return false;
+        };
+        crate::proc::command("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(&app)
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
     // Through LaunchServices the app is its own process, so macOS shows its name in prompts and indicators.
     pub fn open_app(_installed: &Path) -> Result<(), String> {
         let app = app_dir().ok_or("HOME is not set")?;
@@ -435,6 +447,10 @@ mod platform {
         crate::output::console_is_shared()
     }
 
+    pub fn intact(_installed: &Path) -> bool {
+        true
+    }
+
     // The installed copy starts with no console, so it does not belong to this terminal.
     pub fn open_app(installed: &Path) -> Result<(), String> {
         crate::output::keep_std_handles_private();
@@ -545,6 +561,10 @@ mod platform {
 
     pub fn started_by_a_terminal() -> bool {
         false
+    }
+
+    pub fn intact(_installed: &Path) -> bool {
+        true
     }
 
     pub fn open_app(_installed: &Path) -> Result<(), String> {
