@@ -47,7 +47,18 @@ Every dictation is kept in a local history you can search and copy from. Click S
 
 ## Install
 
-You need [uv](https://docs.astral.sh/uv/getting-started/installation/), the fast Python package manager. You do not need Python, Rust or anything else.
+### Requirements
+
+| | macOS | Windows |
+|---|---|---|
+| Computer | Apple Silicon (M1 or later), macOS 11 or later | 64-bit PC, Windows 10 or 11 |
+| Memory | 4 GB for Whisper Small (more for larger models) | 4 GB for Whisper Small (more for larger models) |
+| Disk | About 200 MB for the app and Whisper Small | About 200 MB for the app and Whisper Small |
+| Internet | Once, to download the speech model | Once, to download the speech model |
+| Installer | [uv](https://docs.astral.sh/uv/getting-started/installation/) | [uv](https://docs.astral.sh/uv/getting-started/installation/) |
+
+> [!IMPORTANT]
+> **uv is the only thing you install yourself.** You do not need Python: if your computer has none, uv downloads its own copy the first time. Install uv with `brew install uv` on a Mac, or `winget install --id=astral-sh.uv -e` on Windows (other ways are on the uv page above). Everything else, the speech model and the microphone and Accessibility permissions, is set up inside the app on first run.
 
 > The first release is not on PyPI yet. Until it is, build from source in a minute or two: see [CONTRIBUTING.md](CONTRIBUTING.md).
 
