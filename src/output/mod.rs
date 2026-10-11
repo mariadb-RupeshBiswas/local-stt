@@ -14,6 +14,12 @@ pub fn send_paste() -> Result<(), String> {
     Err("paste is only supported on macOS and Windows".to_string())
 }
 
+/// A long-lived child must not hold the caller's pipe open, or a script reading our output waits forever.
+#[cfg(windows)]
+pub fn keep_std_handles_private() {
+    windows::keep_std_handles_private();
+}
+
 /// True when this process shares its console with others, which means a terminal started it.
 #[cfg(windows)]
 pub fn console_is_shared() -> bool {

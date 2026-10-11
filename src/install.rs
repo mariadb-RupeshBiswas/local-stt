@@ -433,6 +433,7 @@ mod platform {
 
     // The installed copy starts with no console, so it does not belong to this terminal.
     pub fn open_app(installed: &Path) -> Result<(), String> {
+        crate::output::keep_std_handles_private();
         crate::proc::command(installed)
             .env(super::IN_PROCESS, "1")
             .stdin(std::process::Stdio::null())
