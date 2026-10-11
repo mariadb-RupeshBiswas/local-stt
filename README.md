@@ -131,7 +131,7 @@ Yes, after the first model download.
 Any language Whisper supports, including English and Hindi. Text comes out in English by default; switch "Output language" to keep the spoken language.
 
 **Does smart formatting use an AI model?**
-No. Whisper writes the words and the punctuation. Smart formatting is a set of rules in the app that runs on that text in a few milliseconds: it removes fillers, fixes spacing and turns spoken list markers into a numbered list. Nothing is sent anywhere, and the same words always format the same way.
+No. Whisper writes the words and the punctuation. Smart formatting is a set of rules in the app that runs on that text: it removes fillers, fixes spacing and turns spoken list markers into a numbered list. Nothing is sent anywhere, and the same words always format the same way.
 
 **Does it work on Windows?**
 Yes, Windows 10 and 11 on x64. The default shortcut is Ctrl + Alt.
