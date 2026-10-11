@@ -266,6 +266,9 @@ body {
 .tag-blue { background: var(--blue-tint); color: var(--accent-ink); }
 .tag-green { background: var(--green-tint); color: var(--green-ink); }
 .tag-red { background: var(--red-tint); color: var(--red-ink); }
+.srow-controls { display: inline-flex; align-items: center; gap: var(--s2); }
+.dlg-check { display: flex; align-items: flex-start; gap: var(--s2); margin: 0 0 var(--s4); font-size: 13px; }
+.dlg-check .check { margin-top: 1px; }
 .tag-grey { background: var(--fill); color: var(--label-2); }
 
 .keys {

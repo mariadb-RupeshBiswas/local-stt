@@ -302,6 +302,7 @@
       downloading: null,
       loadingModel: "",
       autostartEnabled: null,
+      accessibility: null, // macOS: whether the shortcut and paste have their rights; null elsewhere
       moving: false,
       capturingSlot: null, // "hold", "toggle" or null: one capture at a time
       hotkeyErrors: { hold: "", toggle: "" },
@@ -449,6 +450,7 @@
       S.activeModel = typeof state.activeModel === "string" ? state.activeModel : null;
       S.downloading = typeof state.downloading === "string" ? state.downloading : null;
       S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
+      S.accessibility = typeof state.accessibility === "boolean" ? state.accessibility : null;
       S.update = state.update && typeof state.update === "object" ? state.update : null;
       if (state.notes && typeof state.notes === "object") {
         S.notes = {
@@ -1660,6 +1662,72 @@
       return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset, turnOff), error), sync: sync };
     }
 
+    // the right macOS needs for the shortcut and paste, with a way straight to the setting
+    function accessControl() {
+      var status = h("span", { class: "tag" });
+      var open = h("button", { class: "btn", type: "button", text: "Open Settings", onclick: function () {
+        Promise.resolve(invoke("open_accessibility_settings")).catch(function (err) { toast(errText(err)); });
+      } });
+      function sync() {
+        var ok = S.accessibility === true;
+        status.className = "tag " + (ok ? "tag-green" : "tag-red");
+        status.textContent = ok ? "Allowed" : "Not allowed";
+        open.hidden = ok;
+      }
+      sync();
+      return { el: h("div", { class: "srow-controls" }, status, open), sync: sync };
+    }
+
+    function accessDescription() {
+      return S.accessibility === true
+        ? "The shortcut and paste work."
+        : "Needed for the shortcut and paste. Already on? Remove local-stt with the minus button and add it again.";
+    }
+
+    // quits, installs again (the newest version when one is out), and reopens
+    function reinstallControl() {
+      var busy = false;
+      var button = h("button", { class: "btn", type: "button", onclick: askReinstall });
+      function sync() {
+        button.disabled = busy;
+        button.textContent = busy ? "Reinstalling..." : "Reinstall...";
+      }
+      function askReinstall() {
+        if (busy) return;
+        clear(dialog);
+        dialog.appendChild(h("h2", { class: "dlg-title", id: "dlg-title", text: "Reinstall local-stt?" }));
+        var mac = S.platform !== "windows";
+        dialog.appendChild(h("p", { class: "dlg-body", text: "local-stt quits, installs again (the newest version when one is out) and opens again." + (mac ? " macOS then asks for its permissions afresh." : "") }));
+        var wipe = h("input", { type: "checkbox", class: "check", id: "reinstall-clean" });
+        dialog.appendChild(h("label", { class: "dlg-check", for: "reinstall-clean" }, wipe, h("span", { text: "Also delete my settings, history, notes, insights and logs. Downloaded models stay." })));
+        var cancel = h("button", { class: "btn", type: "button", text: "Cancel", onclick: function () { closeDialog(); } });
+        var go = h("button", { class: "btn btn-action", type: "button", text: "Reinstall", onclick: function () {
+          var clean = wipe.checked;
+          closeDialog();
+          busy = true;
+          sync();
+          Promise.resolve(invoke("reinstall_app", { clean: clean })).then(function (message) {
+            toast(typeof message === "string" && message !== "" ? message : "Reinstalled. local-stt opens again in a moment.");
+          }).catch(function (err) {
+            busy = false;
+            sync();
+            toast("Couldn't reinstall: " + errText(err));
+          });
+        } });
+        // deleting data turns the confirm red, like every other delete
+        wipe.addEventListener("change", function () {
+          go.className = "btn " + (wipe.checked ? "btn-danger-solid" : "btn-action");
+          go.textContent = wipe.checked ? "Delete and Reinstall" : "Reinstall";
+        });
+        dialog.appendChild(h("div", { class: "dlg-actions" }, cancel, go));
+        if (typeof dialog.showModal === "function") dialog.showModal();
+        else dialog.setAttribute("open", "");
+        cancel.focus();
+      }
+      sync();
+      return { el: button, sync: sync };
+    }
+
     // saves a report in the app's folder and shows it in Finder or Explorer; nothing is sent anywhere
     function reportControl() {
       var busy = false;
@@ -1918,6 +1986,7 @@
       ]);
 
       var general = card([
+        S.platform === "macos" && S.accessibility !== null ? settingRow("Accessibility", accessDescription, addSync(accessControl())) : null,
         settingRow("Save history", "Off keeps nothing on disk and deletes what is saved.", addSync(toggle({
           label: "Save history",
           value: function () { return cfg().save_history; },
@@ -1952,7 +2021,8 @@
           value: function () { return cfg().diagnostic_log !== false; },
           onChange: function (v) { patchConfig({ diagnostic_log: v }); }
         }))),
-        settingRow("Diagnostic report", "Saves a text file with app, system and settings details and the log, to share when something goes wrong. Read it before you share it.", addSync(reportControl()))
+        settingRow("Diagnostic report", "Saves a text file with app, system and settings details and the log, to share when something goes wrong. Read it before you share it.", addSync(reportControl())),
+        settingRow("Reinstall", "Fixes a broken install: installs local-stt again and resets its permissions, keeping your settings unless you choose otherwise.", addSync(reinstallControl()))
       ]);
 
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "General" }));
@@ -2293,6 +2363,10 @@
 
     subscribe("insights-changed", function () {
       if (S.tab === "insights") loadInsights();
+    });
+    subscribe("permissions-changed", function () {
+      reloadState();
+      announce("Accessibility is allowed. The shortcut works now.");
     });
 
     subscribe("history-changed", function () {

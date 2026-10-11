@@ -48,6 +48,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   crash summaries and recent logs, saved locally and shown in Finder or Explorer.
 - History select mode: Select, then pick dictations with checkboxes (a whole day at once,
   Shift-click for a run, Select All, Cmd or Ctrl + A) and delete just those.
+- Settings > General > Accessibility (macOS): shows whether the shortcut and paste are
+  allowed, with Open Settings and a tip for a switch that stayed on from an older copy.
+- Reinstall in Settings > Troubleshooting and `local-stt reinstall [--clean]`: installs again
+  (the newest version when one is out), resets local-stt's macOS permissions, reopens, and can
+  also delete settings, history, notes, insights and logs. Models stay.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
 
@@ -66,6 +71,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   terminal, and closing the terminal no longer quits it. Opening it again shows its window.
 - Windows: background tools (download, update check, Start at login, install) no longer open console windows.
 - Install and Restart starts the new version reliably: it waits for the old copy to quit instead of handing back to it.
+- macOS: the Accessibility prompt shows once per build instead of at every start, and the
+  shortcut starts working once Accessibility is allowed, without restarting the app.
 
 ### Security
 
