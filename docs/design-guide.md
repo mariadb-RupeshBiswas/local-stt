@@ -66,8 +66,9 @@ The recording pill and its live popover are separate, never-focusable windows. O
 window supplies the glass (Liquid Glass, HUD material) and the page adds only a light tint;
 on Windows, with Reduce Transparency or Increase Contrast, and in the demo, the page draws an
 opaque capsule.
-States: recording, transcribing, done, warning, error, positioning. A state always pairs a
-colour with a label or shape, so it never relies on colour alone.
+States: recording, transcribing, done, warning, error, positioning, and Notes (the recording
+look with its own label and the note's timer, for as long as a note runs). A state always
+pairs a colour with a label or shape, so it never relies on colour alone.
 
 ## Words
 
@@ -112,6 +113,10 @@ colour with a label or shape, so it never relies on colour alone.
 - User text reaches the page through `textContent` only. The strict CSP allows no inline
   scripts or styles.
 - Clipboard writes are marked private, so clipboard managers and cloud clipboards skip them.
+- Recording other people (meeting notes) starts only on a click, shows a consent reminder
+  once with a line to paste in the meeting chat, and keeps an indicator on screen throughout.
+- Live transcripts use `role="log"`, add one row per new line, and dictation always runs
+  before note segments, so a paste never waits behind a meeting.
 
 ## Testing
 

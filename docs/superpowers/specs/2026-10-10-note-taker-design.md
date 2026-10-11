@@ -1,6 +1,6 @@
 # Note Taker: design
 
-Status: draft for review, 2026-10-10. Branch `feature/note-taker`, stacked on `feature/dictation-app`.
+Status: phase 1 built in PR #2 (2026-10-10); phases 2 to 5 wait on the owner's decisions below. Branch `feature/note-taker`, stacked on `feature/dictation-app`.
 
 ## Goal
 
