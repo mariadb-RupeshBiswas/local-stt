@@ -595,6 +595,29 @@ mod tests {
     }
 
     #[test]
+    fn report_settings_hold_no_unreviewed_text() {
+        // A new text setting must be masked in settings_json, then listed here.
+        const REVIEWED: &[&str] = &[
+            "language",
+            "theme",
+            "model",
+            "microphone",
+            "overlay_pos",
+            "skip_update",
+            "accessibility_prompted",
+        ];
+        let json: Value = serde_json::from_str(&settings_json(&Config::default())).unwrap();
+        for (key, value) in json.as_object().unwrap() {
+            if value.is_string() || value.is_null() {
+                assert!(
+                    REVIEWED.contains(&key.as_str()),
+                    "unreviewed text setting: {key}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn settings_hide_the_microphone_name() {
         let cfg = Config {
             microphone: Some("Priya's AirPods".into()),

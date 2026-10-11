@@ -118,6 +118,7 @@ pub fn run() -> Result<(), String> {
         }
         crate::instance::Claim::Owner { lock, unclean } => (lock, unclean),
     };
+    crate::install::finish_pending_reinstall();
     let cfg = config::load(&paths::config_path());
     output::detach_own_console();
     diag::set_enabled(cfg.diagnostic_log);
