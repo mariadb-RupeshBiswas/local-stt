@@ -218,6 +218,8 @@ pub fn record(now: &LocalNow, text: &str, duration_ms: u64, count_words: bool) {
 pub fn reset() {
     let _guard = file_lock();
     let _ = std::fs::remove_file(path());
+    // A crash mid-save leaves the same data in the temp file.
+    let _ = std::fs::remove_file(path().with_extension("json.tmp"));
 }
 
 /// Drops the word counts and part-of-speech totals, keeping the rest.
