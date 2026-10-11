@@ -8,6 +8,7 @@ local-stt: free, local push-to-talk speech-to-text for macOS and Windows. Rust +
 whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local-stt` runs it.
 
 - Design guide (look, words, code and security design): `docs/design-guide.md`
+- Architecture tour for newcomers (threads, data flow, files): `docs/architecture.md`
 - Design spec: `docs/superpowers/specs/2026-10-09-local-stt-design.md`
 - Implementation plan: `docs/superpowers/plans/2026-10-09-local-stt.md`
 
