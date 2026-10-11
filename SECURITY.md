@@ -34,6 +34,11 @@ steps to reproduce and the impact you see.
 
 The app sends no telemetry and no crash reports, and has no account.
 
+Started from a terminal, local-stt opens its installed copy only if that copy was made from the
+same build and, on macOS, its ad-hoc code signature still verifies; otherwise it reinstalls first.
+An ad-hoc signature proves the bundle has not changed since it was signed on your Mac, not who
+built it: install from the official release (or your own build), as with any app.
+
 ## Supply chain
 
 - Every GitHub Action is pinned to a full commit SHA; Dependabot keeps pins current.
