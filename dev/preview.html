@@ -99,6 +99,7 @@
     ["Live transcript", "?view=live"],
     ["History", "?view=main&tab=history&scheme=both"],
     ["Notes", "?view=main&tab=notes&scheme=both"],
+    ["Insights", "?view=main&tab=insights&scheme=both"],
     ["Model", "?view=main&tab=model&scheme=both"],
     ["Settings", "?view=main&tab=settings&scheme=both"]
   ];
@@ -384,7 +385,7 @@
         smart_format: true, live_transcription: true, check_updates: true, skip_update: null, diagnostic_log: true, notes_consent_seen: params.get("consent") === "seen",
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
-        save_history: params.get("hist") !== "off", autostart: false, model: "small"
+        save_history: params.get("hist") !== "off", word_insights: true, autostart: false, model: "small"
       },
       models: [
         { id: "small", label: "Small", size_mb: 181, supported: true, recommended: false, downloaded: true, reasons: [] },
@@ -425,6 +426,27 @@
     };
   }
 
+  function insightsView(mode) {
+    if (mode === "empty") return { empty: true, today: "2026-10-12", streak: null, week: [], totals: null, speed: null, hours: null, words: null, milestones: [] };
+    var states = [["Mon", "active"], ["Tue", "frozen"], ["Wed", "missed"], ["Thu", "today"], ["Fri", "upcoming"], ["Sat", "rest"], ["Sun", "bonus"]];
+    return {
+      empty: false,
+      today: "2026-10-15",
+      streak: { current: 6, longest: 12, freezes: 4, freezeCap: 10, nextFreezeIn: 3 },
+      week: states.map(function (pair, i) { return { date: "2026-10-" + (12 + i), weekday: pair[0], state: pair[1] }; }),
+      totals: { wordsToday: 120, wordsWeek: 830, wordsAll: 15400, dictationsAll: 512 },
+      speed: { wpm: 128, typingWpm: 40, minutesSavedWeek: 18, minutesSavedAll: 410 },
+      hours: [0, 0, 0, 0, 0, 0, 0, 12, 140, 300, 260, 180, 90, 120, 210, 240, 200, 150, 60, 20, 0, 0, 0, 0],
+      words: mode === "nowords" ? null : {
+        top: [{ word: "pricing", count: 12 }, { word: "release", count: 10 }, { word: "customer", count: 9 }, { word: "review", count: 7 }],
+        nouns: [{ word: "pricing", count: 12 }, { word: "release", count: 10 }, { word: "customer", count: 9 }],
+        verbs: [{ word: "ship", count: 9 }, { word: "review", count: 7 }, { word: "send", count: 6 }],
+        mix: { noun: 0.42, verb: 0.31, adjective: 0.15, adverb: 0.12 }
+      },
+      milestones: [{ words: 1000, reachedOn: "2026-10-02" }, { words: 10000, reachedOn: "2026-10-09" }, { words: 50000, reachedOn: null }, { words: 100000, reachedOn: null }, { words: 250000, reachedOn: null }, { words: 1000000, reachedOn: null }]
+    };
+  }
+
   window.__calls = [];
   window.__cfg = []; // get_state, set_config and capture traffic, kept apart from __calls
 
@@ -432,7 +454,10 @@
     var data = mockState();
     var bus;
     var captureTimer = 0;
+    var insightsMode = params.get("insights") || "";
     var commands = {
+      get_insights: function () { return insightsView(insightsMode); },
+      reset_insights: function () { window.__calls.push("reset_insights"); insightsMode = "empty"; },
       get_state: function () {
         window.__cfg.push("get_state");
         return data;

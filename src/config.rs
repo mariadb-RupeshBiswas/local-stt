@@ -52,6 +52,8 @@ pub struct Config {
     pub diagnostic_log: bool,
     /// The one-time Notes consent sheet was read.
     pub notes_consent_seen: bool,
+    /// Counts the words you use most for Insights; off deletes those counts.
+    pub word_insights: bool,
     /// The build that last showed the macOS Accessibility prompt, so it shows once per build.
     pub accessibility_prompted: Option<String>,
     pub model: ModelId,
@@ -79,6 +81,7 @@ impl Default for Config {
             skip_update: None,
             diagnostic_log: true,
             notes_consent_seen: false,
+            word_insights: true,
             accessibility_prompted: None,
             model: ModelId::Small,
         }

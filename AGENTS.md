@@ -49,6 +49,7 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke; Windows console detach |
 | `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session |
+| `src/insights/`, `src/localtime/` | Insights: workday streak and freezes (pure), word counts and part-of-speech tagger, `insights.json`; local date and hour from the OS |
 | `src/focus/` | The focused window's centre, so the pill shows on that screen |
 | `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |
 | `src/hwprobe/` | RAM, CPU, GPU, disk |

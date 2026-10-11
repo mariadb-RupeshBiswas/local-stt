@@ -44,6 +44,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   with search, rename, copy and select-to-delete; a one-time consent reminder with a line to
   paste in the meeting chat; a Notes state on the pill; New Note and Stop Notes in the tray.
   Audio is never saved. macOS 14.6+ or Windows 10/11.
+- Insights tab: a workday streak (weekends never count or break it) with streak freezes (5 to
+  start, one more per 10 active workdays, 10 at most, spent automatically), words today, this
+  week and in all, speaking speed and estimated time saved, words by hour, the nouns and verbs
+  you use most (English, approximate, can be turned off), and word milestones. Totals only,
+  never sentences; Reset Insights deletes them.
 - Troubleshooting: a local event log (no words, audio, keys or device names; home folder and
   user name masked), error output kept for launches outside a terminal, and Export Report in
   Settings or `local-stt diagnostics`, a plain-text report with app, system, settings, macOS
@@ -54,7 +59,7 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   allowed, with Open Settings and a tip for a switch that stayed on from an older copy.
 - Reinstall in Settings > Troubleshooting and `local-stt reinstall [--clean]`: installs again
   (the newest version when one is out), resets local-stt's macOS permissions, reopens, and can
-  also delete settings, history, notes and logs. Models stay.
+  also delete settings, history, notes, insights and logs. Models stay.
 - Hardened CI: pinned actions, cargo-deny, CodeQL, zizmor, headless UI checks, gated
   Trusted Publishing release flow with provenance.
 

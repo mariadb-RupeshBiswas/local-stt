@@ -80,6 +80,7 @@ pub fn prepare() -> Result<(), String> {
         };
         history::append(&paths::history_path(), &entry).map_err(|e| e.to_string())?;
     }
+    crate::insights::seed_demo(&crate::localtime::now());
     let small = crate::models::path(&real_models, crate::models::ModelId::Small);
     #[cfg(unix)]
     if small.is_file() {

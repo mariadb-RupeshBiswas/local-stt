@@ -122,6 +122,19 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 
 Coming next: a prompt when a call starts, a local meeting summary, and telling speakers apart.
 
+## Insights
+
+The **Insights** tab shows how dictation is going, kindly and privately:
+
+- **Workday streak**: days in a row with at least one dictation, Monday to Friday only. Weekends never count and never break it.
+- **Streak freezes**: you start with 5. A missed workday spends one by itself, and every 10 active workdays earns one more (10 at most). When none are left the streak starts again; your longest streak is kept.
+- **Words and speed**: words today, this week and in all, words per minute, and an estimate of the time saved against typing at 40 words a minute.
+- **When you dictate**: words by hour of the day.
+- **Your words** (English): the nouns and verbs you use most and the mix of word types. It is approximate. Turn **Word insights** off and those counts are deleted.
+- **Milestones** at 1,000 words and up.
+
+Insights keep totals only (counts per day, the 200 words you use most), never sentences. They stay on your computer, keep counting when history is off, and **Reset Insights** deletes them.
+
 ## Settings
 
 Open the app from the menu bar or tray icon.
@@ -191,6 +204,7 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 - The shortcut listener only checks whether your chosen combo is held. It never records or stores any other keys.
 - The troubleshooting log records events such as "recording stopped: 4.2 s" or "paste blocked", never what you said, audio, key presses, clipboard contents or microphone names. It stays on your computer; turning it off deletes it.
 - Meeting notes record what your computer plays only between New Note and Stop. Audio is never written to disk; notes are local files readable only by your user account.
+- Insights keep daily counts and your most used words, never sentences; Reset Insights deletes them.
 - History and settings are plain local files readable only by your user account. History can be switched off, cleared, or trimmed to the dictations you pick, at any time.
 - Releases are built in GitHub Actions, published with PyPI Trusted Publishing and carry build provenance attestations.
 
@@ -230,7 +244,7 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 **The shortcut does nothing on macOS, though local-stt is switched on.** macOS can keep the switch of an older copy. In System Settings > Privacy & Security > Accessibility (Device Control and Data Access on newer macOS), select local-stt, click the minus button and add it again, or use Reinstall below. Settings > General shows **Allowed** once it works.
 
-**Reinstall.** Settings > Troubleshooting > **Reinstall** (or `local-stt reinstall`) quits local-stt, installs it again (the newest version when one is out) and opens it. On macOS it also resets local-stt's permissions, so macOS asks for them again. Tick the box, or add `--clean`, to also delete your settings, history, notes and logs; downloaded models stay.
+**Reinstall.** Settings > Troubleshooting > **Reinstall** (or `local-stt reinstall`) quits local-stt, installs it again (the newest version when one is out) and opens it. On macOS it also resets local-stt's permissions, so macOS asks for them again. Tick the box, or add `--clean`, to also delete your settings, history, notes, insights and logs; downloaded models stay.
 
 ## Updating
 

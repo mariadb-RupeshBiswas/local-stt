@@ -24,6 +24,7 @@
   var TABS = [
     { value: "history", label: "History" },
     { value: "notes", label: "Notes" },
+    { value: "insights", label: "Insights" },
     { value: "model", label: "Model" },
     { value: "settings", label: "Settings" }
   ];
@@ -51,6 +52,9 @@
     info: ["M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z", "M12 11v5", "M12 8h.01"],
     trash: ["M5 7h14", "M10 7V5h4v2", "M7 7l1 12h8l1-12", "M10.5 10.5v5M13.5 10.5v5"],
     chevron: ["M9 6l6 6-6 6"],
+    freeze: ["M12 4v16", "M5.1 8l13.8 8", "M18.9 8 5.1 16"],
+    minus: ["M8 12h8"],
+    plus: ["M12 8v8M8 12h8"],
     up: ["M12 3.5a8.5 8.5 0 1 0 0 17 8.5 8.5 0 0 0 0-17Z", "M12 16.5v-8", "M8.6 11.6 12 8.2l3.4 3.4"]
   };
 
@@ -287,6 +291,9 @@
       noteListLoaded: false,
       noteListStale: false,
       noteSearch: "",
+      insights: null, // the get_insights view, or null before the first load
+      insightsError: "",
+      insightsSeq: 0, // drops an older answer that arrives after a newer one
       openNote: null, // the whole note shown in the Notes tab, or null for the list
       openStatus: "done", // recording, tidying or done
       progress: {},
@@ -368,16 +375,17 @@
       if (name !== "history" && historyPick.on) historyPick.set(false);
       if (name !== "notes" && notesPick.on) notesPick.set(false);
       if (name === "notes" && S.noteListStale) loadNotes();
+      if (name === "insights") loadInsights(); // every visit, so a new day or a missed event never shows old numbers
       if (name === "history" && S.historyStale) loadHistory();
     }
 
     // ---------- keyboard shortcuts ----------
 
-    // Cmd on macOS, Ctrl on Windows: 1 to 4 pick a tab, F searches the history, W closes the window
+    // Cmd on macOS, Ctrl on Windows: 1 to 5 pick a tab, F searches the history, W closes the window
     function onShortcut(event) {
       var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
       if (!mod || event.altKey || event.shiftKey || S.capturingSlot || dialog.open) return;
-      var tab = { "1": "history", "2": "notes", "3": "model", "4": "settings" }[event.key];
+      var tab = { "1": "history", "2": "notes", "3": "insights", "4": "model", "5": "settings" }[event.key];
       var win = tauri && tauri.window && tauri.window.getCurrentWindow ? tauri.window.getCurrentWindow() : null;
       if ((event.key === "w" || event.key === "W") && win) {
         event.preventDefault();
@@ -1546,6 +1554,7 @@
 
     function syncSettings() {
       syncers.forEach(function (fn) { fn(); });
+      if (S.insightsSync) S.insightsSync(); // the Insights switch lives outside the settings syncers
     }
 
     // a function description is re-read on every sync, for text that depends on another setting
@@ -1690,7 +1699,7 @@
         var mac = S.platform !== "windows";
         dialog.appendChild(h("p", { class: "dlg-body", text: "local-stt quits, installs again (the newest version when one is out) and opens again." + (mac ? " macOS then asks for its permissions afresh." : "") }));
         var wipe = h("input", { type: "checkbox", class: "check", id: "reinstall-clean" });
-        dialog.appendChild(h("label", { class: "dlg-check", for: "reinstall-clean" }, wipe, h("span", { text: "Also delete my settings, history, notes and logs. Downloaded models stay." })));
+        dialog.appendChild(h("label", { class: "dlg-check", for: "reinstall-clean" }, wipe, h("span", { text: "Also delete my settings, history, notes, insights and logs. Downloaded models stay." })));
         var cancel = h("button", { class: "btn", type: "button", text: "Cancel", onclick: function () { closeDialog(); } });
         var go = h("button", { class: "btn btn-action", type: "button", text: "Reinstall", onclick: function () {
           var clean = wipe.checked;
@@ -2024,11 +2033,242 @@
       syncSettings();
     }
 
+    // ---------- Insights ----------
+
+    var WEEKDAYS = { Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday", Sun: "Sunday" };
+    var DAY_STATES = {
+      active: { say: "active", icon: "check" },
+      frozen: { say: "covered by a freeze", icon: "freeze" },
+      missed: { say: "missed", icon: "minus" },
+      today: { say: "today", icon: null },
+      upcoming: { say: "still to come", icon: null },
+      rest: { say: "rest day", icon: "minus" },
+      bonus: { say: "bonus", icon: "plus" }
+    };
+    var MIX = [
+      { key: "noun", label: "Nouns", cls: "mix-noun" },
+      { key: "verb", label: "Verbs", cls: "mix-verb" },
+      { key: "adjective", label: "Adjectives", cls: "mix-adj" },
+      { key: "adverb", label: "Adverbs", cls: "mix-adv" }
+    ];
+    var insightsPanel = panels.insights;
+
+    function isNum(v) {
+      return typeof v === "number" && isFinite(v);
+    }
+
+    function num(v) {
+      return isNum(v) ? v.toLocaleString("en-US") : "-";
+    }
+
+    function percent(v) {
+      return isNum(v) ? Math.round(v * 100) + "%" : "-";
+    }
+
+    // minutes read better as hours once they pass 60
+    function duration(minutes) {
+      if (!isNum(minutes)) return "-";
+      if (minutes < 60) return num(Math.round(minutes)) + " min";
+      return (Math.round(minutes / 6) / 10).toLocaleString("en-US") + " hours";
+    }
+
+    function shortDate(iso) {
+      var m = typeof iso === "string" ? iso.match(/^(\d{4})-(\d{2})-(\d{2})$/) : null;
+      if (!m) return "-";
+      return new Date(+m[1], +m[2] - 1, +m[3]).toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+    }
+
+    function stat(value, label) {
+      return h("div", { class: "stat" }, h("div", { class: "stat-value", text: value }), h("div", { class: "stat-label", text: label }));
+    }
+
+    function insightsTitle(text) {
+      return h("h3", { class: "group-title", text: text });
+    }
+
+    function weekRow(week) {
+      var row = h("div", { class: "week" });
+      for (var i = 0; i < 7; i++) {
+        var day = Array.isArray(week) && week[i] ? week[i] : {};
+        var info = DAY_STATES[day.state] || null;
+        var name = WEEKDAYS[day.weekday] || dash(day.weekday);
+        var dot = h("span", { class: "week-dot" }, info && info.icon ? icon(info.icon) : null);
+        row.appendChild(h("div", { class: "week-cell state-" + (info ? day.state : "unknown"), role: "img", "aria-label": name + ", " + (info ? info.say : "no data") },
+          h("span", { class: "week-name", "aria-hidden": "true", text: dash(day.weekday) }), dot));
+      }
+      return row;
+    }
+
+    function streakCard(v) {
+      var s = v.streak || {};
+      var next = isNum(s.nextFreezeIn) ? h("div", { class: "ins-line", text: "Next freeze in " + num(s.nextFreezeIn) + " active " + (s.nextFreezeIn === 1 ? "workday" : "workdays") }) : null;
+      return h("div", { class: "card ins-card" },
+        h("div", { class: "streak-hero" },
+          h("span", { class: "streak-num", text: num(s.current) }),
+          h("span", { class: "streak-unit", text: "workdays" })),
+        h("div", { class: "stats" },
+          stat(num(s.longest), "Longest streak"),
+          stat(num(s.freezes) + " of " + num(s.freezeCap), "Freezes")),
+        next,
+        weekRow(v.week));
+    }
+
+    function hoursChart(hours) {
+      var values = Array.isArray(hours) && hours.length === 24 ? hours : null;
+      var peak = 0;
+      if (values) values.forEach(function (n) { if (isNum(n) && n > peak) peak = n; });
+      var bars = h("div", { class: "hours", role: "img", "aria-label": values && peak > 0 ? "Words by hour of the day. Busiest hour: " + values.indexOf(peak) + ":00." : "Words by hour of the day. No data yet." });
+      for (var i = 0; i < 24; i++) {
+        var bar = h("i", { class: "hour" });
+        var n = values ? values[i] : null;
+        // a 2 px floor keeps an empty hour visible as a baseline
+        bar.style.height = (isNum(n) && peak > 0 ? Math.max(2, Math.round(n / peak * 64)) : 2) + "px";
+        bars.appendChild(bar);
+      }
+      var axis = h("div", { class: "hours-axis", "aria-hidden": "true" });
+      ["0:00", "6:00", "12:00", "18:00", "23:00"].forEach(function (t) { axis.appendChild(h("span", { text: t })); });
+      return h("div", { class: "card ins-card" }, bars, axis);
+    }
+
+    function wordList(title, items) {
+      var list = h("ol", { class: "wlist" });
+      var rows = Array.isArray(items) ? items : [];
+      rows.forEach(function (item) {
+        list.appendChild(h("li", {}, h("span", { class: "wlist-word", text: dash(item && item.word) }), h("span", { class: "wlist-count", text: num(item && item.count) })));
+      });
+      if (rows.length === 0) list.appendChild(h("li", {}, h("span", { class: "wlist-word", text: "-" })));
+      return h("div", { class: "wcol" }, h("div", { class: "wcol-title", text: title }), list);
+    }
+
+    function mixBar(mix) {
+      var bar = h("div", { class: "mix", role: "img" });
+      var legend = h("ul", { class: "mix-legend" });
+      var spoken = [];
+      MIX.forEach(function (part) {
+        var value = mix ? mix[part.key] : null;
+        if (isNum(value) && value > 0) {
+          var seg = h("i", { class: "mix-seg " + part.cls });
+          seg.style.width = value * 100 + "%";
+          bar.appendChild(seg);
+        }
+        spoken.push(part.label + " " + percent(value));
+        legend.appendChild(h("li", {}, h("span", { class: "mix-dot " + part.cls, "aria-hidden": "true" }), part.label + " " + percent(value)));
+      });
+      bar.setAttribute("aria-label", "Part of speech mix. " + spoken.join(", "));
+      return h("div", { class: "mixwrap" }, bar, legend);
+    }
+
+    function wordsCard(w) {
+      return h("div", { class: "card ins-card" },
+        h("div", { class: "wcols" }, wordList("Top nouns", w.nouns), wordList("Top verbs", w.verbs), wordList("Top words", w.top)),
+        mixBar(w.mix));
+    }
+
+    function milestonesCard(list) {
+      var card = h("div", { class: "card" });
+      (Array.isArray(list) ? list : []).forEach(function (m) {
+        card.appendChild(h("div", { class: "srow ins-row" },
+          h("div", { class: "srow-title", text: num(m && m.words) + " words" }),
+          h("div", { class: "ins-date", text: shortDate(m && m.reachedOn) })));
+      });
+      return card;
+    }
+
+    function askResetInsights() {
+      askConfirm({
+        title: "Reset Insights?",
+        body: "Your streak, freezes, word counts and milestones will be removed from " + thisDevice() + ". This can't be undone.",
+        confirm: "Reset",
+        danger: true,
+        onConfirm: function () {
+          Promise.resolve(invoke("reset_insights")).then(loadInsights).catch(function (err) { toast("Couldn't reset: " + errText(err)); });
+        }
+      });
+    }
+
+    function insightsFooter() {
+      var sw = toggle({
+        label: "Word insights",
+        value: function () { return !(S.config && S.config.word_insights === false); },
+        onChange: function (v) { patchConfig({ word_insights: v }).then(loadInsights); }
+      });
+      sw.el.id = "ins-words-sw";
+      S.insightsSync = sw.sync;
+      return h("div", { class: "card" },
+        h("div", { class: "ins-privacy", text: "Everything here stays on " + thisDevice() + "." }),
+        settingRow("Word insights", "Counts the words you use most. Off deletes the counts.", sw.el),
+        settingRow("Reset Insights", "Removes your streak, freezes, word counts and milestones.",
+          h("button", { class: "btn btn-danger", id: "ins-reset", type: "button", text: "Reset Insights...", onclick: askResetInsights })));
+    }
+
+    function renderInsights() {
+      var v = S.insights;
+      var focusId = insightsPanel.contains(document.activeElement) ? document.activeElement.id : "";
+      var top = scroller.scrollTop;
+      clear(insightsPanel);
+      if (!v) {
+        if (S.insightsError) {
+          insightsPanel.appendChild(emptyState("Couldn't load", S.insightsError, h("button", { class: "btn", type: "button", text: "Try Again", onclick: loadInsights })));
+        }
+        return;
+      }
+      if (v.empty === true) {
+        insightsPanel.appendChild(emptyState("No insights yet", "Dictate once to start your first streak."));
+      } else {
+        var t = v.totals || {};
+        var sp = v.speed || {};
+        insightsPanel.appendChild(insightsTitle("Workday streak"));
+        insightsPanel.appendChild(streakCard(v));
+        insightsPanel.appendChild(insightsTitle("Words"));
+        insightsPanel.appendChild(h("div", { class: "card ins-card" }, h("div", { class: "stats stats-4" },
+          stat(num(t.wordsToday), "Today"), stat(num(t.wordsWeek), "This week"), stat(num(t.wordsAll), "All time"), stat(num(t.dictationsAll), "Dictations"))));
+        insightsPanel.appendChild(insightsTitle("Speed and time saved"));
+        insightsPanel.appendChild(h("div", { class: "card ins-card" },
+          h("div", { class: "stats stats-3" },
+            stat(isNum(sp.wpm) ? num(sp.wpm) + " wpm" : "-", "Speaking speed"),
+            stat(duration(sp.minutesSavedWeek), "Time saved this week"),
+            stat(duration(sp.minutesSavedAll), "Time saved all time")),
+          h("div", { class: "ins-line", text: "Estimated against typing at " + num(sp.typingWpm) + " words a minute" })));
+        insightsPanel.appendChild(insightsTitle("When you dictate"));
+        insightsPanel.appendChild(hoursChart(v.hours));
+        if (v.words) {
+          insightsPanel.appendChild(insightsTitle("Your words"));
+          insightsPanel.appendChild(wordsCard(v.words));
+          insightsPanel.appendChild(h("p", { class: "footnote", text: "Approximate, English only" }));
+        }
+        insightsPanel.appendChild(insightsTitle("Milestones"));
+        insightsPanel.appendChild(milestonesCard(v.milestones));
+      }
+      insightsPanel.appendChild(h("div", { class: "ins-gap" }));
+      insightsPanel.appendChild(insightsFooter());
+      scroller.scrollTop = top;
+      var back = focusId ? document.getElementById(focusId) : null;
+      if (back) back.focus();
+    }
+
+    function loadInsights() {
+      var seq = ++S.insightsSeq;
+      return Promise.resolve(invoke("get_insights")).then(function (view) {
+        if (seq !== S.insightsSeq) return;
+        S.insights = view && typeof view === "object" ? view : null;
+        S.insightsError = S.insights ? "" : "No insights came back.";
+        renderInsights();
+      }).catch(function (err) {
+        if (seq !== S.insightsSeq) return;
+        if (!S.insights) {
+          S.insightsError = errText(err);
+          renderInsights();
+        } else {
+          toast(errText(err));
+        }
+      });
+    }
+
     // ---------- render ----------
 
     function renderAll() {
       if (!S.loaded) {
-        [panels.history, panels.notes, panels.model, panels.settings].forEach(function (p) { clear(p); });
+        [panels.history, panels.notes, panels.insights, panels.model, panels.settings].forEach(function (p) { clear(p); });
         if (S.loadError) {
           panels[S.tab].appendChild(emptyState("Couldn't load", S.loadError,
             h("button", { class: "btn", type: "button", text: "Try Again", onclick: refreshState })));
@@ -2121,6 +2361,9 @@
 
     subscribe("show-update", showUpdate);
 
+    subscribe("insights-changed", function () {
+      if (S.tab === "insights") loadInsights();
+    });
     subscribe("permissions-changed", function () {
       reloadState();
       announce("Accessibility is allowed. The shortcut works now.");

@@ -149,7 +149,8 @@ pub fn reinstall(clean: bool) -> Result<String, String> {
         .map_err(|e| format!("cannot leave the reinstall note: {e}"))?;
     if clean {
         done.push(
-            "deletes settings, history, notes and logs as it opens (models kept)".to_string(),
+            "deletes settings, history, notes, insights and logs as it opens (models kept)"
+                .to_string(),
         );
     }
     Ok(format!(
@@ -181,6 +182,8 @@ fn finish_pending_in(data: &Path) {
             "config.json.tmp",
             "history.jsonl",
             "history.jsonl.tmp",
+            "insights.json",
+            "insights.json.tmp",
         ] {
             let _ = std::fs::remove_file(data.join(name));
         }
@@ -788,7 +791,13 @@ mod tests {
     #[test]
     fn pending_clean_deletes_user_data_but_keeps_models() {
         let d = scratch("pending-clean");
-        for f in ["config.json", "history.jsonl", "history.jsonl.tmp", PENDING] {
+        for f in [
+            "config.json",
+            "history.jsonl",
+            "insights.json",
+            "insights.json.tmp",
+            PENDING,
+        ] {
             std::fs::write(d.join(f), "clean").unwrap();
         }
         for dir in ["logs", "diagnostics", "notes", "models"] {

@@ -403,10 +403,13 @@ for (const dark of [false, true]) {
   check("Cmd+2 opens Notes", (await page.locator("#tab-notes").getAttribute("aria-selected")) === "true");
   await page.keyboard.press("Meta+3");
   await page.waitForTimeout(250);
-  check("Cmd+3 opens Model", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  check("Cmd+3 opens Insights", (await page.locator("#tab-insights").getAttribute("aria-selected")) === "true");
   await page.keyboard.press("Meta+4");
   await page.waitForTimeout(250);
-  check("Cmd+4 opens Settings", (await page.locator("#tab-settings").getAttribute("aria-selected")) === "true");
+  check("Cmd+4 opens Model", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  await page.keyboard.press("Meta+5");
+  await page.waitForTimeout(250);
+  check("Cmd+5 opens Settings", (await page.locator("#tab-settings").getAttribute("aria-selected")) === "true");
   await page.keyboard.press("Meta+f");
   await page.waitForTimeout(250);
   check("Cmd+F opens History and focuses the search box", (await page.locator("#tab-history").getAttribute("aria-selected")) === "true" && (await page.evaluate(() => document.activeElement.className)) === "search-input");
@@ -779,9 +782,9 @@ for (const dark of [false, true]) {
   const hk = page.locator(".hk[data-slot=hold]");
   check("Windows keycaps keep Ctrl and Alt", (await hk.locator(".key").allTextContents()).join("+") === "Ctrl+Alt");
   check("Windows hands-free keycaps keep Ctrl, Alt and Space", (await page.locator(".hk[data-slot=toggle] .key").allTextContents()).join("+") === "Ctrl+Alt+Space");
-  await page.keyboard.press("Control+3");
+  await page.keyboard.press("Control+4");
   await page.waitForTimeout(250);
-  check("Ctrl+3 opens Model on Windows", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
+  check("Ctrl+4 opens Model on Windows", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true");
   await page.locator("#tab-settings").click();
   await page.getByRole("switch", { name: "Save history" }).click();
   await page.waitForTimeout(250);
@@ -1101,6 +1104,100 @@ for (const dark of [false, true]) {
   check(mode + ": copy button keeps its secondary ink at 4.5:1", verdict(icon), icon);
   const solid = await probe("?view=main&tab=history", ".btn-danger-solid", "white", ".dlg", { before: async (page) => { await page.getByText("Clear History", { exact: true }).first().click(); await page.waitForTimeout(300); } });
   check(mode + ": the red confirm button has white text at 4.5:1", verdict(solid), solid);
+}
+
+// ---------- main: Insights ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light&h=1400", { tall: true });
+  const tabNames = await page.locator("[role=tab]").allTextContents();
+  check("Insights is the third tab", tabNames.join(",") === "History,Notes,Insights,Model,Settings", tabNames);
+  await page.keyboard.press("Meta+3");
+  await page.waitForTimeout(300);
+  check("Cmd+3 shows the Insights panel", (await page.locator("#panel-insights").isVisible()) && (await page.locator("#tab-insights").getAttribute("aria-selected")) === "true");
+  check("streak number shown", (await page.locator(".streak-num").textContent()) === "6" && (await page.locator(".streak-unit").textContent()) === "workdays");
+  check("freezes read 4 of 10", (await page.locator("#panel-insights .stat", { hasText: "Freezes" }).locator(".stat-value").textContent()) === "4 of 10");
+  check("next freeze line shown", (await page.locator("#panel-insights .ins-line", { hasText: "Next freeze in 3 active workdays" }).count()) === 1);
+  const cells = await page.locator(".week-cell").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
+  check("week row has 7 cells, each with an aria-label", cells.length === 7 && cells.every(Boolean), cells);
+  check("week labels name the day and state", cells[0] === "Monday, active" && cells[1] === "Tuesday, covered by a freeze" && cells[6] === "Sunday, bonus", cells);
+  const shapes = await page.locator(".week-cell").evaluateAll((els) => els.map((e) => e.querySelector(".week-dot svg") ? "glyph" : getComputedStyle(e.querySelector(".week-dot")).borderStyle));
+  check("every day state carries a shape, never colour alone", shapes.every((s) => s === "glyph" || s === "solid" || s === "dashed"), shapes);
+  check("words total uses a thousands separator", (await page.locator("#panel-insights .stat", { hasText: "All time" }).first().locator(".stat-value").textContent()) === "15,400");
+  check("typing estimate label uses typingWpm", (await page.locator("#panel-insights .ins-line", { hasText: "Estimated against typing at 40 words a minute" }).count()) === 1);
+  check("time saved shows minutes and hours", (await page.locator("#panel-insights .stat", { hasText: "Time saved this week" }).locator(".stat-value").textContent()) === "18 min" && (await page.locator("#panel-insights .stat", { hasText: "Time saved all time" }).locator(".stat-value").textContent()) === "6.8 hours");
+  check("24 hour bars", (await page.locator(".hours .hour").count()) === 24);
+  const heights = await page.locator(".hours .hour").evaluateAll((els) => els.map((e) => e.getBoundingClientRect().height));
+  check("the busiest hour is the tallest bar", heights[9] === Math.max(...heights) && heights[0] < heights[9], heights);
+  check("Your words shows nouns, verbs and top words", (await page.locator(".wcol-title").allTextContents()).join() === "Top nouns,Top verbs,Top words");
+  check("words are labelled approximate and English only", (await page.locator("#panel-insights .footnote", { hasText: "Approximate, English only" }).count()) === 1);
+  check("mix legend lists four parts", (await page.locator(".mix-legend li").count()) === 4 && (await page.locator(".mix-legend li").first().textContent()) === "Nouns 42%");
+  const ms = await page.locator("#panel-insights .ins-row").allTextContents();
+  check("milestones show a date or a dash", ms.length === 6 && ms[0].includes("1,000 words") && ms[0].includes("Oct 2, 2026") && ms[2] === "50,000 words-", ms);
+  const dates = await page.locator("#panel-insights .ins-date").allTextContents();
+  check("a missing value shows a dash, never 0", dates[2] === "-" && dates[5] === "-", dates);
+  check("footer says this Mac", (await page.locator(".ins-privacy").textContent()) === "Everything here stays on this Mac.");
+  const sw = page.getByRole("switch", { name: "Word insights" });
+  check("Word insights switch starts on", (await sw.getAttribute("aria-checked")) === "true");
+  await sw.click();
+  await page.waitForTimeout(300);
+  check("Word insights switch saves word_insights", (await page.evaluate(() => window.__cfg)).includes('set_config:{"word_insights":false}') && (await page.getByRole("switch", { name: "Word insights" }).getAttribute("aria-checked")) === "false");
+  // Reset asks first, Cancel has focus
+  await page.locator("#ins-reset").click();
+  await page.waitForTimeout(300);
+  const dlg = page.locator("dialog.dlg[open]");
+  check("Reset asks with the agreed words", (await dlg.locator(".dlg-title").textContent()) === "Reset Insights?" && (await dlg.locator(".dlg-body").textContent()) === "Your streak, freezes, word counts and milestones will be removed from this Mac. This can't be undone.");
+  check("Cancel is focused and the confirm is Reset", (await page.evaluate(() => document.activeElement.textContent)) === "Cancel" && (await dlg.locator(".btn-danger-solid").textContent()) === "Reset");
+  await dlg.locator(".btn", { hasText: "Cancel" }).click();
+  check("Cancel leaves insights alone", !(await calls(page)).includes("reset_insights") && (await page.locator(".streak-num").count()) === 1);
+  await page.locator("#ins-reset").click();
+  await page.waitForTimeout(300);
+  await dlg.locator(".btn-danger-solid").click();
+  await page.waitForTimeout(400);
+  check("Reset calls reset_insights and shows the empty state", (await calls(page)).includes("reset_insights") && (await page.locator("#panel-insights .empty-title").textContent()) === "No insights yet" && (await page.locator("#panel-insights .empty-body").textContent()) === "Dictate once to start your first streak.");
+  check("the footer stays on the empty state", (await page.locator("#ins-reset").count()) === 1);
+  // insights-changed refreshes the open tab
+  await page.evaluate(() => window.__emit("insights-changed", null));
+  await page.waitForTimeout(200);
+  check("no page errors (insights)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=insights&scheme=light&insights=empty&h=900");
+  check("empty view shows the empty state", (await page.locator("#panel-insights .empty-title").textContent()) === "No insights yet" && (await page.locator(".streak-num").count()) === 0);
+  check("no page errors (insights empty)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=insights&scheme=light&insights=nowords&h=1400", { tall: true });
+  const titles = await page.locator("#panel-insights .group-title").allTextContents();
+  check("no words hides the word cards and keeps the rest", !titles.includes("Your words") && titles.includes("Milestones") && (await page.locator(".wcols").count()) === 0 && (await page.locator(".mix").count()) === 0, titles);
+  check("no page errors (insights nowords)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=insights&scheme=light&platform=windows&h=1400", { tall: true });
+  check("Windows footer says this PC", (await page.locator(".ins-privacy").textContent()) === "Everything here stays on this PC.");
+  await page.keyboard.press("Control+3");
+  await page.waitForTimeout(250);
+  check("Ctrl+3 opens Insights on Windows", (await page.locator("#tab-insights").getAttribute("aria-selected")) === "true");
+  await ctx.close();
+}
+for (const dark of [false, true]) {
+  const mode = dark ? "dark" : "light";
+  const { page, ctx } = await open("?view=main&tab=insights&scheme=" + mode + "&h=1400", { dark, tall: true });
+  const rows = [
+    [".stat-label", "label-2", ".ins-card"],
+    [".week-name", "label-2", ".ins-card"],
+    [".ins-date", "label-2", ".card"],
+    [".btn-danger", "red-ink", ".card"],
+  ];
+  for (const [sel, token, surface] of rows) {
+    const r = await page.evaluate(inkScript, [sel, token, surface]);
+    check(mode + ": insights " + sel + " passes 4.5:1", r !== null && r.color === r.expected && r.ratio >= 4.5, r);
+  }
+  const states = await page.locator(".week-dot").evaluateAll((els) => els.map((e) => getComputedStyle(e).color));
+  check(mode + ": week glyphs are drawn", states.length === 7);
+  await ctx.close();
 }
 
 // ---------- main: show-tab event ----------

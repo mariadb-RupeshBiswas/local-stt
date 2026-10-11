@@ -88,6 +88,18 @@ Notes reuse the same engine for a whole call instead of one dictation:
 5. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
    lines from one side and drops lines that appear twice because of echo between speakers and mic.
 
+## Insights
+
+The Insights tab counts, it never keeps your sentences:
+
+1. After each dictation is pasted, `src/insights/` adds to that day's totals: words, seconds spoken,
+   number of dictations and words per hour of the day.
+2. The **workday streak** (`src/insights/streak.rs`) is one pure function that walks the weekdays
+   since it last looked. A missed weekday spends a streak freeze if one is left; weekends never count.
+3. With **Word insights** on, a small rule-based tagger (`src/insights/words.rs`) sorts words into
+   nouns, verbs and so on, and keeps counts for the 200 words used most.
+4. Dates come from the operating system's local clock (`src/localtime/`), so "today" is your today.
+
 ## Why there are several threads
 
 A thread is a part of the program that runs at the same time as the others. local-stt uses a few,
@@ -128,6 +140,7 @@ on a Mac, `%APPDATA%\local-stt` on Windows.
 | `logs/` | The troubleshooting log: events and timings, never your words |
 | `diagnostics/` | Reports you export |
 | `notes/` | One file per meeting note |
+| `insights.json` | Daily totals, the streak and your most used words, never sentences |
 
 ## What uses the internet
 
