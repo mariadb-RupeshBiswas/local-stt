@@ -27,9 +27,10 @@ Tabs become History, Notes, Insights, Model, Settings (Cmd/Ctrl + 1 to 5).
 3. **Speed and time saved**: average words per minute over the last 100 dictations, and an
    estimate of time saved against typing at 40 words a minute, labelled as an estimate.
 4. **When you dictate**: words by hour of the day over the last 30 days.
-5. **Your words** (English output only, while Word insights is on): the 15 words used most
-   (common words like "the" and "and" left out) and the mix of nouns, verbs, adjectives and
-   adverbs, labelled approximate.
+5. **Your words** (English output only, while Word insights is on): the nouns you use most,
+   the verbs you use most (10 each), the 15 words used most overall (common words like "the"
+   and "and" left out), and the mix of nouns, verbs, adjectives and adverbs. Labelled
+   approximate.
 6. **Milestones**: 1,000, 10,000, 50,000, 100,000, 250,000 and 1,000,000 words, each with the
    date it was reached.
 7. Footer: "Everything here stays on this Mac." Word insights switch, Reset Insights (asks).
@@ -51,6 +52,7 @@ Empty state: "Dictate once to start your first streak."
 | Not enough freezes | The streak ends (back to 0) and the freezes are kept, not spent on a lost cause |
 | Longest streak | Kept forever |
 | Today | Never counted as missed until it is over |
+| First use | The streak starts at the first active workday; days before it are never missed |
 | Clock moves back | Past days are never evaluated again |
 
 The streak is evaluated by one pure function, `advance(state, active_days, today)`, which walks
@@ -68,8 +70,8 @@ helper as history. It holds aggregates only:
   the dates a freeze covered);
 - the last 100 words-per-minute values;
 - reached milestones and their dates;
-- with Word insights on: counts for the 200 words used most (dropping the least used beyond
-  that), and part-of-speech totals.
+- with Word insights on: for each of the 200 words used most, its count and part-of-speech tag
+  (dropping the least used beyond that), and part-of-speech totals.
 
 Never stored: sentences, word sequences, or any word's history over time. Words with digits,
 words under three letters, common stop words and capitalised words in mid-sentence (often
@@ -78,11 +80,19 @@ totals. Reset Insights deletes the file.
 
 Insights do not read history, so clearing or turning off history leaves the streak intact.
 
+## Recording
+
+`deliver()` records a dictation in insights next to `record()` (not inside it, since `record()`
+returns early when history is off), after the text was pasted or copied. Filler-only results
+and errors are not recorded. Word insights apply only when `english_output(&cfg)` is true, the
+same switch the smart formatter uses.
+
 ## Local dates
 
 The local date, weekday and hour come from the operating system at the moment a dictation is
-recorded: `localtime_r` on macOS, `GetLocalTime` on Windows, each in a platform file. No new
-dependency.
+recorded: `localtime_r` on macOS (the full `struct tm` in `#[repr(C)]`: nine `c_int`, then
+`c_long tm_gmtoff`, then `*const c_char tm_zone`), `GetLocalTime` on Windows, each in a
+platform file. No new dependency. A macOS test checks a fixed timestamp against `date -r`.
 
 ## Parts of speech (v1)
 
@@ -107,7 +117,40 @@ part-of-speech list (public domain) as a lexicon.
 | `reset_insights` | Deletes the insights file |
 | `set_config` `word_insights` | Turning it off deletes the word counts |
 
-Event `insights-changed` after each recorded dictation, so an open tab refreshes.
+Event `insights-changed` after each recorded dictation, so an open tab refreshes. The demo seeds
+sample insights so the README screenshot is not empty.
+
+### `get_insights` view (the contract between the Rust and UI halves)
+
+Missing values are `null` and show as `-`.
+
+```json
+{
+  "empty": false,
+  "today": "2026-10-12",
+  "streak": { "current": 6, "longest": 12, "freezes": 4, "freezeCap": 10, "nextFreezeIn": 3 },
+  "week": [
+    { "date": "2026-10-12", "weekday": "Mon", "state": "active" }
+  ],
+  "totals": { "wordsToday": 120, "wordsWeek": 830, "wordsAll": 15400, "dictationsAll": 512 },
+  "speed": { "wpm": 128, "typingWpm": 40, "minutesSavedWeek": 18, "minutesSavedAll": 410 },
+  "hours": [0, 0, 0, 0, 0, 0, 0, 12, 140, 300, 260, 180, 90, 120, 210, 240, 200, 150, 60, 20, 0, 0, 0, 0],
+  "words": {
+    "top": [{ "word": "pricing", "count": 12 }],
+    "nouns": [{ "word": "pricing", "count": 12 }],
+    "verbs": [{ "word": "ship", "count": 9 }],
+    "mix": { "noun": 0.42, "verb": 0.31, "adjective": 0.15, "adverb": 0.12 }
+  },
+  "milestones": [{ "words": 1000, "reachedOn": "2026-10-02" }, { "words": 10000, "reachedOn": null }]
+}
+```
+
+- `week` always has seven entries, Monday to Sunday of the current week. `state` is one of
+  `active`, `frozen`, `missed`, `today`, `upcoming`, `rest` (a weekend day without dictation)
+  or `bonus` (a weekend day with dictation).
+- `words` is `null` when Word insights is off or there is nothing counted yet.
+- `empty` is true until the first dictation is recorded; the tab then shows its empty state.
+- `nextFreezeIn` is the number of active workdays until the next freeze, `null` at the cap.
 
 ## Testing
 
