@@ -97,6 +97,10 @@ pub struct Shared {
     pub note: Mutex<Option<crate::notes::session::Running>>,
     /// True while the pill shows Notes, so the note's microphone level drives it.
     pub notes_pill: AtomicBool,
+    /// A dictation holds the microphone.
+    pub dictating: AtomicBool,
+    /// The setup microphone test holds the microphone.
+    pub mic_check: AtomicBool,
 }
 
 impl Shared {
@@ -183,6 +187,8 @@ pub fn run() -> Result<(), String> {
         update: Mutex::new(None),
         note: Mutex::new(None),
         notes_pill: AtomicBool::new(false),
+        dictating: AtomicBool::new(false),
+        mic_check: AtomicBool::new(false),
     });
 
     let app = tauri::Builder::default()
@@ -198,6 +204,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::delete_history,
             crate::commands::get_insights,
             crate::commands::reset_insights,
+            crate::commands::check_microphone,
             crate::commands::export_diagnostics,
             crate::commands::list_notes,
             crate::commands::get_note,
@@ -917,6 +924,9 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                 if now.saturating_sub(since) >= MAX_RECORDING_MS {
                     let action = machine.on(Input::Timeout, now);
                     apply(&app, action, &mut recorder, &mut machine, now);
+                    shared(&app)
+                        .dictating
+                        .store(recorder.is_some(), Ordering::SeqCst);
                 }
             }
             match msg {
@@ -939,8 +949,16 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                         HotkeyEvent::Cancel => Input::Cancel,
                         HotkeyEvent::Captured(_) => continue,
                     };
+                    // During the setup microphone test a press would open a second stream on the same device.
+                    let starts = matches!(input, Input::Pressed | Input::Toggle);
+                    if starts && shared(&app).mic_check.load(Ordering::SeqCst) {
+                        continue;
+                    }
                     let action = machine.on(input, now);
                     apply(&app, action, &mut recorder, &mut machine, now);
+                    shared(&app)
+                        .dictating
+                        .store(recorder.is_some(), Ordering::SeqCst);
                 }
                 Ok(Msg::Partial { session, text }) => {
                     partial_in_flight = false;
@@ -1396,7 +1414,12 @@ fn verify_model(
 }
 
 fn first_run_or_load(app: &AppHandle) {
-    let id = shared(app).config().model;
+    let cfg = shared(app).config();
+    // First-run setup lives in the main window.
+    if !cfg.setup_done && !crate::demo::active() {
+        show_main(app);
+    }
+    let id = cfg.model;
     let path = models::path(&paths::models_dir(), id);
     if path.exists() {
         let _ = lock(&shared(app).worker).send(Job::Load(path, id));

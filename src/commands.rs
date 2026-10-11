@@ -69,8 +69,12 @@ pub fn merge_patch(current: &Config, patch: &Value) -> Result<Config, String> {
         }
         target.insert(key.clone(), value.clone());
     }
-    let next: Config =
+    let mut next: Config =
         serde_json::from_value(merged).map_err(|e| format!("invalid setting value: {e}"))?;
+    next.user_name = match next.user_name.as_deref() {
+        Some(raw) => crate::config::clean_name(raw)?,
+        None => None,
+    };
     hotkey::validate(&next.hotkey)?;
     if let Some(t) = next.toggle_hotkey.as_ref() {
         hotkey::validate(t)?;
@@ -229,6 +233,53 @@ pub async fn get_insights(state: State<'_, Arc<Shared>>) -> Result<crate::insigh
 pub fn reset_insights(app: AppHandle) {
     crate::insights::reset();
     let _ = tauri::Emitter::emit(&app, "insights-changed", ());
+}
+
+/// Opens the microphone for two seconds: macOS asks before the first dictation, and the user sees a level.
+#[tauri::command]
+pub async fn check_microphone(
+    app: AppHandle,
+    state: State<'_, Arc<Shared>>,
+) -> Result<Value, String> {
+    use std::sync::atomic::Ordering;
+    if state.dictating.load(Ordering::SeqCst) || crate::notes::session::active(&app).is_some() {
+        return Err("Recording is in progress. Try again when it ends.".into());
+    }
+    if state.mic_check.swap(true, Ordering::SeqCst) {
+        return Err("The microphone test is already running.".into());
+    }
+    let device = state.config().microphone;
+    let emitter = app.clone();
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let last = std::sync::Mutex::new(std::time::Instant::now());
+        let on_level = Box::new(move |level: f32| {
+            let mut t = lock(&last);
+            if t.elapsed() >= std::time::Duration::from_millis(33) {
+                *t = std::time::Instant::now();
+                let _ = tauri::Emitter::emit_to(
+                    &emitter,
+                    app::MAIN,
+                    "mic-check-level",
+                    json!({ "level": level }),
+                );
+            }
+        });
+        let recorder = crate::recorder::Recorder::start(device.as_deref(), on_level)?;
+        std::thread::sleep(std::time::Duration::from_secs(2));
+        Ok::<_, String>(recorder.stop())
+    })
+    .await;
+    state.mic_check.store(false, Ordering::SeqCst);
+    let recording = result.map_err(|e| e.to_string())??;
+    let heard = !crate::audio::is_silent(&recording.samples_16k, crate::audio::SILENCE_RMS);
+    diag::log(if heard {
+        "microphone check: heard"
+    } else {
+        "microphone check: silent"
+    });
+    let rms = crate::audio::rms(&recording.samples_16k);
+    let level_db = (rms > 0.0).then(|| (20.0 * rms.log10()).round());
+    Ok(json!({ "heard": heard, "levelDb": level_db }))
 }
 
 #[tauri::command]
@@ -441,6 +492,18 @@ mod tests {
         assert!(!next.paste);
         assert_eq!(next.theme, crate::config::Theme::Minimal);
         assert_eq!(next.toggle_hotkey, base.toggle_hotkey);
+    }
+
+    #[test]
+    fn name_patch_is_cleaned_and_validated() {
+        let base = Config::default();
+        let next =
+            merge_patch(&base, &json!({ "user_name": "  Sam ", "setup_done": true })).unwrap();
+        assert_eq!(next.user_name.as_deref(), Some("Sam"));
+        assert!(next.setup_done);
+        let cleared = merge_patch(&next, &json!({ "user_name": "" })).unwrap();
+        assert_eq!(cleared.user_name, None);
+        assert!(merge_patch(&base, &json!({ "user_name": "x".repeat(61) })).is_err());
     }
 
     #[test]

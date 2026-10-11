@@ -69,6 +69,7 @@ fn main() {
         "delete_history",
         "get_insights",
         "reset_insights",
+        "check_microphone",
         "export_diagnostics",
         "list_notes",
         "get_note",

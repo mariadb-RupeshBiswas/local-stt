@@ -17,6 +17,7 @@
     "allow-delete-history",
     "allow-get-insights",
     "allow-reset-insights",
+    "allow-check-microphone",
     "allow-export-diagnostics",
     "allow-list-notes",
     "allow-get-note",

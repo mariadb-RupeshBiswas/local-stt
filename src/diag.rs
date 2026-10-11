@@ -419,6 +419,12 @@ fn settings_json(cfg: &Config) -> String {
             "system default"
         };
         map.insert("microphone".into(), Value::String(mic.into()));
+        let name = if cfg.user_name.is_some() {
+            "set"
+        } else {
+            "not set"
+        };
+        map.insert("user_name".into(), Value::String(name.into()));
         // The saved pill position names a screen, and a screen can be "Jane's iPad".
         if cfg.overlay_pos.is_some() {
             map.insert("overlay_pos".into(), Value::String("saved".into()));
@@ -609,6 +615,10 @@ mod tests {
                 x: 1.0,
                 y: 2.0,
             }),
+            ..cfg
+        };
+        let cfg = Config {
+            user_name: Some("Priya".into()),
             ..cfg
         };
         let json = settings_json(&cfg);

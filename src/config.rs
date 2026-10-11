@@ -54,6 +54,10 @@ pub struct Config {
     pub notes_consent_seen: bool,
     /// Counts the words you use most for Insights; off deletes those counts.
     pub word_insights: bool,
+    /// First-run setup was finished or skipped; a config from before setup existed loads as done.
+    pub setup_done: bool,
+    /// What the app calls the user; never logged or put in a report.
+    pub user_name: Option<String>,
     /// The build that last showed the macOS Accessibility prompt, so it shows once per build.
     pub accessibility_prompted: Option<String>,
     pub model: ModelId,
@@ -82,6 +86,8 @@ impl Default for Config {
             diagnostic_log: true,
             notes_consent_seen: false,
             word_insights: true,
+            setup_done: false,
+            user_name: None,
             accessibility_prompted: None,
             model: ModelId::Small,
         }
@@ -140,6 +146,23 @@ fn parse_fields(parsed: Map<String, Value>) -> (Config, bool) {
     (cfg, true)
 }
 
+pub const MAX_NAME_CHARS: usize = 60;
+
+/// A name as typed: trimmed, empty means none, at most 60 characters and no control characters.
+pub fn clean_name(raw: &str) -> Result<Option<String>, String> {
+    let name = raw.trim();
+    if name.is_empty() {
+        return Ok(None);
+    }
+    if name.chars().count() > MAX_NAME_CHARS {
+        return Err(format!("Use {MAX_NAME_CHARS} characters or fewer."));
+    }
+    if name.chars().any(char::is_control) {
+        return Err("Use letters, spaces and punctuation only.".into());
+    }
+    Ok(Some(name.to_string()))
+}
+
 pub fn load(path: &Path) -> Config {
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
@@ -152,7 +175,12 @@ pub fn load(path: &Path) -> Config {
             return Config::default();
         }
     };
+    let had_setup = parsed.contains_key("setup_done");
     let (mut cfg, mut repaired) = parse_fields(parsed);
+    // People with a config from before onboarding are already set up.
+    if !had_setup {
+        cfg.setup_done = true;
+    }
     if crate::hotkey::validate(&cfg.hotkey).is_err() {
         cfg.hotkey = crate::hotkey::default_combo();
         repaired = true;
@@ -201,6 +229,30 @@ mod tests {
     #[test]
     fn missing_file_gives_defaults() {
         assert_eq!(load(&tmp("missing")), Config::default());
+    }
+    #[test]
+    fn fresh_install_runs_setup_but_an_older_config_does_not() {
+        assert!(!Config::default().setup_done);
+        let p = tmp("pre-setup");
+        std::fs::write(&p, r#"{"paste": false}"#).unwrap();
+        assert!(
+            load(&p).setup_done,
+            "a config from before onboarding is already set up"
+        );
+        std::fs::write(&p, r#"{"setup_done": false}"#).unwrap();
+        assert!(!load(&p).setup_done);
+    }
+    #[test]
+    fn names_are_trimmed_capped_and_plain() {
+        assert_eq!(clean_name("  Rupesh "), Ok(Some("Rupesh".into())));
+        assert_eq!(clean_name("   "), Ok(None));
+        assert_eq!(
+            clean_name(&"\u{e9}".repeat(60)),
+            Ok(Some("\u{e9}".repeat(60)))
+        );
+        assert!(clean_name(&"a".repeat(61)).is_err());
+        assert!(clean_name("Ann\u{7}").is_err());
+        assert!(clean_name("Ann\nLee").is_err());
     }
     #[test]
     fn roundtrip() {
