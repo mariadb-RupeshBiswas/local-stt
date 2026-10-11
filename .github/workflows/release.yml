@@ -1,6 +1,6 @@
 name: Release
 
-# Every merge to main runs this; only a version with no v<version> tag yet is published.
+# Every merge to main runs this; only a version neither tagged nor on PyPI is published, after full CI.
 on:
   push:
     branches: [main]
@@ -24,25 +24,39 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0
-      - name: Both package versions match and are not released yet
+      - name: Version files agree, and the version is neither tagged nor on PyPI
         id: version
         run: |
-          cargo_version="$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -n 1)"
-          py_version="$(sed -n 's/^version = "\(.*\)"/\1/p' pyproject.toml | head -n 1)"
-          [ "$cargo_version" = "$py_version" ] || { echo "Cargo.toml $cargo_version and pyproject.toml $py_version differ"; exit 1; }
-          echo "$cargo_version" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.]+)?$' || { echo "not a version: $cargo_version"; exit 1; }
-          echo "version=$cargo_version" >> "$GITHUB_OUTPUT"
-          if git rev-parse -q --verify "refs/tags/v$cargo_version" > /dev/null; then
-            echo "v$cargo_version is already released; nothing to publish."
+          version="$(sh dev/check-version.sh)"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          set +e
+          git ls-remote --exit-code --tags origin "refs/tags/v$version" > /dev/null
+          tag_status=$?
+          set -e
+          if [ "$tag_status" -eq 0 ]; then
+            echo "v$version is already released; nothing to publish."
             echo "release=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "release=true" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
+          [ "$tag_status" -eq 2 ] || { echo "::error::cannot read tags (git ls-remote exit $tag_status)"; exit 1; }
+          pypi_status="$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/local-stt/$version/json")"
+          case "$pypi_status" in
+            404) echo "release=true" >> "$GITHUB_OUTPUT" ;;
+            200) echo "::error::$version is on PyPI but v$version is not tagged. Re-run only the failed GitHub release job of the run that published it."; exit 1 ;;
+            *) echo "::error::cannot reach PyPI (HTTP $pypi_status)"; exit 1 ;;
+          esac
+
+  ci:
+    name: Full CI on this commit
+    needs: check
+    if: needs.check.outputs.release == 'true'
+    permissions:
+      contents: read
+    uses: $/.github/workflows/ci.yml
 
   build:
     name: Build wheel (${{ matrix.target }})
-    needs: check
+    needs: [check, ci]
     if: needs.check.outputs.release == 'true'
     strategy:
       fail-fast: true
@@ -91,9 +105,6 @@ jobs:
         with:
           subject-path: dist/*.whl
       - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
-        with:
-          # A rerun after a failed GitHub release step must not fail on files PyPI already has.
-          skip-existing: true
 
   github-release:
     name: GitHub release
