@@ -31,6 +31,7 @@ steps to reproduce and the impact you see.
 | Error output | This run's stderr in `logs/stderr.log`, so a native crash's reason survives a launch from Finder, the Start menu or login | Same as the log |
 | macOS crash reports | Reads local-stt's own `.ips` files in `~/Library/Logs/DiagnosticReports` and keeps only the cause and crashed thread | Only when you export a report |
 | Diagnostic report | A text file in `diagnostics/` inside the app data folder, the five newest kept; never sent anywhere | Only when you click Export Report or run `local-stt diagnostics` |
+| Insights | `insights.json` in the app data folder: words, dictations and seconds per day, words by hour, the streak, and (with Word insights on) counts for the 200 words you use most; never sentences. Readable only by your user | After each dictation; Reset Insights deletes it, Word insights off deletes the word counts |
 | Notes | One file per note in `notes/` inside the app data folder (lines appended while recording, tidied on Stop), readable only by your user; delete removes the file | From New Note until you delete it |
 | Permission reset (macOS) | `tccutil reset All io.github.localstt` clears local-stt's own privacy entries, never another app's, so macOS asks again | Only when you click Reinstall or run `local-stt reinstall` |
 | Login item | `~/Library/LaunchAgents/io.github.localstt.plist` (macOS) or a `HKCU\...\Run` value (Windows) | Only when Start at login is on |

@@ -1,6 +1,6 @@
 # Insights tab: design
 
-Status: draft, 2026-10-11. Branch `feature/insights`, stacked on `feature/note-taker`.
+Status: built, 2026-10-11. Branch `feature/insights` (draft PR), stacked on `feature/note-taker`.
 
 ## Goal
 
