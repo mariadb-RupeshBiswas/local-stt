@@ -989,6 +989,8 @@ fn apply(
             });
             crate::engine::abort_previews(false);
             let _ = app.emit("live-reset", json!({}));
+            // Paired with "recording started", this times a slow microphone (Bluetooth headsets).
+            diag::log("recording: opening the microphone");
             match Recorder::start(cfg.microphone.as_deref(), on_level) {
                 Ok(r) => {
                     *recorder = Some(r);

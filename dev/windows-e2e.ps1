@@ -72,7 +72,15 @@ Check 'doctor reports models' ($doctor -match 'Whisper Small') ''
 
 # Launch the app and check it stays up without showing the pill.
 $proc = Start-Process -FilePath $exe -PassThru
-Start-Sleep -Seconds 15
+# A cold runner can take 15 s or more to start; a press before the hook is in is never seen.
+$log = Join-Path $data 'logs\local-stt.log'
+$hooked = $false
+for ($i = 0; $i -lt 120 -and -not $hooked -and -not $proc.HasExited; $i++) {
+    Start-Sleep -Milliseconds 500
+    $hooked = (Test-Path $log) -and [bool](Select-String -Path $log -Pattern 'keyboard hook started' -Quiet)
+}
+Check 'keyboard hook started' $hooked
+Start-Sleep -Seconds 2
 Check 'app is running' (-not $proc.HasExited)
 $before = [Native]::VisibleTitles([uint32]$proc.Id)
 Check 'pill hidden at rest' (-not ($before -contains 'local-stt recording')) ($before -join ', ')
