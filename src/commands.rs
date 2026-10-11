@@ -334,6 +334,10 @@ pub async fn reinstall_app(app: AppHandle, clean: bool) -> Result<String, String
 pub fn open_accessibility_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        // Asking first lists this build in the pane, so the switch the user flips is the current one.
+        if !hotkey::accessibility_ok(false) {
+            hotkey::accessibility_ok(true);
+        }
         let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
         crate::proc::command("/usr/bin/open")
             .arg(pane)

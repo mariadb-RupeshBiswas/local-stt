@@ -30,6 +30,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "er" are removed, and spacing is fixed before pasting. Markers count mid-sentence too, unless
   they follow words like "this", "my" or "at"; "point one is how ..." lists "How ..."; "to
   points" before a two-item list reads "two points"; a closing remark stays out of the last item.
+  Forms can mix ("first point ... point two ... number three"), and a bare "So" or "Okay"
+  before the list is dropped.
 - Live transcription popover above the pill (below it near the top of the screen) that shows
   your latest words while you speak, with a Live transcription setting.
 - Update banner at the top of the main window (Install and Restart, Release Notes, Later,
@@ -70,6 +72,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   standalone copy and opens that instead: macOS asks for permissions as local-stt, not as the
   terminal, and closing the terminal no longer quits it. Opening it again shows its window.
 - Windows: background tools (download, update check, Start at login, install) no longer open console windows.
+- The pill shows on the screen you are typing on (the focused window's screen, or the pointer's
+  when no window has focus), keeping its spot in proportion when it was placed on another screen.
 - Install and Restart starts the new version reliably: it waits for the old copy to quit instead of handing back to it.
 - macOS: the Accessibility prompt shows once per build instead of at every start, and the
   shortcut starts working once Accessibility is allowed, without restarting the app.
