@@ -13,7 +13,8 @@ requires-python = ">=3.9"
 keywords = [
   "speech-to-text", "stt", "dictation", "voice-typing", "whisper", "whisper-cpp",
   "offline", "local", "privacy", "transcription", "push-to-talk", "free",
-  "macos", "windows", "hindi", "voice-to-text",
+  "macos", "windows", "hindi", "voice-to-text", "speech-recognition",
+  "voice-dictation", "meeting-notes", "wispr-flow-alternative", "superwhisper-alternative",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",
@@ -30,6 +31,8 @@ classifiers = [
 
 [project.urls]
 Homepage = "https://github.com/mariadb-RupeshBiswas/local-stt"
+Repository = "https://github.com/mariadb-RupeshBiswas/local-stt"
+Documentation = "https://github.com/mariadb-RupeshBiswas/local-stt#readme"
 Issues = "https://github.com/mariadb-RupeshBiswas/local-stt/issues"
 Changelog = "https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/CHANGELOG.md"
 Security = "https://github.com/mariadb-RupeshBiswas/local-stt/security/policy"

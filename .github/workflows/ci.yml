@@ -4,12 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  # release.yml runs the whole suite on the exact commit it is about to publish.
+  workflow_call:
 
 permissions:
   contents: read
 
 concurrency:
-  group: ci-${{ github.ref }}
+  # github.workflow is the caller's name inside a call, so a release never cancels the push run.
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:
@@ -98,6 +101,17 @@ jobs:
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Unit tests
         run: cargo test --locked --lib --bins
+
+  version:
+    name: Version files agree
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Cargo.toml, Cargo.lock and pyproject.toml carry the same plain version
+        run: sh dev/check-version.sh
 
   deny:
     name: cargo-deny (advisories, licenses, sources)

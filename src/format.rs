@@ -299,6 +299,26 @@ fn numbered_points(text: &str) -> String {
     if markers.len() < 2 {
         return text.to_string();
     }
+    // Items are built once, so the check below sees exactly what is pasted.
+    let mut items = Vec::with_capacity(markers.len());
+    let mut closing = "";
+    for (n, m) in markers.iter().enumerate() {
+        let item_end = markers.get(n + 1).map_or(text.len(), |next| next.start);
+        // Whisper often ends the marker with a period ("Point one. Buy milk.").
+        let mut item =
+            trim_joiners(&text[m.end..item_end]).trim_start_matches(['.', '?', '!', ' ']);
+        if n + 1 == markers.len() {
+            (item, closing) = split_closing(item);
+        }
+        items.push(item_body(item));
+    }
+    // A marker with nothing after it ("point one. point two.") would paste as "1. .".
+    if items
+        .iter()
+        .any(|item| !item.chars().any(char::is_alphanumeric))
+    {
+        return text.to_string();
+    }
     let mut out = String::new();
     let mut intro = count_word_fixed(trim_joiners(&text[..markers[0].start]), markers.len());
     // A spoken lead-in ("So", "Okay") is not a heading.
@@ -313,20 +333,13 @@ fn numbered_points(text: &str) -> String {
         }
         out.push('\n');
     }
-    let mut closing = "";
-    for (n, m) in markers.iter().enumerate() {
-        let item_end = markers.get(n + 1).map_or(text.len(), |next| next.start);
-        let mut item = trim_joiners(&text[m.end..item_end]);
-        if n + 1 == markers.len() {
-            (item, closing) = split_closing(item);
-        }
-        let item = item_body(item);
+    for (n, item) in items.iter().enumerate() {
         out.push_str(&format!("{}. ", n + 1));
         out.push_str(&capitalize_first(item));
         if !item.ends_with(['.', '?', '!']) {
             out.push('.');
         }
-        if n + 1 < markers.len() {
+        if n + 1 < items.len() {
             out.push('\n');
         }
     }
@@ -341,7 +354,9 @@ fn numbered_points(text: &str) -> String {
 fn item_body(item: &str) -> &str {
     let mut t = item.trim();
     for lead in ["is that ", "is "] {
-        if t.len() > lead.len() && t[..lead.len()].eq_ignore_ascii_case(lead) {
+        // get() is None mid-character ("5€ ..."), where slicing would panic.
+        let head = t.get(..lead.len());
+        if t.len() > lead.len() && head.is_some_and(|h| h.eq_ignore_ascii_case(lead)) {
             t = t[lead.len()..].trim_start();
             break;
         }
@@ -401,6 +416,10 @@ fn trim_joiners(s: &str) -> &str {
     let mut t = s.trim_matches(|c: char| c.is_whitespace() || c == ',' || c == ':');
     loop {
         let lower = t.to_lowercase();
+        // A bare "and" is all joiner, with no space before it to match below.
+        if matches!(lower.as_str(), "and" | "then" | "and then") {
+            return "";
+        }
         let mut changed = false;
         for joiner in [" and", " then", " and then"] {
             if lower.ends_with(joiner) {
@@ -607,6 +626,68 @@ mod tests {
             tidy("I have for points point one apples point two pears point three plums point four figs"),
             "I have four points:\n1. Apples.\n2. Pears.\n3. Plums.\n4. Figs."
         );
+    }
+
+    #[test]
+    fn non_ascii_list_items_do_not_panic() {
+        assert_eq!(
+            tidy("Point one, ab€c. Point two, 5€ is the budget."),
+            "1. Ab€c.\n2. 5€ is the budget."
+        );
+    }
+
+    #[test]
+    fn markers_with_nothing_after_them_stay_prose() {
+        for input in [
+            "Agenda: point one, point two",
+            "So two things. Point one. Point two.",
+            "Number one. Number two. Number three.",
+            "Point one, buy milk and point two and",
+            "First, and second, ship it.",
+        ] {
+            assert_eq!(tidy(input), input);
+        }
+    }
+
+    #[test]
+    fn a_period_after_the_marker_is_not_an_item() {
+        assert_eq!(
+            tidy("Point one. Buy milk. Point two. Call mom."),
+            "1. Buy milk.\n2. Call mom."
+        );
+        assert_eq!(
+            tidy("Point one, call Sam. Point two. Thanks everyone."),
+            "1. Call Sam.\n2. Thanks everyone."
+        );
+    }
+
+    // Release builds abort on panic, so one bad slice would take the whole app down.
+    #[test]
+    fn random_mixed_text_never_panics() {
+        const PIECES: &[&str] = &[
+            "point", "one", "two", "three", "number", "first,", "second", "the", "is", "is that",
+            "and", "then", "uh", "um,", ".", ",", ":", "€", "5€", "ab€c", "Zoë", "日本", "😀", "İ",
+            "ß", "é",
+        ];
+        let mut state: u64 = 0x9e37_79b9_7f4a_7c15;
+        let mut next = || {
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            state
+        };
+        for _ in 0..100_000 {
+            let mut text = String::new();
+            let len = next() % 12 + 1;
+            for _ in 0..len {
+                if next() % 3 != 0 {
+                    text.push(' ');
+                }
+                text.push_str(PIECES[(next() % PIECES.len() as u64) as usize]);
+            }
+            let _ = tidy(&text);
+            let _ = tidy_for(&text, false);
+        }
     }
 
     #[test]
