@@ -6,7 +6,7 @@ pub mod tidy;
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -15,6 +15,7 @@ use std::sync::{Mutex, MutexGuard};
 pub const ME: &str = "me";
 pub const OTHERS: &str = "others";
 const MAX_TITLE_CHARS: usize = 200;
+const MAX_SPEAKER_CHARS: usize = 60;
 const FIRST_LINE_CHARS: usize = 120;
 
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -45,6 +46,9 @@ pub struct Note {
     #[serde(default)]
     pub source: Option<String>,
     pub status: Status,
+    /// Names the user gave a speaker ("others" -> "Priya"); a speaker without one shows its default.
+    #[serde(default)]
+    pub speakers: BTreeMap<String, String>,
     #[serde(default)]
     pub segments: Vec<Segment>,
 }
@@ -102,12 +106,16 @@ pub fn new_id() -> String {
 
 /// Trims, drops control characters and caps the length; empty means "use the default title".
 pub fn clean_title(raw: &str) -> String {
+    clean(raw, MAX_TITLE_CHARS)
+}
+
+fn clean(raw: &str, max: usize) -> String {
     raw.chars()
         .filter(|c| !c.is_control())
         .collect::<String>()
         .trim()
         .chars()
-        .take(MAX_TITLE_CHARS)
+        .take(max)
         .collect()
 }
 
@@ -247,9 +255,43 @@ pub fn list() -> Vec<Listed> {
 }
 
 pub fn rename(id: &str, title: &str) -> std::io::Result<Note> {
+    let title = clean_title(title);
+    update(id, |note| {
+        note.title = title;
+        Ok(())
+    })
+}
+
+/// Names one speaker across the whole note; an empty name brings back the default ("Me", "Others").
+pub fn rename_speaker(id: &str, speaker: &str, name: &str) -> std::io::Result<Note> {
+    let name = clean(name, MAX_SPEAKER_CHARS);
+    update(id, |note| {
+        let known = speaker == ME
+            || speaker == OTHERS
+            || note.segments.iter().any(|s| s.speaker == speaker);
+        if !known {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "no such speaker in this note",
+            ));
+        }
+        if name.is_empty() {
+            note.speakers.remove(speaker);
+        } else {
+            note.speakers.insert(speaker.to_string(), name);
+        }
+        Ok(())
+    })
+}
+
+// Changes the note's header: the saved file once done, only the live file's first line while recording.
+fn update(
+    id: &str,
+    change: impl FnOnce(&mut Note) -> std::io::Result<()>,
+) -> std::io::Result<Note> {
     let _guard = files();
     let mut note = get_locked(id)?;
-    note.title = clean_title(title);
+    change(&mut note)?;
     if note.status == Status::Done {
         save(&note)?;
     } else {
@@ -320,6 +362,7 @@ mod tests {
             ended_ms: None,
             source: Some("Zoom".into()),
             status: Status::Recording,
+            speakers: BTreeMap::new(),
             segments: Vec::new(),
         }
     }
@@ -412,6 +455,27 @@ mod tests {
         finish(id, 5, false, true).unwrap();
         rename(id, &"x".repeat(500)).unwrap();
         assert_eq!(get(id).unwrap().title.chars().count(), MAX_TITLE_CHARS);
+    }
+
+    #[test]
+    fn a_speaker_name_holds_while_recording_after_the_tidy_and_can_be_cleared() {
+        let _g = sandbox();
+        let id = "00000000000000d5";
+        begin(&header(id, 1)).unwrap();
+        append(id, &seg(OTHERS, 0, "Hi.")).unwrap();
+        rename_speaker(id, OTHERS, "  Priya\u{7} ").unwrap();
+        assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
+        assert_eq!(get(id).unwrap().segments.len(), 1);
+        finish(id, 5, false, true).unwrap();
+        assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
+        rename_speaker(id, ME, &"x".repeat(100)).unwrap();
+        assert_eq!(
+            get(id).unwrap().speakers[ME].chars().count(),
+            MAX_SPEAKER_CHARS
+        );
+        rename_speaker(id, OTHERS, " ").unwrap();
+        assert!(!get(id).unwrap().speakers.contains_key(OTHERS));
+        assert!(rename_speaker(id, "s9", "Ghost").is_err());
     }
 
     #[test]
