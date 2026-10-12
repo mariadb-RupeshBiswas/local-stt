@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-12
+
+### Added
+
+- Notes: name the speakers. Type a name next to Me or Others above the transcript and every
+  line, and the copied note, uses it; clear it to go back. Works while recording too.
+
 ## [0.5.0] - 2026-10-12
 
 ### Added

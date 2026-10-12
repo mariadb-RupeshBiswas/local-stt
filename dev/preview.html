@@ -601,6 +601,14 @@
           bus.emit("notes-changed", {});
         }, 300);
       },
+      rename_speaker: function (a) {
+        window.__calls.push("rename_speaker:" + a.speaker + "=" + a.name);
+        var found = data.noteFiles.filter(function (n) { return n.id === a.id; })[0];
+        found.speakers = found.speakers || {};
+        if (a.name) found.speakers[a.speaker] = a.name;
+        else delete found.speakers[a.speaker];
+        return JSON.parse(JSON.stringify(found));
+      },
       rename_note: function (a) {
         window.__calls.push("rename_note:" + a.title);
         var found = data.noteFiles.filter(function (n) { return n.id === a.id; })[0];

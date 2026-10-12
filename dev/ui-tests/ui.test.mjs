@@ -507,6 +507,16 @@ for (const dark of [false, true]) {
   await panel.locator(".note-title").press("Enter");
   await page.waitForTimeout(250);
   check("renaming sends the new title", (await page.evaluate(() => window.__calls)).includes("rename_note:Q3 sync"));
+  check("each speaker has a name box labelled by its default name", (await panel.locator(".speaker-key").allTextContents()).join(",") === "Me,Others");
+  const othersBox = panel.locator(".speaker-field", { hasText: "Others" }).locator("input");
+  await othersBox.fill("Priya");
+  await othersBox.press("Enter");
+  await page.waitForTimeout(250);
+  check("naming Others once renames every Others line", (await page.evaluate(() => window.__calls)).includes("rename_speaker:others=Priya") && (await panel.locator(".turn-name").allTextContents()).join(",") === "Priya,Me,Priya");
+  await othersBox.fill("");
+  await othersBox.press("Enter");
+  await page.waitForTimeout(250);
+  check("clearing the name brings back Others", (await panel.locator(".turn-name").allTextContents()).join(",") === "Others,Me,Others");
   await panel.locator(".note-back").click();
   await page.waitForTimeout(250);
   check("back returns to the list with the new title", (await panel.locator(".nrow-title").first().textContent()) === "Q3 sync");

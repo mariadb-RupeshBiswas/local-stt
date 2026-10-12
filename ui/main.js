@@ -1208,13 +1208,42 @@
     function noteText(note) {
       var lines = [noteTitle(note), new Date(note.started_ms).toLocaleString(), ""];
       (note.segments || []).forEach(function (seg) {
-        lines.push(speakerName(seg.speaker) + " (" + clock(seg.start_ms) + "): " + seg.text);
+        lines.push(speakerName(seg.speaker, note) + " (" + clock(seg.start_ms) + "): " + seg.text);
       });
       return lines.join("\n");
     }
 
-    function speakerName(id) {
+    function defaultSpeaker(id) {
       return id === "me" ? "Me" : id === "others" ? "Others" : String(id || "-");
+    }
+
+    // the name the user gave this speaker in this note, else the default
+    function speakerName(id, note) {
+      var names = (note || S.openNote || {}).speakers || {};
+      return typeof names[id] === "string" && names[id] !== "" ? names[id] : defaultSpeaker(id);
+    }
+
+    // one name box per speaker; a name replaces the label on every line and in copied text
+    function speakersRow(note) {
+      var keys = ["me", "others"];
+      (note.segments || []).forEach(function (seg) { if (keys.indexOf(seg.speaker) === -1) keys.push(seg.speaker); });
+      var row = h("div", { class: "note-speakers", role: "group", "aria-label": "Speaker names" });
+      keys.forEach(function (key) {
+        var input = h("input", { class: "speaker-input", type: "text", maxlength: "60", placeholder: "Add a name", value: (note.speakers || {})[key] || "" });
+        input.addEventListener("change", function () { saveSpeaker(note.id, key, input.value.trim()); });
+        input.addEventListener("keydown", function (event) { if (event.key === "Enter") input.blur(); });
+        row.appendChild(h("label", { class: "speaker-field" }, h("span", { class: "speaker-key", text: defaultSpeaker(key) }), input));
+      });
+      return row;
+    }
+
+    function saveSpeaker(id, key, name) {
+      Promise.resolve(invoke("rename_speaker", { id: id, speaker: key, name: name })).then(function (saved) {
+        if (!S.openNote || S.openNote.id !== id) return;
+        S.openNote.speakers = saved && saved.speakers && typeof saved.speakers === "object" ? saved.speakers : {};
+        if (noteView._card) renderTranscript(noteView._card);
+        announce(name ? defaultSpeaker(key) + " is now " + name + "." : defaultSpeaker(key) + " has its default name again.");
+      }).catch(function (err) { toast("Couldn't rename: " + errText(err)); });
     }
 
     function turnRow(seg) {
@@ -1272,6 +1301,7 @@
       noteView.appendChild(h("div", { class: "note-top" }, back, actions));
       noteView.appendChild(title);
       noteView.appendChild(meta);
+      noteView.appendChild(speakersRow(note));
       if (recording) {
         var timer = h("span", { class: "note-timer", text: clock(Date.now() - S.notes.active.startedMs) });
         noteView.appendChild(h("div", { class: "note-live", role: "group", "aria-label": "Recording" },

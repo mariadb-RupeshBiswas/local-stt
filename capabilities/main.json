@@ -26,6 +26,7 @@
     "allow-start-note",
     "allow-stop-note",
     "allow-rename-note",
+    "allow-rename-speaker",
     "allow-delete-notes",
     "allow-open-accessibility-settings",
     "allow-reinstall-app",

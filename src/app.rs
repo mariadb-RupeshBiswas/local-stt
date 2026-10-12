@@ -227,6 +227,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::start_note,
             crate::commands::stop_note,
             crate::commands::rename_note,
+            crate::commands::rename_speaker,
             crate::commands::delete_notes,
             crate::commands::open_accessibility_settings,
             crate::commands::reinstall_app,

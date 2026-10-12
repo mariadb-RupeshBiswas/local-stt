@@ -500,6 +500,23 @@ pub fn rename_note(
     Ok(note)
 }
 
+/// Names one speaker of a note ("Others" becomes "Priya"); an empty name brings back the default.
+#[tauri::command]
+pub fn rename_speaker(
+    app: AppHandle,
+    id: String,
+    speaker: String,
+    name: String,
+) -> Result<crate::notes::Note, String> {
+    if !crate::notes::valid_id(&id) || speaker.len() > 16 || name.chars().count() > 1_000 {
+        return Err("Unknown note.".into());
+    }
+    let note = crate::notes::rename_speaker(&id, &speaker, &name)
+        .map_err(|e| format!("Could not rename: {e}"))?;
+    let _ = tauri::Emitter::emit_to(&app, app::MAIN, "notes-changed", ());
+    Ok(note)
+}
+
 /// Deletes the chosen notes, never the one recording, and returns how many went.
 #[tauri::command]
 pub fn delete_notes(app: AppHandle, ids: Vec<String>) -> Result<usize, String> {

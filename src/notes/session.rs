@@ -77,6 +77,7 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
         ended_ms: None,
         source: None,
         status: Status::Recording,
+        speakers: Default::default(),
         segments: Vec::new(),
     };
     super::begin(&note).map_err(|e| format!("Could not start the note: {e}"))?;

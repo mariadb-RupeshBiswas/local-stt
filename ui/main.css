@@ -430,6 +430,10 @@ body {
 .mw .note-title:hover { background: var(--fill); }
 .mw .note-title:focus { outline: 2px solid var(--focus); outline-offset: 0; background: var(--surface); }
 .note-meta { display: flex; gap: 6px; align-items: center; margin: 2px 0 var(--s4); color: var(--label-2); font-size: 13px; }
+.note-speakers { display: flex; flex-wrap: wrap; gap: var(--s2) var(--s4); margin: 0 0 var(--s4); }
+.speaker-field { display: inline-flex; align-items: center; gap: var(--s2); font-size: 13px; }
+.speaker-key { color: var(--label-2); }
+.speaker-input { width: 160px; min-height: 28px; padding: 0 8px; border-radius: var(--r-sm); border: 0; background: var(--fill); }
 .note-live {
   display: flex;
   align-items: center;

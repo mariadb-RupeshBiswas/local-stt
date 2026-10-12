@@ -78,6 +78,7 @@ fn main() {
         "start_note",
         "stop_note",
         "rename_note",
+        "rename_speaker",
         "delete_notes",
         "open_accessibility_settings",
         "reinstall_app",

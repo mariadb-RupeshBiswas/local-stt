@@ -127,6 +127,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 - Works with Zoom, Google Meet, Teams, Slack, or any app that plays sound. No bot joins the call.
 - Audio is never saved. Each few seconds of speech is transcribed and then dropped.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
+- Name the speakers: type "Priya" next to **Others** above the transcript and every Others line, and the copied note, says Priya. Clear it to go back.
 - Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat.
 - macOS 14.6 or later (macOS asks once for System Audio Recording), or Windows 10 and 11.
 
