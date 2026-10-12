@@ -6,6 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-12
+
+### Fixed
+
+- macOS: the 0.4.0 wheel on PyPI was a plain build, not the one signed with the release
+  certificate, so installing it resets permissions. Skip 0.4.0: updating from 0.3.0 to 0.4.1
+  keeps them; from 0.4.0 they are asked for once more.
+- Releases publish only the signed macOS wheel and the Windows wheel, and stop if the macOS
+  wheel is not the signed one.
+
 ## [0.4.0] - 2026-10-12
 
 ### Added

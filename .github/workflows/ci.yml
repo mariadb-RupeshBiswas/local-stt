@@ -225,7 +225,8 @@ jobs:
       - name: Keep the wheel for manual testing
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: wheel-${{ matrix.target }}
+          # Not wheel-*: inside a release run that name would compete with the signed wheel.
+          name: smoke-wheel-${{ matrix.target }}
           path: dist/*.whl
           if-no-files-found: error
           retention-days: 14
