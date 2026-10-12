@@ -11,11 +11,18 @@ expected="$(echo "${3:-}" | tr '[:upper:]' '[:lower:]')"
 
 work="$(mktemp -d)"
 keychain="$work/sign.keychain-db"
-trap 'security delete-keychain "$keychain" 2>/dev/null || true; rm -rf "$work"' EXIT
+read -ra searched <<< "$(security list-keychains -d user | tr -d '"')"
+cleanup() {
+  security list-keychains -d user -s "${searched[@]}"
+  security delete-keychain "$keychain" 2> /dev/null || true
+  rm -rf "$work"
+}
+trap cleanup EXIT
 
-# A keychain of its own, outside the search list, so nothing else on the machine can use the key.
+# A throwaway keychain; codesign on GitHub's runners finds it only while it is in the search list.
 keychain_password="$(openssl rand -hex 16)"
 security create-keychain -p "$keychain_password" "$keychain"
+security list-keychains -d user -s "$keychain" "${searched[@]}"
 security set-keychain-settings -lut 3600 "$keychain"
 security unlock-keychain -p "$keychain_password" "$keychain"
 security import "$p12" -k "$keychain" -P "$P12_PASSWORD" -T /usr/bin/codesign > /dev/null
