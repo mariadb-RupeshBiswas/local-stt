@@ -68,6 +68,7 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
     if running.is_some() {
         return Err("A note is already recording.".into());
     }
+    fetch_voice_model();
     let started_ms = app::now_ms();
     let id = super::new_id();
     let note = Note {
@@ -333,7 +334,7 @@ fn send(app: &AppHandle, id: &str, speaker: &'static str, start_ms: u64, pcm: Ve
     let _ = lock(&app::shared_of(app).worker).send(job);
 }
 
-/// Worker side: a transcribed segment joins the note on disk and in the main window (only it shows notes).
+/// Worker side: a transcribed segment joins the note on disk and in the main window (only it shows notes); false when it was empty.
 pub fn add_segment(
     app: &AppHandle,
     id: &str,
@@ -341,10 +342,10 @@ pub fn add_segment(
     start_ms: u64,
     samples: usize,
     text: &str,
-) {
+) -> bool {
     let text = text.trim();
     if !text.chars().any(char::is_alphanumeric) {
-        return;
+        return false;
     }
     let seg = Segment {
         start_ms,
@@ -354,21 +355,58 @@ pub fn add_segment(
     };
     if let Err(e) = super::append(id, &seg) {
         diag::log(&format!("note: could not save a segment: {e}"));
-        return;
+        return false;
     }
     let _ = app.emit_to(
         app::MAIN,
         "note-segment",
         json!({ "id": id, "segment": seg }),
     );
+    true
 }
 
-/// Worker side, after the note's last segment: tidy it and save it whole.
-pub fn finish(app: &AppHandle, id: &str, ended_ms: u64) {
+// Fetched once, in the background, the first time a note starts; without it the other side stays "Others".
+fn fetch_voice_model() {
+    if !super::voices::supported() || super::voices::model_path().exists() {
+        return;
+    }
+    static FETCHING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+    if FETCHING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    std::thread::spawn(|| {
+        let result = crate::download::download(
+            super::voices::MODEL_URL,
+            super::voices::MODEL_SHA256,
+            &super::voices::model_path(),
+            &|_| {},
+        );
+        diag::log(&match result {
+            Ok(()) => "voice model downloaded and verified".to_string(),
+            Err(e) => format!("voice model download failed: {e}"),
+        });
+        FETCHING.store(false, std::sync::atomic::Ordering::SeqCst);
+    });
+}
+
+/// Worker side, after the note's last segment: tidy it and save it whole, with the other side's speakers.
+pub fn finish(
+    app: &AppHandle,
+    id: &str,
+    ended_ms: u64,
+    voices: &std::collections::HashMap<u64, String>,
+) {
     let cfg = app::shared_of(app).config();
-    match super::finish(id, ended_ms, cfg.smart_format, app::english_output(&cfg)) {
+    let english = app::english_output(&cfg);
+    match super::finish(id, ended_ms, cfg.smart_format, english, voices) {
         Ok(note) => {
-            diag::log(&format!("note saved: {} lines", note.segments.len()));
+            let speakers: std::collections::HashSet<&str> =
+                voices.values().map(String::as_str).collect();
+            diag::log(&format!(
+                "note saved: {} lines, {} voices told apart",
+                note.segments.len(),
+                speakers.len()
+            ));
             let _ = app.emit_to(
                 app::MAIN,
                 "note-state",

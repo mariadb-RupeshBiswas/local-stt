@@ -182,6 +182,83 @@ impl Drop for Engine {
     }
 }
 
+#[cfg(lstt_voices)]
+extern "C" {
+    fn lstt_voice_new(model: *const c_char, threads: c_int) -> *const c_void;
+    fn lstt_voice_dim(ex: *const c_void) -> c_int;
+    fn lstt_voice_embed(
+        ex: *const c_void,
+        samples: *const f32,
+        n: c_int,
+        out: *mut f32,
+        dim: c_int,
+    ) -> c_int;
+    fn lstt_voice_free(ex: *const c_void);
+}
+
+/// Voice fingerprints for telling the other side of a call apart; only on builds that link sherpa-onnx.
+pub struct VoiceEmbedder {
+    #[cfg_attr(not(lstt_voices), allow(dead_code))]
+    ex: *const c_void,
+    #[cfg_attr(not(lstt_voices), allow(dead_code))]
+    dim: usize,
+}
+
+// SAFETY: the extractor is only used from the worker thread that owns it.
+unsafe impl Send for VoiceEmbedder {}
+
+impl VoiceEmbedder {
+    /// None when this build has no voice support or the model cannot be loaded.
+    pub fn load(model: &Path) -> Option<Self> {
+        #[cfg(lstt_voices)]
+        {
+            let path = CString::new(model.to_str()?).ok()?;
+            // SAFETY: path is NUL-terminated and outlives the call; the shim copies what it needs.
+            let ex = unsafe { lstt_voice_new(path.as_ptr(), 1) };
+            if ex.is_null() {
+                return None;
+            }
+            // SAFETY: ex is the non-null extractor just created.
+            let dim = usize::try_from(unsafe { lstt_voice_dim(ex) }).ok()?;
+            Some(Self { ex, dim })
+        }
+        #[cfg(not(lstt_voices))]
+        {
+            let _ = model;
+            None
+        }
+    }
+
+    /// The fingerprint of 16 kHz mono audio; None when it is too short to tell.
+    pub fn embed(&self, pcm_16k: &[f32]) -> Option<Vec<f32>> {
+        #[cfg(lstt_voices)]
+        {
+            let n = c_int::try_from(pcm_16k.len()).ok()?;
+            let mut out = vec![0.0f32; self.dim];
+            let dim = c_int::try_from(self.dim).ok()?;
+            // SAFETY: ex is live; pcm holds n samples; out holds dim floats, the size the shim writes.
+            let rc =
+                unsafe { lstt_voice_embed(self.ex, pcm_16k.as_ptr(), n, out.as_mut_ptr(), dim) };
+            (rc == 0 && out.iter().all(|v| v.is_finite())).then_some(out)
+        }
+        #[cfg(not(lstt_voices))]
+        {
+            let _ = pcm_16k;
+            None
+        }
+    }
+}
+
+impl Drop for VoiceEmbedder {
+    fn drop(&mut self) {
+        #[cfg(lstt_voices)]
+        // SAFETY: ex came from lstt_voice_new, is non-null, and is freed exactly once here.
+        unsafe {
+            lstt_voice_free(self.ex)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::clean;

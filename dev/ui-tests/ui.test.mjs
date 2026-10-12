@@ -486,6 +486,23 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Notes, voices told apart ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light&notes=split");
+  const panel = page.locator("#panel-notes");
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("two voices on the call read as Speaker 1 and Speaker 2", (await panel.locator(".turn-name").allTextContents()).join(",") === "Speaker 1,Me,Speaker 2");
+  check("each voice gets its own name box, and no Others box", (await panel.locator(".speaker-key").allTextContents()).join(",") === "Me,Speaker 1,Speaker 2");
+  const box = panel.locator(".speaker-field", { hasText: "Speaker 2" }).locator("input");
+  await box.fill("Priya");
+  await box.press("Enter");
+  await page.waitForTimeout(250);
+  check("naming Speaker 2 renames only that voice", (await panel.locator(".turn-name").allTextContents()).join(",") === "Speaker 1,Me,Priya" && (await page.evaluate(() => window.__calls)).includes("rename_speaker:s2=Priya"));
+  check("no page errors (voices)", errors.length === 0, errors);
+  await ctx.close();
+}
+
 // ---------- main: Notes ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light");

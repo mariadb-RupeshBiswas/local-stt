@@ -56,6 +56,21 @@ jobs:
         env:
           LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
         run: cargo test --locked --release --test engine
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/voice
+          key: voice-aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2
+      # Same file and checksum as src/notes/voices.rs.
+      - name: Fetch the voice model by its pinned checksum
+        run: |
+          model="$RUNNER_TEMP/voice/model.onnx"
+          mkdir -p "$RUNNER_TEMP/voice"
+          [ -f "$model" ] || curl -fsSL --retry 3 -o "$model" "https://github.com/k2-fsa/sherpa-onnx/releases/download/speaker-recongition-models/3dspeaker_speech_campplus_sv_zh_en_16k-common_advanced.onnx"
+          echo "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80c2a30bf4f00ceba2  $model" | shasum -a 256 -c -
+      - name: Voices told apart (two voices, real model)
+        env:
+          LOCAL_STT_TEST_VOICE_MODEL: ${{ runner.temp }}/voice/model.onnx
+        run: cargo test --locked --release --test voices -- --nocapture
       - name: Start the app, load the model, quit cleanly
         env:
           LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data

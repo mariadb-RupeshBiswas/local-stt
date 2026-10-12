@@ -126,14 +126,15 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 
 - Works with Zoom, Google Meet, Teams, Slack, or any app that plays sound. No bot joins the call.
 - Audio is never saved. Each few seconds of speech is transcribed and then dropped.
+- On a Mac with Apple silicon, the call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
-- Name the speakers: type "Priya" next to **Others** above the transcript and every Others line, and the copied note, says Priya. Clear it to go back.
+- Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
 - Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat.
 - macOS 14.6 or later (macOS asks once for System Audio Recording), or Windows 10 and 11.
 
 **Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
 
-Coming next: a prompt when a call starts, a local meeting summary, and telling speakers apart.
+Coming next: a prompt when a call starts, a local meeting summary, telling voices apart on Windows, and names read from Zoom.
 
 ## Insights
 
@@ -289,7 +290,7 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 
 ## License
 
-[MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org.
+[MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope).
 
 Wispr Flow, Superwhisper and other product names mentioned here are trademarks of their owners. local-stt is an independent open-source project and is not affiliated with, endorsed by or sponsored by them; the names are used only to say what local-stt can be used instead of.
 

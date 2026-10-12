@@ -1331,6 +1331,10 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
         // Note jobs wait here and run only when nothing else is queued, so a paste never waits behind a meeting.
         // ponytail: unbounded; a CPU far slower than real time grows it about 2 MB per queued segment, cap it if that shows up in reports.
         let mut note_jobs: std::collections::VecDeque<Job> = std::collections::VecDeque::new();
+        // Voice fingerprints of each note's other side, kept in memory until Stop groups them.
+        let mut voice = crate::notes::voices::Lazy::default();
+        let mut voiced: std::collections::HashMap<String, Vec<(u64, Vec<f32>)>> =
+            std::collections::HashMap::new();
         loop {
             let job = match rx.try_recv() {
                 Ok(job @ (Job::NoteSegment { .. } | Job::NoteFinish { .. })) => {
@@ -1431,14 +1435,24 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                             padded.resize(17_600, 0.0);
                         }
                         if let Ok(text) = e.transcribe(&padded, &opts) {
-                            crate::notes::session::add_segment(
+                            let kept = crate::notes::session::add_segment(
                                 &app, &id, speaker, start_ms, samples, &text,
                             );
+                            let long_enough = samples >= crate::notes::voices::MIN_SAMPLES;
+                            if kept && long_enough && speaker == crate::notes::OTHERS {
+                                if let Some(v) =
+                                    voice.get().and_then(|x| x.embed(&padded[..samples]))
+                                {
+                                    voiced.entry(id).or_default().push((start_ms, v));
+                                }
+                            }
                         }
                     }
                 }
                 Job::NoteFinish { id, ended_ms } => {
-                    crate::notes::session::finish(&app, &id, ended_ms);
+                    let lines = voiced.remove(&id).unwrap_or_default();
+                    let speakers = crate::notes::voices::speakers(&lines);
+                    crate::notes::session::finish(&app, &id, ended_ms, &speakers);
                 }
             }
         }
