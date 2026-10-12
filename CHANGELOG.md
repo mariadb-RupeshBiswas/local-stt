@@ -6,6 +6,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- Releases build the wheels while the full CI runs on the merge commit, about 6 minutes
+  faster; nothing is published until both pass.
+
 ## [0.2.0] - 2026-10-12
 
 ### Added

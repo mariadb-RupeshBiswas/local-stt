@@ -57,9 +57,9 @@ uvx --from target/wheels/*.whl local-stt
    `pyproject.toml`, refresh `Cargo.lock` with `cargo check`, and move the Unreleased notes
    under that version. CI's "Version files agree" check (`dev/check-version.sh`) catches a mismatch.
 2. Merge it. `release.yml` publishes only a version that is neither tagged `v<version>` nor on
-   PyPI: it runs the full CI on that commit, builds the macOS and Windows wheels, waits for an
-   approval on the `pypi` environment, publishes to PyPI, then tags the commit and creates the
-   GitHub release with the wheels attached.
+   PyPI: it runs the full CI on that commit while it builds the macOS and Windows wheels,
+   publishes to PyPI (environment `pypi`) only after both pass, then tags the commit and creates
+   the GitHub release with the wheels attached.
 
 If the GitHub release step fails after PyPI has the files, re-run only that failed job. A later
 merge stops with an error rather than build different wheels for a version PyPI already has.
