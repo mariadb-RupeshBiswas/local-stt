@@ -61,6 +61,13 @@ uvx --from target/wheels/*.whl local-stt
    publishes to PyPI (environment `pypi`) only after both pass, then tags the commit and creates
    the GitHub release with the wheels attached.
 
+macOS wheels are signed in the `sign-macos` job by `dev/sign-macos-wheel.sh`, with the certificate
+in the `pypi` environment secrets `MACOS_SIGNING_P12` (base64) and `MACOS_SIGNING_P12_PASSWORD`;
+`dev/macos-signing-cert.sha1` names it, and the job fails rather than publish an ad-hoc app. A new
+key means a new SHA-1 in that file, and users allow permissions once more. Pull requests run the
+same script with a throwaway certificate. Builds you make locally stay ad-hoc: started from a
+terminal, a release build replaces an installed release copy, so macOS asks for permissions again.
+
 If the GitHub release step fails after PyPI has the files, re-run only that failed job. A later
 merge stops with an error rather than build different wheels for a version PyPI already has.
 A tag rule that restricts creating `v*` tags must let GitHub Actions through, or every release

@@ -33,15 +33,20 @@ steps to reproduce and the impact you see.
 | Diagnostic report | A text file in `diagnostics/` inside the app data folder, the five newest kept; never sent anywhere | Only when you click Export Report or run `local-stt diagnostics` |
 | Insights | `insights.json` in the app data folder: words, dictations and seconds per day, words by hour, the streak, and (with Word insights on) counts for the 200 words you use most; never sentences. Readable only by your user | After each dictation; Reset Insights deletes it, Word insights off deletes the word counts |
 | Notes | One file per note in `notes/` inside the app data folder (lines appended while recording, tidied on Stop), readable only by your user; delete removes the file | From New Note until you delete it |
-| Permission reset (macOS) | `tccutil reset All io.github.localstt` clears local-stt's own privacy entries, never another app's, so macOS asks again | Only when you click Reinstall or run `local-stt reinstall` |
+| Permission reset (macOS) | `tccutil reset All io.github.localstt` clears local-stt's own privacy entries, never another app's, so macOS asks again | When you click Reinstall or run `local-stt reinstall`, or when an install replaces a copy macOS sees as a different app |
 | Login item | `~/Library/LaunchAgents/io.github.localstt.plist` (macOS) or a `HKCU\...\Run` value (Windows) | Only when Start at login is on |
 
 The app sends no telemetry and no crash reports, and has no account.
 
 Started from a terminal, local-stt opens its installed copy only if that copy was made from the
-same build and, on macOS, its ad-hoc code signature still verifies; otherwise it reinstalls first.
-An ad-hoc signature proves the bundle has not changed since it was signed on your Mac, not who
-built it: install from the official release (or your own build), as with any app.
+same build and, on macOS, its code signature still verifies; otherwise it reinstalls first.
+
+macOS releases are signed with local-stt's own self-signed certificate (its SHA-1 is in
+`dev/macos-signing-cert.sha1`), so macOS keeps your permissions across updates. Your Mac is never
+asked to trust that certificate, and Apple does not vouch for it: it proves that later releases come
+from the same key, not who holds it. The private key exists only as a secret of the GitHub release
+environment, and a release fails rather than ship an app without it. Builds you make yourself are
+signed ad-hoc on your Mac.
 
 ## Supply chain
 
