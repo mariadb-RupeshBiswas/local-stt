@@ -264,7 +264,7 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 local-stt checks for a new version once a day (Settings > General > Check automatically). When one is out you see an "Update to ..." item in the menu bar or tray and a banner in the app with **Install and Restart**, **Release Notes**, **Later** and **Skip This Version**. From a terminal: `local-stt check-update`.
 
-On macOS, each new version is a new program to the system, so it may ask for Microphone and Accessibility again after an update.
+On macOS, releases are signed with local-stt's own certificate, so an update from 0.3.0 or later keeps Microphone and Accessibility allowed, with no setup. Skip 0.4.0: its macOS build was not signed, so installing it asks for permissions again; 0.4.1 replaced it. Updating from a version before 0.3.0, or from 0.4.0, asks once more and opens setup; your history and insights stay.
 
 ## Uninstall
 
