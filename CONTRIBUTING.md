@@ -12,7 +12,9 @@ Thanks for helping make free, private speech-to-text better.
 ## Getting started
 
 Requirements: Rust (the version in `rust-toolchain.toml` installs automatically through
-rustup), CMake, and on macOS the Xcode Command Line Tools.
+rustup), CMake, and on macOS the Xcode Command Line Tools. On a Mac with Apple silicon the first
+build downloads sherpa-onnx's static library (about 18 MB, checksum pinned in `build.rs`); set
+`LOCAL_STT_SHERPA_LIB` to an unpacked copy's `lib` folder to build offline.
 
 ```bash
 git clone --recurse-submodules https://github.com/mariadb-RupeshBiswas/local-stt

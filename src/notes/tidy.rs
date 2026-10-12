@@ -46,7 +46,7 @@ fn is_echo(me: &Segment, all: &[Segment]) -> bool {
         return false;
     }
     all.iter()
-        .filter(|o| o.speaker == super::OTHERS && o.start_ms < me.end_ms && me.start_ms < o.end_ms)
+        .filter(|o| o.speaker != super::ME && o.start_ms < me.end_ms && me.start_ms < o.end_ms)
         .any(|o| {
             let theirs = words(&o.text);
             let shared = mine.intersection(&theirs).count();

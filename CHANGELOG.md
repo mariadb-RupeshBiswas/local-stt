@@ -6,6 +6,15 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-12
+
+### Added
+
+- Notes (Mac with Apple silicon): the call's voices are told apart. At Stop, Others becomes
+  Speaker 1, Speaker 2 and so on, which you can name. A voice fingerprint per line stays in
+  memory until Stop and is never saved; the 28 MB voice model downloads once, checked against
+  a pinned SHA-256.
+
 ## [0.6.0] - 2026-10-12
 
 ### Added

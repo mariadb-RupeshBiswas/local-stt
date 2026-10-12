@@ -6,7 +6,11 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::time::Duration;
 
-const ALLOWED_PREFIX: &str = "https://huggingface.co/";
+// Whisper models from Hugging Face; the voice model for notes from sherpa-onnx's own releases.
+const ALLOWED_PREFIXES: [&str; 2] = [
+    "https://huggingface.co/",
+    "https://github.com/k2-fsa/sherpa-onnx/releases/download/",
+];
 const POLL: Duration = Duration::from_millis(250);
 // Largest pinned model is about 1 GB; the cap only stops a runaway response before the hash check.
 const MAX_BYTES: &str = "2147483648";
@@ -29,9 +33,9 @@ pub fn download(
     dest: &Path,
     progress: &dyn Fn(u64),
 ) -> Result<(), String> {
-    if !url.starts_with(ALLOWED_PREFIX) {
+    if !ALLOWED_PREFIXES.iter().any(|p| url.starts_with(p)) {
         return Err(format!(
-            "refusing {url}: only {ALLOWED_PREFIX} over https is allowed"
+            "refusing {url}: only the pinned model sources over https are allowed"
         ));
     }
     download_with(url, sha256_hex, dest, progress, false)

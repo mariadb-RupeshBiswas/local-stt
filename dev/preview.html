@@ -426,9 +426,10 @@
         : { supported: true, reason: null, active: null },
       noteFiles: params.get("notes") === "none" ? [] : [
         { id: "a1b2c3d4e5f60718", title: "", started_ms: now - 2 * hour, ended_ms: now - 2 * hour + 42 * minute, source: "Zoom", status: "done", segments: [
-          { start_ms: 4000, end_ms: 9000, speaker: "others", text: "Let's start with the September numbers. Revenue is up eight percent." },
+          // ?notes=split: the call's two voices were told apart at Stop
+          { start_ms: 4000, end_ms: 9000, speaker: params.get("notes") === "split" ? "s1" : "others", text: "Let's start with the September numbers. Revenue is up eight percent." },
           { start_ms: 10000, end_ms: 14000, speaker: "me", text: "Great. Can we split that by region before Friday?" },
-          { start_ms: 15500, end_ms: 19000, speaker: "others", text: "Yes, I'll send the breakdown tomorrow." }
+          { start_ms: 15500, end_ms: 19000, speaker: params.get("notes") === "split" ? "s2" : "others", text: "Yes, I'll send the breakdown tomorrow." }
         ] },
         { id: "0f1e2d3c4b5a6978", title: "Design review", started_ms: now - day - 3 * hour, ended_ms: now - day - 3 * hour + 25 * minute, source: null, status: "done", segments: [
           { start_ms: 1000, end_ms: 5000, speaker: "me", text: "The new pill reads well in dark mode." }

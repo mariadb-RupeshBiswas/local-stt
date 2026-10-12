@@ -44,11 +44,11 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/state.rs` | Pure recording state machine (hold / toggle / cancel) |
 | `src/overlay.rs` | Recording pill window and multi-monitor geometry |
 | `src/commands.rs` | Commands the UI may call |
-| `src/engine.rs`, `shim.cpp` | whisper.cpp through a small C ABI shim (C++ only to stop exceptions), plus the stderr redirect |
+| `src/engine.rs`, `shim.cpp`, `voice_shim.c` | whisper.cpp through a small C ABI shim (C++ only to stop exceptions), plus the stderr redirect; sherpa-onnx voice fingerprints (Mac with Apple silicon) |
 | `src/recorder.rs`, `src/audio.rs`, `src/sound.rs` | Microphone capture, resampling, level, cues |
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke; Windows console detach |
-| `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session |
+| `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session, voices (telling speakers apart) |
 | `src/insights/`, `src/localtime/` | Insights: workday streak and freezes (pure), word counts and part-of-speech tagger, `insights.json`; local date and hour from the OS |
 | `src/focus/` | The focused window's centre, so the pill shows on that screen |
 | `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |

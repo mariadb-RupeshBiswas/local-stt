@@ -1213,8 +1213,12 @@
       return lines.join("\n");
     }
 
+    // "s2" is the second voice heard on the other side of the call
     function defaultSpeaker(id) {
-      return id === "me" ? "Me" : id === "others" ? "Others" : String(id || "-");
+      if (id === "me") return "Me";
+      if (id === "others") return "Others";
+      var m = /^s([0-9]+)$/.exec(String(id || ""));
+      return m ? "Speaker " + m[1] : String(id || "-");
     }
 
     // the name the user gave this speaker in this note, else the default
@@ -1225,8 +1229,9 @@
 
     // one name box per speaker; a name replaces the label on every line and in copied text
     function speakersRow(note) {
-      var keys = ["me", "others"];
+      var keys = ["me"];
       (note.segments || []).forEach(function (seg) { if (keys.indexOf(seg.speaker) === -1) keys.push(seg.speaker); });
+      if (keys.length === 1) keys.push("others"); // nothing heard from the call yet
       var row = h("div", { class: "note-speakers", role: "group", "aria-label": "Speaker names" });
       keys.forEach(function (key) {
         var input = h("input", { class: "speaker-input", type: "text", maxlength: "60", placeholder: "Add a name", value: (note.speakers || {})[key] || "" });
@@ -1247,7 +1252,7 @@
     }
 
     function turnRow(seg) {
-      var row = h("div", { class: "turn turn-" + (seg.speaker === "me" ? "me" : "others") },
+      var row = h("div", { class: "turn turn-" + (seg.speaker === "me" ? "me" : "others"), "data-speaker": seg.speaker },
         h("div", { class: "turn-who" },
           h("span", { class: "turn-name", text: speakerName(seg.speaker) }),
           h("span", { class: "turn-time", text: clock(seg.start_ms) })

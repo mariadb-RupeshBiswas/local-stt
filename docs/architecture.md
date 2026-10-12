@@ -85,8 +85,12 @@ Notes reuse the same engine for a whole call instead of one dictation:
    a call always jumps the queue, so your shortcut never waits behind the meeting.
 4. **Written as it happens.** Every finished line is added to the note's file in `notes/` at once,
    so a crash keeps everything up to that moment. The audio is still never saved.
-5. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
-   lines from one side and drops lines that appear twice because of echo between speakers and mic.
+5. **Voices told apart (Mac with Apple silicon).** The worker takes a voice fingerprint of each line
+   from the call (`src/notes/voices.rs`, through sherpa-onnx in `src/engine.rs`). At Stop the
+   fingerprints are grouped, and Others becomes Speaker 1, Speaker 2; a line too short to tell takes
+   its neighbour's speaker. Fingerprints live in memory only.
+6. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
+   lines from one speaker and drops lines that appear twice because of echo between speakers and mic.
 
 ## Insights
 

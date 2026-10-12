@@ -57,6 +57,11 @@ fn main() {
     }
     println!("cargo:rerun-if-changed=shim.cpp");
     println!("cargo:rerun-if-changed=Info.plist");
+    println!("cargo::rustc-check-cfg=cfg(lstt_voices)");
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
+    if target_os == "macos" && target_arch == "aarch64" {
+        link_voices();
+    }
     // Listing the commands makes Tauri require a capability for each, so every window gets only what it needs.
     let manifest = tauri_build::AppManifest::new().commands(&[
         "get_state",
@@ -94,6 +99,78 @@ fn main() {
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri build step failed");
+}
+
+// Telling speakers apart in notes: sherpa-onnx's prebuilt static library (Apache-2.0), pinned by checksum.
+const SHERPA_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-arm64-static-no-tts-lib.tar.bz2";
+const SHERPA_SHA256: &str = "3d7f9b8a496694af13d9802c33b8133231e397bdef302f543d19468765e83136";
+const SHERPA_DIR: &str = "sherpa-onnx-v1.13.8-osx-arm64-static-no-tts-lib";
+const SHERPA_LIBS: [&str; 10] = [
+    "sherpa-onnx-c-api",
+    "sherpa-onnx-core",
+    "kaldi-native-fbank-core",
+    "kissfft-float",
+    "sherpa-onnx-kaldifst-core",
+    "sherpa-onnx-fst",
+    "sherpa-onnx-fstfar",
+    "kaldi-decoder-core",
+    "ssentencepiece_core",
+    "onnxruntime",
+];
+
+fn link_voices() {
+    let lib = sherpa_lib_dir();
+    cc::Build::new()
+        .file("voice_shim.c")
+        .include("vendor/sherpa-onnx")
+        .compile("lstt_voice_shim");
+    println!("cargo:rustc-link-search=native={}", lib.display());
+    for name in SHERPA_LIBS {
+        println!("cargo:rustc-link-lib=static={name}");
+    }
+    println!("cargo:rustc-cfg=lstt_voices");
+    println!("cargo:rerun-if-changed=voice_shim.c");
+    println!("cargo:rerun-if-env-changed=LOCAL_STT_SHERPA_LIB");
+}
+
+// LOCAL_STT_SHERPA_LIB points at an unpacked lib folder for offline builds; otherwise it is fetched once per target dir.
+fn sherpa_lib_dir() -> std::path::PathBuf {
+    if let Some(dir) = std::env::var_os("LOCAL_STT_SHERPA_LIB") {
+        return dir.into();
+    }
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+    let lib = out.join(SHERPA_DIR).join("lib");
+    if lib.join("libsherpa-onnx-c-api.a").exists() {
+        return lib;
+    }
+    let archive = out.join("sherpa-onnx.tar.bz2");
+    run(std::process::Command::new("curl")
+        .args(["-fsSL", "--retry", "3", "-o"])
+        .arg(&archive)
+        .arg(SHERPA_URL));
+    let sum = std::process::Command::new("shasum")
+        .args(["-a", "256"])
+        .arg(&archive)
+        .output()
+        .expect("shasum");
+    let sum = String::from_utf8_lossy(&sum.stdout);
+    assert_eq!(
+        sum.split_whitespace().next(),
+        Some(SHERPA_SHA256),
+        "sherpa-onnx archive checksum mismatch"
+    );
+    run(std::process::Command::new("tar")
+        .arg("-xjf")
+        .arg(&archive)
+        .arg("-C")
+        .arg(&out));
+    let _ = std::fs::remove_file(&archive);
+    lib
+}
+
+fn run(cmd: &mut std::process::Command) {
+    let status = cmd.status().expect("cannot start a build tool");
+    assert!(status.success(), "{cmd:?} failed");
 }
 
 fn clang_runtime_dir() -> Option<String> {

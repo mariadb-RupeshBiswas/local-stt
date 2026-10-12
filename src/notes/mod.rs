@@ -3,10 +3,11 @@
 pub mod segmenter;
 pub mod session;
 pub mod tidy;
+pub mod voices;
 
 use crate::paths;
 use serde::{Deserialize, Serialize};
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -156,10 +157,16 @@ fn read_live(id: &str) -> std::io::Result<Note> {
     Ok(note)
 }
 
-/// Tidies the live note into its saved file and removes the live one.
-pub fn finish(id: &str, ended_ms: u64, smart_format: bool, english: bool) -> std::io::Result<Note> {
+/// Tidies the live note into its saved file and removes the live one; `voices` names the other side's speakers by line start.
+pub fn finish(
+    id: &str,
+    ended_ms: u64,
+    smart_format: bool,
+    english: bool,
+    voices: &HashMap<u64, String>,
+) -> std::io::Result<Note> {
     let _guard = files();
-    finish_locked(id, ended_ms, smart_format, english)
+    finish_locked(id, ended_ms, smart_format, english, voices)
 }
 
 fn finish_locked(
@@ -167,14 +174,58 @@ fn finish_locked(
     ended_ms: u64,
     smart_format: bool,
     english: bool,
+    voices: &HashMap<u64, String>,
 ) -> std::io::Result<Note> {
     let mut note = read_live(id)?;
+    assign_speakers(&mut note.segments, voices);
+    keep_others_name(&mut note);
     note.segments = tidy::tidy(note.segments, smart_format, english);
     note.ended_ms = Some(ended_ms.max(note.started_ms));
     note.status = Status::Done;
     save(&note)?;
     std::fs::remove_file(live_path(id))?;
     Ok(note)
+}
+
+// Others lines take the speaker their voice was grouped into; a line too short to tell takes the nearest grouped line's.
+fn assign_speakers(segments: &mut [Segment], voices: &HashMap<u64, String>) {
+    if voices.is_empty() {
+        return;
+    }
+    let grouped: Vec<(u64, String)> = segments
+        .iter()
+        .filter(|s| s.speaker == OTHERS)
+        .filter_map(|s| voices.get(&s.start_ms).map(|k| (s.start_ms, k.clone())))
+        .collect();
+    for seg in segments.iter_mut().filter(|s| s.speaker == OTHERS) {
+        let nearest = grouped
+            .iter()
+            .min_by_key(|(start, _)| start.abs_diff(seg.start_ms));
+        if let Some((_, key)) = nearest {
+            seg.speaker = key.clone();
+        }
+    }
+}
+
+// A name given to Others while recording goes to the voice that said the most once the call is split.
+fn keep_others_name(note: &mut Note) {
+    if note.segments.iter().any(|s| s.speaker == OTHERS) {
+        return;
+    }
+    let Some(name) = note.speakers.remove(OTHERS) else {
+        return;
+    };
+    let mut lines: HashMap<&str, usize> = HashMap::new();
+    for seg in note.segments.iter().filter(|s| s.speaker != ME) {
+        *lines.entry(seg.speaker.as_str()).or_default() += 1;
+    }
+    let busiest = lines
+        .into_iter()
+        .max_by_key(|(key, count)| (*count, std::cmp::Reverse(*key)))
+        .map(|(key, _)| key.to_string());
+    if let Some(key) = busiest {
+        note.speakers.entry(key).or_insert(name);
+    }
 }
 
 fn save(note: &Note) -> std::io::Result<()> {
@@ -190,7 +241,7 @@ pub fn recover(smart_format: bool, english: bool) -> usize {
         let ended = read_live(&id)
             .map(|n| n.segments.iter().map(|s| s.end_ms).max().unwrap_or(0) + n.started_ms)
             .unwrap_or(0);
-        if finish_locked(&id, ended, smart_format, english).is_ok() {
+        if finish_locked(&id, ended, smart_format, english, &HashMap::new()).is_ok() {
             recovered += 1;
         }
     }
@@ -401,7 +452,7 @@ mod tests {
         append(id, &seg(OTHERS, 5_000, "Agreed.")).unwrap();
         assert_eq!(get(id).unwrap().status, Status::Recording);
         assert_eq!(list()[0].status, Status::Recording);
-        let note = finish(id, 9_000, false, true).unwrap();
+        let note = finish(id, 9_000, false, true, &HashMap::new()).unwrap();
         assert_eq!(note.status, Status::Done);
         assert_eq!(note.segments.len(), 2);
         assert_eq!(note.segments[0].text, "First point. Second point.");
@@ -419,7 +470,7 @@ mod tests {
         let mode = |p: PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(live_path(id)), 0o600);
         assert_eq!(mode(dir()), 0o700);
-        finish(id, 2, false, true).unwrap();
+        finish(id, 2, false, true, &HashMap::new()).unwrap();
         assert_eq!(mode(saved_path(id)), 0o600);
     }
 
@@ -452,7 +503,7 @@ mod tests {
         let live = get(id).unwrap();
         assert_eq!(live.title, "Weekly sync");
         assert_eq!(live.segments.len(), 1);
-        finish(id, 5, false, true).unwrap();
+        finish(id, 5, false, true, &HashMap::new()).unwrap();
         rename(id, &"x".repeat(500)).unwrap();
         assert_eq!(get(id).unwrap().title.chars().count(), MAX_TITLE_CHARS);
     }
@@ -466,7 +517,7 @@ mod tests {
         rename_speaker(id, OTHERS, "  Priya\u{7} ").unwrap();
         assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
         assert_eq!(get(id).unwrap().segments.len(), 1);
-        finish(id, 5, false, true).unwrap();
+        finish(id, 5, false, true, &HashMap::new()).unwrap();
         assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
         rename_speaker(id, ME, &"x".repeat(100)).unwrap();
         assert_eq!(
@@ -479,11 +530,32 @@ mod tests {
     }
 
     #[test]
+    fn the_other_side_takes_its_speakers_and_short_lines_follow_their_neighbours() {
+        let _g = sandbox();
+        let id = "00000000000000d6";
+        begin(&header(id, 1)).unwrap();
+        append(id, &seg(OTHERS, 0, "Hello, I'm Priya.")).unwrap();
+        append(id, &seg(OTHERS, 2_500, "Hi.")).unwrap();
+        append(id, &seg(ME, 20_000, "Welcome both.")).unwrap();
+        append(id, &seg(OTHERS, 30_000, "Thanks, glad to join.")).unwrap();
+        let voices: HashMap<u64, String> =
+            [(0, "s1".to_string()), (30_000, "s2".to_string())].into();
+        rename_speaker(id, OTHERS, "Priya").unwrap();
+        let note = finish(id, 40_000, false, true, &voices).unwrap();
+        let who: Vec<&str> = note.segments.iter().map(|s| s.speaker.as_str()).collect();
+        assert_eq!(who, vec!["s1", ME, "s2"]);
+        assert_eq!(note.segments[0].text, "Hello, I'm Priya. Hi.");
+        // the name typed for Others during the call lands on the voice with the most lines
+        assert_eq!(note.speakers.get("s1").map(String::as_str), Some("Priya"));
+        assert!(!note.speakers.contains_key(OTHERS));
+    }
+
+    #[test]
     fn delete_skips_the_note_being_recorded_and_bad_ids() {
         let _g = sandbox();
         let (a, b) = ("00000000000000e5", "00000000000000e6");
         begin(&header(a, 1)).unwrap();
-        finish(a, 2, false, true).unwrap();
+        finish(a, 2, false, true, &HashMap::new()).unwrap();
         begin(&header(b, 3)).unwrap();
         let ids: HashSet<String> = [a, b, "../config"].iter().map(|s| s.to_string()).collect();
         assert_eq!(delete(&ids, Some(b)).unwrap(), 1);
@@ -498,7 +570,7 @@ mod tests {
         for (id, at) in [("00000000000000f1", 100), ("00000000000000f2", 300)] {
             begin(&header(id, at)).unwrap();
             append(id, &seg(ME, 0, "Opening line.")).unwrap();
-            finish(id, at + 10, false, true).unwrap();
+            finish(id, at + 10, false, true, &HashMap::new()).unwrap();
         }
         let rows = list();
         assert_eq!(rows[0].id, "00000000000000f2");
