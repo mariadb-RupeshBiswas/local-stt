@@ -13,6 +13,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - While you talk, the pill follows focus: switch to a window on another screen and the pill
   (and the live text) moves there within a third of a second. A pill you dragged stays put
   until focus changes screen.
+- Insights: an info button next to Freezes explains how freezes are earned and used, the
+  countdown reads "+1 freeze after 3 more active workdays", and full freezes say so.
 
 ### Fixed
 
