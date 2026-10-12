@@ -68,7 +68,8 @@ on Windows, with Reduce Transparency or Increase Contrast, and in the demo, the 
 opaque capsule.
 States: recording, transcribing, done, warning, error, positioning, and Notes (the recording
 look with its own label and the note's timer, for as long as a note runs). A state always
-pairs a colour with a label or shape, so it never relies on colour alone.
+pairs a colour with a label or shape, so it never relies on colour alone. While recording and
+transcribing, a smaller second line names the model in use ("Whisper Medium"); it is not announced.
 
 ## Words
 

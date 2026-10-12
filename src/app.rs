@@ -103,6 +103,8 @@ pub struct Shared {
     pub dictating: AtomicBool,
     /// The setup microphone test holds the microphone.
     pub mic_check: AtomicBool,
+    /// Set on the first start of a new version; the main window takes it once.
+    pub update_notice: AtomicBool,
     /// Screen the pill was last placed on, so it can follow focus while recording.
     pill_screen: Mutex<Option<String>>,
 }
@@ -135,12 +137,16 @@ pub fn now_ms() -> u64 {
 pub fn run() -> Result<(), String> {
     paths::ensure_dirs().map_err(|e| format!("cannot create the app data folder: {e}"))?;
     // A second launch (Spotlight, login item, terminal) asks the running copy to show itself and quits.
-    let (lock, unclean) = match crate::instance::claim(&paths::data_dir()) {
+    let (lock, unclean, took_over) = match crate::instance::claim(&paths::data_dir()) {
         crate::instance::Claim::Other => {
             println!("local-stt is already running; showing its window.");
             return Ok(());
         }
-        crate::instance::Claim::Owner { lock, unclean } => (lock, unclean),
+        crate::instance::Claim::Owner {
+            lock,
+            unclean,
+            took_over,
+        } => (lock, unclean, took_over),
     };
     crate::install::finish_pending_reinstall();
     let cfg = config::load(&paths::config_path());
@@ -194,8 +200,10 @@ pub fn run() -> Result<(), String> {
         notes_pill: AtomicBool::new(false),
         dictating: AtomicBool::new(false),
         mic_check: AtomicBool::new(false),
+        update_notice: AtomicBool::new(false),
         pill_screen: Mutex::new(None),
     });
+    note_version(&shared, took_over);
 
     let app = tauri::Builder::default()
         .manage(shared.clone())
@@ -230,6 +238,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::install_update,
             crate::commands::skip_update,
             crate::commands::open_release_notes,
+            crate::commands::take_update_notice,
         ])
         .setup(move |app| {
             #[cfg(target_os = "macos")]
@@ -652,9 +661,14 @@ pub fn show_overlay(app: &AppHandle, state: &str, label: &str, started_at_ms: Op
         place_overlay(app, &win);
     }
     let _ = app.emit("overlay-theme", theme_payload(&cfg));
+    // The model shows only while it is in use: listening and transcribing.
+    let model = matches!(state, "recording" | "notes" | "transcribing")
+        .then(|| *lock(&s.active_model))
+        .flatten()
+        .map(|id| models::info(id).label);
     let _ = app.emit(
         "overlay-state",
-        json!({ "state": state, "label": label, "startedAtMs": started_at_ms }),
+        json!({ "state": state, "label": label, "startedAtMs": started_at_ms, "model": model }),
     );
     let _ = win.show();
     let live_wanted = cfg.live_transcription && matches!(state, "recording" | "transcribing");
@@ -1448,10 +1462,31 @@ fn verify_model(
     Ok(())
 }
 
+// Records this version as the last one started, and raises the update notice on the first start of a new one.
+fn note_version(s: &Shared, took_over: bool) {
+    let current = env!("CARGO_PKG_VERSION");
+    let cfg = s.config();
+    let updated = !crate::demo::active()
+        && crate::update::just_updated(
+            cfg.last_version.as_deref(),
+            current,
+            took_over,
+            cfg.setup_done,
+        );
+    if updated {
+        diag::log(&format!("updated to {current}"));
+        s.update_notice.store(true, Ordering::SeqCst);
+    }
+    if cfg.last_version.as_deref() != Some(current) {
+        s.update_config(|c| c.last_version = Some(current.to_string()));
+    }
+}
+
 fn first_run_or_load(app: &AppHandle) {
     let cfg = shared(app).config();
-    // First-run setup lives in the main window.
-    if !cfg.setup_done && !crate::demo::active() {
+    // First-run setup lives in the main window; so does the note that an update finished.
+    let updated = shared(app).update_notice.load(Ordering::SeqCst);
+    if (!cfg.setup_done || updated) && !crate::demo::active() {
         show_main(app);
     }
     let id = cfg.model;

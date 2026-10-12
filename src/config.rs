@@ -60,6 +60,8 @@ pub struct Config {
     pub user_name: Option<String>,
     /// The build that last showed the macOS Accessibility prompt, so it shows once per build.
     pub accessibility_prompted: Option<String>,
+    /// The version that last started, so the first start of a new one can say it was updated.
+    pub last_version: Option<String>,
     pub model: ModelId,
 }
 
@@ -89,6 +91,7 @@ impl Default for Config {
             setup_done: false,
             user_name: None,
             accessibility_prompted: None,
+            last_version: None,
             model: ModelId::Small,
         }
     }

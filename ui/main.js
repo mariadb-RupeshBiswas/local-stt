@@ -554,14 +554,62 @@
       return S.offeredUpdate === u.latest || !(S.config && S.config.skip_update === u.latest);
     }
 
+    function renderUpdatedNotice() {
+      if (bannerKey === "updated") return;
+      bannerKey = "updated";
+      var whatsNew = h("button", { class: "btn btn-quiet", type: "button", text: "What's New", onclick: openReleaseNotes });
+      var close = h("button", { class: "btn btn-quiet", type: "button", text: "Close", onclick: function () {
+        S.updatedNotice = false;
+        renderBanner();
+      } });
+      clear(banner);
+      banner.appendChild(h("div", { class: "banner-main banner-done" },
+        icon("check"),
+        h("div", { class: "banner-text", text: "Updated to local-stt " + dash(S.version) + "." })
+      ));
+      banner.appendChild(h("div", { class: "banner-actions" }, whatsNew, close));
+    }
+
+    // a short burst over the window on the first start of a new version; none when motion is reduced
+    function confetti() {
+      if (root.classList.contains("reduce-motion")) return;
+      var colors = ["var(--accent)", "var(--green)", "var(--orange)", "var(--red)"];
+      var layer = h("div", { class: "confetti", "aria-hidden": "true" });
+      for (var i = 0; i < 60; i++) {
+        var piece = h("i");
+        piece.style.left = (Math.random() * 100).toFixed(1) + "%";
+        piece.style.background = colors[i % colors.length];
+        piece.style.animationDelay = (Math.random() * 0.4).toFixed(2) + "s";
+        piece.style.animationDuration = (1.6 + Math.random() * 1.2).toFixed(2) + "s";
+        piece.style.setProperty("--drift", Math.round((Math.random() - 0.5) * 160) + "px");
+        piece.style.setProperty("--spin", Math.round(360 + Math.random() * 720) + "deg");
+        layer.appendChild(piece);
+      }
+      document.body.appendChild(layer);
+      setTimeout(function () { layer.remove(); }, 3600);
+    }
+
+    function celebrateUpdate() {
+      S.updatedNotice = true;
+      renderBanner();
+      announce("Updated to local-stt " + dash(S.version) + ".");
+      confetti();
+    }
+
     function installButton() {
       return banner.querySelector(".btn-install");
     }
 
     function renderBanner() {
       var show = updateVisible();
-      banner.hidden = !show;
-      root.classList.toggle("has-banner", show);
+      // a newer version on offer outranks the note that the last update finished
+      var notice = !show && S.updatedNotice === true;
+      banner.hidden = !(show || notice);
+      root.classList.toggle("has-banner", show || notice);
+      if (notice) {
+        renderUpdatedNotice();
+        return;
+      }
       if (!show) {
         var lostFocus = banner.contains(document.activeElement);
         bannerKey = "";
@@ -3183,6 +3231,9 @@
         loadHistory();
         loadNotes();
         if (S.config && S.config.setup_done === false && !S.demo) openOnboarding();
+        Promise.resolve(invoke("take_update_notice")).then(function (updated) {
+          if (updated === true) celebrateUpdate();
+        }).catch(function () { /* an older app without the command */ });
       }
     });
 

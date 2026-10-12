@@ -262,7 +262,7 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 ## Updating
 
-local-stt checks for a new version once a day (Settings > General > Check automatically). When one is out you see an "Update to ..." item in the menu bar or tray and a banner in the app with **Install and Restart**, **Release Notes**, **Later** and **Skip This Version**. From a terminal: `local-stt check-update`.
+local-stt checks for a new version once a day (Settings > General > Check automatically). When one is out you see an "Update to ..." item in the menu bar or tray and a banner in the app with **Install and Restart**, **Release Notes**, **Later** and **Skip This Version**. From a terminal: `local-stt check-update`. When the new version starts, its window opens with a short burst of confetti and "Updated to local-stt ..." (no confetti when Reduce Motion is on).
 
 On macOS, each new version is a new program to the system, so it may ask for Microphone and Accessibility again after an update.
 

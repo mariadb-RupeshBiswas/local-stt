@@ -154,6 +154,8 @@
     error: "No speech heard",
     positioning: "Drag me anywhere"
   };
+  // the app sends the loaded model; the pill shows it only while recording or transcribing
+  var MODEL = "Whisper Small";
   var STATES = ["recording", "transcribing", "done", "warning", "error", "positioning"];
   var THEMES = ["pill", "waveform", "minimal"];
 
@@ -169,12 +171,12 @@
     var bus = makeBus({ get_state: function () { return { config: { theme: theme } }; } });
     window.mountOverlay(mount, bus.tauri, { autoHide: false });
     bus.emit("overlay-theme", { theme: theme, reducedMotion: reduce, solid: solid });
-    bus.emit("overlay-state", { state: "recording", label: LABELS.recording, startedAtMs: Date.now() - 6000 });
+    bus.emit("overlay-state", { state: "recording", label: LABELS.recording, startedAtMs: Date.now() - 6000, model: MODEL });
     var timer = setInterval(function () { bus.emit("overlay-level", { level: speechLevel(Date.now()) }); }, 33);
     if (state !== "recording") {
       setTimeout(function () {
         clearInterval(timer);
-        bus.emit("overlay-state", { state: state, label: LABELS[state] });
+        bus.emit("overlay-state", { state: state, label: LABELS[state], model: MODEL });
       }, 1600);
     }
   }
@@ -219,12 +221,12 @@
       run += 1;
       var mine = run;
       glass.style.opacity = "1"; // the app shows the native window before the page reacts
-      bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: Date.now() });
+      bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: Date.now(), model: MODEL });
       var timer = setInterval(function () { bus.emit("overlay-level", { level: speechLevel(Date.now()) }); }, 33);
       setTimeout(function () {
         clearInterval(timer);
         if (mine !== run) return;
-        bus.emit("overlay-state", { state: "transcribing", label: "Transcribing" });
+        bus.emit("overlay-state", { state: "transcribing", label: "Transcribing", model: MODEL });
         setTimeout(function () {
           if (mine !== run) return;
           bus.emit("overlay-state", { state: outcome, label: outcome === "done" ? "Pasted" : LABELS[outcome] });
@@ -241,14 +243,14 @@
         var mine = run;
         var started = Date.now();
         glass.style.opacity = "1";
-        bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: started });
+        bus.emit("overlay-state", { state: "recording", label: "Recording", startedAtMs: started, model: MODEL });
         var levels = setInterval(function () {
           if (mine !== run) clearInterval(levels);
           else bus.emit("overlay-level", { level: speechLevel(Date.now()) });
         }, 33);
         // the app resends the same start time when the extra key switches a held recording to hands-free
         setTimeout(function () {
-          if (mine === run) bus.emit("overlay-state", { state: "recording", label: "Hands-free", startedAtMs: started });
+          if (mine === run) bus.emit("overlay-state", { state: "recording", label: "Hands-free", startedAtMs: started, model: MODEL });
         }, 1200);
       }],
       ["Move Pill", function () {
@@ -523,6 +525,12 @@
         data.config.skip_update = data.update ? data.update.latest : null; // like the app, the offer itself stays in state
       },
       open_release_notes: function () { window.__calls.push("open_release_notes"); },
+      // ?updated=1 is the first start after an update; like the app, it answers true once
+      take_update_notice: function () {
+        var once = params.get("updated") === "1" && !window.__noticeTaken;
+        window.__noticeTaken = true;
+        return once;
+      },
       install_app: function () {
         window.__calls.push("install_app");
         data.installed = true;

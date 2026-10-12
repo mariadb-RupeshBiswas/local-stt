@@ -6,6 +6,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- The pill names the model in use ("Whisper Medium") under "Recording" and "Transcribing".
+- After an update, the new version opens its window with confetti and "Updated to local-stt ...",
+  with What's New and Close. No confetti when Reduce Motion is on.
+
+### Changed
+
+- Release Notes opens this version's notes when no newer version is known, not the list of
+  releases.
+
 ## [0.4.1] - 2026-10-12
 
 ### Fixed

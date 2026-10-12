@@ -155,11 +155,29 @@ body {
 .ov-text {
   display: flex;
   flex: 1 1 auto;
-  align-items: baseline;
-  gap: var(--s2);
+  flex-direction: column;
+  justify-content: center;
   min-width: 0;
   transition: opacity 100ms ease, filter 100ms ease;
 }
+
+.ov-line {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s2);
+  min-width: 0;
+}
+
+.ov-model {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.2;
+  color: var(--label-2);
+}
+
+.ov-model[hidden] { display: none; }
 
 .ov-text.swap {
   opacity: 0;

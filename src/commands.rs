@@ -374,8 +374,16 @@ pub fn open_release_notes(state: State<'_, Arc<Shared>>) -> Result<(), String> {
     let url = lock(&state.update)
         .as_ref()
         .map(|u| u.notes_url.clone())
-        .unwrap_or_else(|| crate::update::RELEASES_URL.to_string());
+        .unwrap_or_else(|| crate::update::notes_url(env!("CARGO_PKG_VERSION")));
     crate::update::open_url(&url)
+}
+
+/// True once, on the first start of a new version, so the main window can say it was updated.
+#[tauri::command]
+pub fn take_update_notice(state: State<'_, Arc<Shared>>) -> bool {
+    state
+        .update_notice
+        .swap(false, std::sync::atomic::Ordering::SeqCst)
 }
 
 #[tauri::command]
