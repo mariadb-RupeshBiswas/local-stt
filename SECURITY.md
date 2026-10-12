@@ -56,6 +56,10 @@ signed ad-hoc on your Mac.
 - Workflows run with read-only tokens; write scopes exist only on the jobs that need them.
 - `cargo deny` checks advisories, licenses and crate sources on every pull request.
 - CodeQL and zizmor scan the code and the workflows.
+- The Model provenance workflow rebuilds each catalog model from OpenAI's own checkpoint (whose
+  SHA-256 is in OpenAI's download URL) with whisper.cpp's converter and quantizer, and requires the
+  SHA-256 pinned in `src/models.rs`; only the quantizer version number in the header may differ.
+  Models come only from that list, never from a URL a user types.
 - Release wheels are published with PyPI Trusted Publishing (no stored tokens) and carry
   build provenance attestations.
 - whisper.cpp is vendored as a git submodule pinned to a release commit.

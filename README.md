@@ -187,6 +187,8 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 
 Each model shows its SHA-256 checksum and a **View on Hugging Face** button that opens the file's page there, which lists the same checksum, so you can see exactly what the app downloads. **Delete** removes a downloaded model you no longer use and frees its disk space; the model in use stays until you switch to another.
 
+The files come from the Hugging Face repository of whisper.cpp's author. A CI check rebuilds each one from OpenAI's own Whisper checkpoint and requires the same SHA-256, so they are OpenAI's models converted for whisper.cpp; only a version number in the file header may differ. You cannot add a model by URL: the app's C++ code reads the model file, and a crafted file could attack it.
+
 ![Model picker with hardware check](docs/screenshots/main-model.png)
 
 ## Languages
