@@ -187,6 +187,8 @@ Run `local-stt doctor` to see your hardware and which models fit, right in the t
 
 Each model shows its SHA-256 checksum and a **View on Hugging Face** button that opens the file's page there, which lists the same checksum, so you can see exactly what the app downloads. **Delete** removes a downloaded model you no longer use and frees its disk space; the model in use stays until you switch to another.
 
+The files come from the Hugging Face repository of whisper.cpp's author. A CI check rebuilds each one from OpenAI's own Whisper checkpoint and requires the same SHA-256, so they are OpenAI's models converted for whisper.cpp; only a version number in the file header may differ. You cannot add a model by URL: the app's C++ code reads the model file, and a crafted file could attack it.
+
 ![Model picker with hardware check](docs/screenshots/main-model.png)
 
 ## Languages
@@ -264,7 +266,7 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 local-stt checks for a new version once a day (Settings > General > Check automatically). When one is out you see an "Update to ..." item in the menu bar or tray and a banner in the app with **Install and Restart**, **Release Notes**, **Later** and **Skip This Version**. From a terminal: `local-stt check-update`. When the new version starts, its window opens with a short burst of confetti and "Updated to local-stt ..." (no confetti when Reduce Motion is on).
 
-On macOS, each new version is a new program to the system, so it may ask for Microphone and Accessibility again after an update.
+On macOS, releases are signed with local-stt's own certificate, so an update from 0.3.0 or later keeps Microphone and Accessibility allowed, with no setup. Skip 0.4.0: its macOS build was not signed, so installing it asks for permissions again; 0.4.1 replaced it. Updating from a version before 0.3.0, or from 0.4.0, asks once more and opens setup; your history and insights stay.
 
 ## Uninstall
 

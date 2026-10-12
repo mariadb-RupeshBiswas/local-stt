@@ -1,0 +1,49 @@
+name: Model provenance
+
+# Proves each catalog model is OpenAI's own Whisper checkpoint, converted and quantized by whisper.cpp.
+on:
+  push:
+    branches: [main]
+    paths: [src/models.rs, dev/rebuild-model.sh, dev/check-model-provenance.py, .github/workflows/models.yml]
+  pull_request:
+    paths: [src/models.rs, dev/rebuild-model.sh, dev/check-model-provenance.py, .github/workflows/models.yml]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  rebuild:
+    name: Rebuild ${{ matrix.model }} from OpenAI's checkpoint
+    strategy:
+      fail-fast: false
+      matrix:
+        model: [small, medium, large-v3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      # CPU-only torch: the CUDA build from PyPI would not fit beside large-v3 on the runner disk.
+      UV_INDEX: https://download.pytorch.org/whl/cpu
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          submodules: recursive
+      - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          version: "0.12.22"
+          enable-cache: false
+      - name: The checker's own tests
+        run: uv run --no-project --python 3.12 python -I -m unittest discover -s dev -p 'test_*.py'
+      - name: Build whisper.cpp's quantize tool
+        run: |
+          cmake -S vendor/whisper.cpp -B "$RUNNER_TEMP/wcpp" -DCMAKE_BUILD_TYPE=Release -DWHISPER_BUILD_TESTS=OFF -DWHISPER_BUILD_SERVER=OFF
+          cmake --build "$RUNNER_TEMP/wcpp" --target whisper-quantize -j 4
+      - name: Rebuild and compare with src/models.rs
+        env:
+          MODEL: ${{ matrix.model }}
+        run: dev/rebuild-model.sh "$MODEL" "$RUNNER_TEMP/rebuild" "$RUNNER_TEMP/wcpp/bin/whisper-quantize"
