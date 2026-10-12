@@ -54,9 +54,10 @@ jobs:
       contents: read
     uses: $/.github/workflows/ci.yml
 
+  # Builds alongside CI to save time; publish below still waits for CI to pass.
   build:
     name: Build wheel (${{ matrix.target }})
-    needs: [check, ci]
+    needs: check
     if: needs.check.outputs.release == 'true'
     strategy:
       fail-fast: true
@@ -87,7 +88,7 @@ jobs:
 
   publish:
     name: Attest and publish to PyPI
-    needs: build
+    needs: [ci, build]
     runs-on: ubuntu-latest
     environment:
       name: pypi
