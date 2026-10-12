@@ -393,6 +393,7 @@ mod platform {
     use std::path::{Path, PathBuf};
 
     const ICON: &[u8] = include_bytes!("../icons/icon.icns");
+    const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister";
 
     fn app_dir() -> Option<PathBuf> {
         let home = std::env::var_os("HOME")?;
@@ -433,6 +434,13 @@ mod platform {
 
     // `tccutil reset All <bundle id>` (from its man page) clears every privacy decision for this app only.
     pub fn reset_permissions() -> bool {
+        // tccutil finds the app through LaunchServices and fails (-10814) for a bundle it has not seen yet.
+        if let Some(app) = app_dir().filter(|a| a.exists()) {
+            let _ = crate::proc::command(LSREGISTER)
+                .arg("-f")
+                .arg(&app)
+                .output();
+        }
         crate::proc::command("/usr/bin/tccutil")
             .args(["reset", "All", "io.github.localstt"])
             .output()
