@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Learn my voice (Mac with Apple silicon, on by default, Settings > General): your own voice
+  fingerprint is learned from your dictations and kept in `voice.json` on this computer, readable
+  only by you. Notes use it to tell a person in the room from you, giving them a Speaker label
+  instead of Me. Only numbers are kept, never audio, and never anyone else's voice. Off deletes
+  the file.
+
 ## [0.7.0] - 2026-10-12
 
 ### Added

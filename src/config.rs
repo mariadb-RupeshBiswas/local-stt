@@ -54,6 +54,8 @@ pub struct Config {
     pub notes_consent_seen: bool,
     /// Counts the words you use most for Insights; off deletes those counts.
     pub word_insights: bool,
+    /// Learns your voice from your dictations so notes can tell you from people in the room; off deletes it.
+    pub learn_my_voice: bool,
     /// First-run setup was finished or skipped; a config from before setup existed loads as done.
     pub setup_done: bool,
     /// What the app calls the user; never logged or put in a report.
@@ -88,6 +90,7 @@ impl Default for Config {
             diagnostic_log: true,
             notes_consent_seen: false,
             word_insights: true,
+            learn_my_voice: true,
             setup_done: false,
             user_name: None,
             accessibility_prompted: None,
@@ -316,6 +319,10 @@ mod tests {
         assert_eq!((c.theme, c.model), (Theme::Pill, ModelId::Small));
         assert!(c.translate && c.paste && c.show_overlay && c.sounds && c.save_history);
         assert!(!c.restore_clipboard && !c.autostart);
+        assert!(
+            c.learn_my_voice,
+            "on by default; an older config gets it too"
+        );
         assert_eq!(c.language, "auto");
         assert!(c.microphone.is_none() && c.overlay_pos.is_none());
         assert!(c.hotkey.key.is_none() && crate::hotkey::validate(&c.hotkey).is_ok());

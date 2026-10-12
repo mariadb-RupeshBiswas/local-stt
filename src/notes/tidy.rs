@@ -8,17 +8,23 @@ const ECHO_SHARE: f32 = 0.7;
 // Lines from one speaker this close together read as one turn.
 const MERGE_GAP_MS: u64 = 2_000;
 
-pub fn tidy(mut segments: Vec<Segment>, smart_format: bool, english: bool) -> Vec<Segment> {
+/// Drops the microphone lines that only repeat what the other side said, in time order.
+pub fn drop_echo(mut segments: Vec<Segment>) -> Vec<Segment> {
     segments.sort_by_key(|s| s.start_ms);
     let echo: Vec<bool> = segments
         .iter()
         .map(|s| s.speaker == super::ME && is_echo(s, &segments))
         .collect();
+    segments
+        .into_iter()
+        .zip(echo)
+        .filter_map(|(seg, dropped)| (!dropped).then_some(seg))
+        .collect()
+}
+
+pub fn tidy(segments: Vec<Segment>, smart_format: bool, english: bool) -> Vec<Segment> {
     let mut out: Vec<Segment> = Vec::new();
-    for (seg, dropped) in segments.into_iter().zip(echo) {
-        if dropped {
-            continue;
-        }
+    for seg in drop_echo(segments) {
         let text = if smart_format {
             crate::format::tidy_for(&seg.text, english)
         } else {
@@ -92,6 +98,25 @@ mod tests {
         );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].speaker, OTHERS);
+    }
+
+    #[test]
+    fn drop_echo_removes_only_microphone_lines_that_repeat_the_other_side() {
+        let out = drop_echo(vec![
+            seg(ME, 1_200, 4_100, "let's review the September numbers"),
+            seg(
+                OTHERS,
+                1_000,
+                4_000,
+                "Let's review the September numbers first.",
+            ),
+            seg(ME, 5_000, 6_000, "Sounds good."),
+        ]);
+        let who: Vec<(&str, u64)> = out
+            .iter()
+            .map(|s| (s.speaker.as_str(), s.start_ms))
+            .collect();
+        assert_eq!(who, vec![(OTHERS, 1_000), (ME, 5_000)]);
     }
 
     #[test]

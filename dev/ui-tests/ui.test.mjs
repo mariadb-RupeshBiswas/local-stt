@@ -1451,6 +1451,17 @@ for (const dark of [false, true]) {
   await page.waitForTimeout(250);
   check("Check automatically sends check_updates false", (await page.evaluate(() => window.__cfg.includes('set_config:{"check_updates":false}'))) && (await auto.getAttribute("aria-checked")) === "false");
   check("no page errors (updates row)", errors.length === 0, errors);
+  const voice = page.getByRole("switch", { name: "Learn my voice" });
+  check("Learn my voice copy", (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Learn my voice" }) }).locator(".srow-desc").textContent()) === "Lets notes tell you apart from people in the room. A voice fingerprint, never audio, stays on this computer. Off deletes it.");
+  check("Learn my voice starts on", (await voice.getAttribute("aria-checked")) === "true");
+  await voice.click();
+  await page.waitForTimeout(250);
+  check("Learn my voice sends learn_my_voice false", (await page.evaluate(() => window.__cfg.includes('set_config:{"learn_my_voice":false}'))) && (await voice.getAttribute("aria-checked")) === "false");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows&h=1200", { tall: true });
+  check("Learn my voice is hidden where voices are not told apart (Windows)", (await page.getByRole("switch", { name: "Learn my voice" }).count()) === 0);
   await ctx.close();
 }
 // ---------- Settings: Troubleshooting ----------
