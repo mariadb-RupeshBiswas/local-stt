@@ -1117,7 +1117,14 @@ for (const dark of [false, true]) {
   check("Cmd+3 shows the Insights panel", (await page.locator("#panel-insights").isVisible()) && (await page.locator("#tab-insights").getAttribute("aria-selected")) === "true");
   check("streak number shown", (await page.locator(".streak-num").textContent()) === "6" && (await page.locator(".streak-unit").textContent()) === "workdays");
   check("freezes read 4 of 10", (await page.locator("#panel-insights .stat", { hasText: "Freezes" }).locator(".stat-value").textContent()) === "4 of 10");
-  check("next freeze line shown", (await page.locator("#panel-insights .ins-line", { hasText: "Next freeze in 3 active workdays" }).count()) === 1);
+  check("next freeze line says what earns it", (await page.locator("#panel-insights .ins-line", { hasText: "+1 freeze after 3 more active workdays" }).count()) === 1);
+  const info = page.getByRole("button", { name: "How freezes work" });
+  check("freeze help starts closed", (await info.getAttribute("aria-expanded")) === "false" && (await page.locator("#freeze-help").isHidden()));
+  await info.click();
+  const rules = await page.locator("#freeze-help li").allTextContents();
+  check("info button opens the freeze rules", (await info.getAttribute("aria-expanded")) === "true" && (await page.locator("#freeze-help").isVisible()) && rules.length === 5 && rules[2] === "You start with 5 freezes. Every 10 active workdays earns one more, up to 10.", rules);
+  await page.keyboard.press("Enter");
+  check("Enter on the info button closes the rules again", (await info.getAttribute("aria-expanded")) === "false" && (await page.locator("#freeze-help").isHidden()));
   const cells = await page.locator(".week-cell").evaluateAll((els) => els.map((e) => e.getAttribute("aria-label")));
   check("week row has 7 cells, each with an aria-label", cells.length === 7 && cells.every(Boolean), cells);
   check("week labels name the day and state", cells[0] === "Monday, active" && cells[1] === "Tuesday, covered by a freeze" && cells[6] === "Sunday, bonus", cells);
@@ -1173,6 +1180,12 @@ for (const dark of [false, true]) {
   const titles = await page.locator("#panel-insights .group-title").allTextContents();
   check("no words hides the word cards and keeps the rest", !titles.includes("Your words") && titles.includes("Milestones") && (await page.locator(".wcols").count()) === 0 && (await page.locator(".mix").count()) === 0, titles);
   check("no page errors (insights nowords)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=insights&scheme=light&insights=fullfreezes&h=1400", { tall: true });
+  check("full freezes say so instead of a countdown", (await page.locator("#panel-insights .ins-line", { hasText: "Freezes are full: 10 is the most you can hold" }).count()) === 1 && (await page.locator("#panel-insights .ins-line", { hasText: "+1 freeze" }).count()) === 0);
+  check("no page errors (insights full freezes)", errors.length === 0, errors);
   await ctx.close();
 }
 {

@@ -2179,17 +2179,54 @@
       return row;
     }
 
+    // stays open across Insights refreshes until closed
+    var freezeHelpOpen = false;
+
+    // the rules as streak.rs applies them; freezes come from all-time active workdays, not the current streak
+    var FREEZE_RULES = [
+      "A freeze covers a missed workday, so your streak keeps going. It's used for you automatically.",
+      "An active workday is a Monday to Friday with at least one dictation.",
+      "You start with 5 freezes. Every 10 active workdays earns one more, up to 10.",
+      "Weekends never count and never break a streak.",
+      "If you miss more workdays than you have freezes, the streak restarts and you keep your freezes."
+    ];
+
+    function nextFreezeText(s) {
+      if (isNum(s.nextFreezeIn)) return "+1 freeze after " + num(s.nextFreezeIn) + " more active " + (s.nextFreezeIn === 1 ? "workday" : "workdays");
+      if (isNum(s.freezes) && s.freezes === s.freezeCap) return "Freezes are full: " + num(s.freezeCap) + " is the most you can hold";
+      return null;
+    }
+
+    function freezesStat(s) {
+      var help = h("div", { class: "freeze-help", id: "freeze-help" },
+        h("div", { class: "freeze-help-title", text: "How freezes work" }),
+        h("ul", {}, FREEZE_RULES.map(function (rule) { return h("li", { text: rule }); })));
+      help.hidden = !freezeHelpOpen;
+      var btn = h("button", { class: "icon-btn info-btn", type: "button", "aria-label": "How freezes work", "aria-controls": "freeze-help", "aria-expanded": String(freezeHelpOpen), onclick: function () {
+        freezeHelpOpen = !freezeHelpOpen;
+        help.hidden = !freezeHelpOpen;
+        btn.setAttribute("aria-expanded", String(freezeHelpOpen));
+      } }, icon("info"));
+      var cell = h("div", { class: "stat" },
+        h("div", { class: "stat-value", text: num(s.freezes) + " of " + num(s.freezeCap) }),
+        h("div", { class: "stat-label stat-label-info" }, h("span", { text: "Freezes" }), btn));
+      return { cell: cell, help: help };
+    }
+
     function streakCard(v) {
       var s = v.streak || {};
-      var next = isNum(s.nextFreezeIn) ? h("div", { class: "ins-line", text: "Next freeze in " + num(s.nextFreezeIn) + " active " + (s.nextFreezeIn === 1 ? "workday" : "workdays") }) : null;
+      var text = nextFreezeText(s);
+      var next = text ? h("div", { class: "ins-line", text: text }) : null;
+      var freezes = freezesStat(s);
       return h("div", { class: "card ins-card" },
         h("div", { class: "streak-hero" },
           h("span", { class: "streak-num", text: num(s.current) }),
           h("span", { class: "streak-unit", text: "workdays" })),
         h("div", { class: "stats" },
           stat(num(s.longest), "Longest streak"),
-          stat(num(s.freezes) + " of " + num(s.freezeCap), "Freezes")),
+          freezes.cell),
         next,
+        freezes.help,
         weekRow(v.week));
     }
 

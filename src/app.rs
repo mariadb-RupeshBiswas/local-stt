@@ -29,6 +29,8 @@ const LIVE_SIZE: (f64, f64) = (380.0, 96.0);
 // Re-transcribing only the recent tail keeps live text cheap even in a five-minute dictation.
 const LIVE_TAIL_SECS: u32 = 18;
 const LIVE_EVERY_MS: u64 = 800;
+// How often a recording checks which screen has focus, so the pill can follow.
+const FOLLOW_EVERY_MS: u64 = 300;
 
 pub enum Job {
     /// Frees the engine before the process exits; ggml's Metal backend asserts if it is still alive.
@@ -101,6 +103,8 @@ pub struct Shared {
     pub dictating: AtomicBool,
     /// The setup microphone test holds the microphone.
     pub mic_check: AtomicBool,
+    /// Screen the pill was last placed on, so it can follow focus while recording.
+    pill_screen: Mutex<Option<String>>,
 }
 
 impl Shared {
@@ -190,6 +194,7 @@ pub fn run() -> Result<(), String> {
         notes_pill: AtomicBool::new(false),
         dictating: AtomicBool::new(false),
         mic_check: AtomicBool::new(false),
+        pill_screen: Mutex::new(None),
     });
 
     let app = tauri::Builder::default()
@@ -594,7 +599,9 @@ fn place_overlay(app: &AppHandle, win: &WebviewWindow) {
     let list = screens(app);
     let plain: Vec<Screen> = list.iter().map(|(s, _)| s.clone()).collect();
     let focus = focus_point(app, &plain);
-    let target_scale = overlay::screen_for_point(&plain, focus)
+    let focus_screen = overlay::screen_for_point(&plain, focus);
+    *lock(&shared(app).pill_screen) = focus_screen.map(|s| s.name.clone());
+    let target_scale = focus_screen
         .and_then(|s| list.iter().find(|(x, _)| x.name == s.name))
         .map(|(_, scale)| *scale)
         .unwrap_or(1.0);
@@ -606,6 +613,24 @@ fn place_overlay(app: &AppHandle, win: &WebviewWindow) {
     let centre = (pos.0 + size.0 / 2.0, pos.1 + size.1 / 2.0);
     if let Some(screen) = overlay::screen_for_point(&plain, centre).cloned() {
         place_live(app, &screen, pos, size, target_scale);
+    }
+}
+
+// Moves the pill when focus moves to another screen; a drag on the same screen is left alone.
+fn follow_focus(app: &AppHandle) {
+    let Some(win) = app.get_webview_window(OVERLAY) else {
+        return;
+    };
+    if !win.is_visible().unwrap_or(false) {
+        return;
+    }
+    let plain: Vec<Screen> = screens(app).into_iter().map(|(s, _)| s).collect();
+    let focus = focus_point(app, &plain);
+    let Some(target) = overlay::screen_for_point(&plain, focus) else {
+        return;
+    };
+    if lock(&shared(app).pill_screen).as_deref() != Some(target.name.as_str()) {
+        place_overlay(app, &win);
     }
 }
 
@@ -897,6 +922,7 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
         let mut recorder: Option<Recorder> = None;
         let mut partial_in_flight = false;
         let mut last_partial_ms = 0u64;
+        let mut last_follow_ms = 0u64;
         loop {
             let msg = rx.recv_timeout(Duration::from_millis(200));
             let now = now_ms();
@@ -905,6 +931,10 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
             }
             if let (Some(r), Some(since)) = (recorder.as_ref(), machine.recording_since()) {
                 let cfg = shared(&app).config();
+                if cfg.show_overlay && now.saturating_sub(last_follow_ms) >= FOLLOW_EVERY_MS {
+                    last_follow_ms = now;
+                    follow_focus(&app);
+                }
                 let due = now.saturating_sub(last_partial_ms) >= LIVE_EVERY_MS
                     && now.saturating_sub(since) >= 600;
                 if cfg.live_transcription && cfg.show_overlay && !partial_in_flight && due {

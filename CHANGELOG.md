@@ -6,6 +6,21 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-12
+
+### Added
+
+- While you talk, the pill follows focus: switch to a window on another screen and the pill
+  (and the live text) moves there within a third of a second. A pill you dragged stays put
+  until focus changes screen.
+- Insights: an info button next to Freezes explains how freezes are earned and used, the
+  countdown reads "+1 freeze after 3 more active workdays", and full freezes say so.
+
+### Fixed
+
+- macOS: the pill showed on another screen while you dictated into local-stt's own window,
+  such as setup's Try it box, because the app's own windows never counted as focused.
+
 ## [0.1.1] - 2026-10-12
 
 ### Fixed

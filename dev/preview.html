@@ -438,7 +438,9 @@
     return {
       empty: false,
       today: "2026-10-15",
-      streak: { current: 6, longest: 12, freezes: 4, freezeCap: 10, nextFreezeIn: 3 },
+      streak: mode === "fullfreezes"
+        ? { current: 40, longest: 40, freezes: 10, freezeCap: 10, nextFreezeIn: null }
+        : { current: 6, longest: 12, freezes: 4, freezeCap: 10, nextFreezeIn: 3 },
       week: states.map(function (pair, i) { return { date: "2026-10-" + (12 + i), weekday: pair[0], state: pair[1] }; }),
       totals: { wordsToday: 120, wordsWeek: 830, wordsAll: 15400, dictationsAll: 512 },
       speed: { wpm: 128, typingWpm: 40, minutesSavedWeek: 18, minutesSavedAll: 410 },
