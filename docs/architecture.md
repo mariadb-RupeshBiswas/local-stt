@@ -66,7 +66,7 @@ becomes a paste.**
 | Smart formatting | `src/format.rs` | Rules that tidy the text |
 | Paste | `src/output/`, `src/clipboard.rs` | The paste key press and the private clipboard write |
 | Pill placement | `src/overlay.rs`, `src/focus/` | Where the pill goes: the screen you are typing on, your saved spot |
-| Models | `src/models.rs`, `src/download.rs`, `src/hwprobe/` | Which Whisper models fit this computer; downloads checked by SHA-256 |
+| Models | `src/models.rs`, `src/download.rs`, `src/hwprobe/` | Which Whisper models fit this computer; downloads checked by SHA-256; deleting unused ones |
 | Files | `src/config.rs`, `src/history.rs`, `src/paths.rs` | Settings and history on disk |
 | Install and updates | `src/install.rs`, `src/update.rs`, `src/autostart.rs` | Install to Applications or the Start menu, updates, start at login |
 | Troubleshooting | `src/diag.rs` | The event log and the diagnostic report |
