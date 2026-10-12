@@ -6,6 +6,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- CI rebuilds each speech model from OpenAI's own Whisper checkpoint and checks it is the exact
+  file the app downloads, apart from a version number in its header.
+
 ## [0.4.1] - 2026-10-12
 
 ### Fixed
