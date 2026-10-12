@@ -6,6 +6,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `local-stt uninstall` reports only what was there: no login-item line when start at login
+  was off, no "settings are kept" line when there is no data folder, and a plain "nothing to
+  remove" on a clean machine.
+
 ## [0.1.0] - 2026-10-11
 
 ### Added

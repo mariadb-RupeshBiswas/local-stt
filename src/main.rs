@@ -210,14 +210,25 @@ fn install() -> Result<(), String> {
 }
 
 fn uninstall() -> Result<(), String> {
-    println!("{}", autostart::set(false)?);
-    for note in local_stt::install::uninstall()? {
+    // Report only what this machine had, so a clean one is not told about a login item or data.
+    let mut notes = Vec::new();
+    if autostart::is_enabled() {
+        notes.push(autostart::set(false)?);
+    }
+    notes.extend(local_stt::install::uninstall()?);
+    let data = paths::data_dir();
+    if data.exists() {
+        notes.push(format!(
+            "Settings, history and models are kept in {}.",
+            without_home(&data)
+        ));
+    }
+    if notes.is_empty() {
+        notes.push("local-stt is not installed; there was nothing to remove.".to_string());
+    }
+    for note in notes {
         println!("{note}");
     }
-    println!(
-        "Settings, history and models are kept in {}.",
-        without_home(&paths::data_dir())
-    );
     Ok(())
 }
 
