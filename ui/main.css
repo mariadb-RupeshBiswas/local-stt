@@ -893,6 +893,29 @@ body {
 }
 
 .banner-main .ic { color: var(--accent-ink); }
+.banner-done .ic { color: var(--green-ink); }
+
+/* after-update confetti: each piece falls and spins once, then the layer is removed */
+.confetti {
+  position: fixed;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 50;
+}
+
+.confetti i {
+  position: absolute;
+  top: -14px;
+  width: 8px;
+  height: 12px;
+  border-radius: 2px;
+  animation: confetti-fall 2s cubic-bezier(0.2, 0.6, 0.4, 1) forwards;
+}
+
+@keyframes confetti-fall {
+  to { transform: translate(var(--drift), 105vh) rotate(var(--spin)); }
+}
 .banner-text { font-weight: 500; }
 
 .banner-actions {

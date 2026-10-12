@@ -219,6 +219,17 @@ fn run_with_timeout(
     Ok((status.success(), stdout, stderr))
 }
 
+/// The first start of a new version after setup; a config from before `last_version` counts an update's hand-off.
+pub fn just_updated(last: Option<&str>, current: &str, took_over: bool, setup_done: bool) -> bool {
+    if !setup_done {
+        return false;
+    }
+    match last {
+        Some(version) => version != current,
+        None => took_over,
+    }
+}
+
 // Only the project's releases and the model files' pages, so no other address reaches the browser.
 fn allowed(url: &str) -> bool {
     url.starts_with(RELEASES_URL) || url.starts_with(crate::models::PAGE_PREFIX)
@@ -315,6 +326,15 @@ mod tests {
         let (ok, out, _) = run_with_timeout(cmd, std::time::Duration::from_secs(5)).unwrap();
         assert!(ok);
         assert_eq!(out.trim(), "hello");
+    }
+
+    #[test]
+    fn only_a_new_version_after_setup_counts_as_updated() {
+        assert!(just_updated(Some("0.4.1"), "0.5.0", false, true));
+        assert!(!just_updated(Some("0.5.0"), "0.5.0", true, true));
+        assert!(just_updated(None, "0.5.0", true, true));
+        assert!(!just_updated(None, "0.5.0", false, true));
+        assert!(!just_updated(Some("0.4.1"), "0.5.0", true, false));
     }
 
     #[test]

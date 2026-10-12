@@ -89,6 +89,7 @@ fn main() {
         "install_update",
         "skip_update",
         "open_release_notes",
+        "take_update_notice",
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri build step failed");

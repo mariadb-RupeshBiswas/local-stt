@@ -100,13 +100,20 @@
     lead.appendChild(buildWarn());
 
     var text = el("div", "ov-text");
+    var line = el("div", "ov-line");
     var label = el("span", "ov-label");
     label.setAttribute("role", "status");
     label.setAttribute("aria-live", "polite");
     var time = el("span", "ov-time");
     time.setAttribute("aria-hidden", "true");
-    text.appendChild(label);
-    text.appendChild(time);
+    // the model in use, under the label; the label alone is announced
+    var model = el("span", "ov-model");
+    model.setAttribute("aria-hidden", "true");
+    model.hidden = true;
+    line.appendChild(label);
+    line.appendChild(time);
+    text.appendChild(line);
+    text.appendChild(model);
 
     var meter = el("div", "ov-meter");
     var pill = buildBars(PILL_BARS);
@@ -336,6 +343,9 @@
         time.hidden = true;
       }
 
+      var modelName = typeof payload.model === "string" ? payload.model : "";
+      model.textContent = modelName;
+      model.hidden = modelName === "" || (next !== "recording" && next !== "transcribing");
       setLabel(text_);
       show();
       if (next === "done") hideAfter(SHOW_DONE_MS);

@@ -62,6 +62,8 @@ const calls = (page) => page.evaluate(() => window.__calls.slice());
   check("capsule is a drag region", (await cap.getAttribute("data-tauri-drag-region")) !== null);
   check("dot breathes while recording", (await live.locator(".ov-dot").evaluate((d) => getComputedStyle(d).animationName)) === "ov-breathe");
   check("timer shows m:ss", /^\d:\d\d$/.test(await live.locator(".ov-time").textContent()));
+  check("the model in use shows under the label, out of the announced status", (await live.locator(".ov-model").isVisible()) && (await live.locator(".ov-model").textContent()) === "Whisper Small"
+    && (await live.locator(".ov-model").getAttribute("aria-hidden")) === "true" && (await live.locator(".ov-model").evaluate((m) => m.getBoundingClientRect().bottom <= m.closest(".ov-capsule").getBoundingClientRect().bottom)));
   const timerInk = await live.locator(".ov-time").evaluate((t) => getComputedStyle(t).color);
   const labelInk = await live.locator(".ov-label").evaluate((t) => getComputedStyle(t).color);
   check("timer text is as opaque as the label (contrast fix)", timerInk === labelInk, { timerInk, labelInk });
@@ -1256,6 +1258,33 @@ for (const dark of [false, true]) {
   await page.evaluate(() => window.__emit("show-tab", { tab: "history" }));
   check("show-tab history comes back", (await selected()) === "tab-history" && (await visiblePanels()) === "panel-history");
   check("no page errors (show-tab)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: after an update ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light&updated=1");
+  const banner = page.locator(".mw-banner");
+  check("the first start after an update says so", (await banner.isVisible()) && (await banner.locator(".banner-text").textContent()) === "Updated to local-stt 0.1.0.");
+  check("it offers What's New and Close", (await banner.locator("button").allTextContents()).join("|") === "What's New|Close");
+  check("confetti falls without taking clicks", (await page.locator(".confetti i").count()) === 60 && (await page.locator(".confetti").evaluate((c) => getComputedStyle(c).pointerEvents)) === "none");
+  await banner.getByRole("button", { name: "What's New", exact: true }).click();
+  check("What's New opens the release notes", (await calls(page)).includes("open_release_notes"), await calls(page));
+  await page.waitForTimeout(3700);
+  check("the confetti is gone after its burst", (await page.locator(".confetti").count()) === 0);
+  await banner.getByRole("button", { name: "Close", exact: true }).click();
+  check("Close hides the note", await banner.isHidden());
+  check("no page errors (after update)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light&updated=1&reduce=1");
+  check("reduced motion: the note without confetti", (await page.locator(".mw-banner .banner-text").textContent()) === "Updated to local-stt 0.1.0." && (await page.locator(".confetti").count()) === 0);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=history&scheme=light");
+  check("an ordinary start shows no update note", (await page.locator(".mw-banner").isHidden()) && (await page.locator(".confetti").count()) === 0);
   await ctx.close();
 }
 

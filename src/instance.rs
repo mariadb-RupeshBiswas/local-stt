@@ -15,6 +15,7 @@ pub enum Claim {
     Owner {
         lock: Option<PathBuf>,
         unclean: bool,
+        took_over: bool,
     },
     /// Another copy is running and has been asked to show its window.
     Other,
@@ -32,6 +33,8 @@ pub fn claim(dir: &Path) -> Claim {
 fn claim_with(dir: &Path, replaces: Option<u32>, running: fn(u32) -> bool) -> Claim {
     let path = dir.join(LOCK);
     let mut unclean = false;
+    // True when an update's new copy waited for the old one to quit and took its place.
+    let mut took_over = false;
     for _ in 0..3 {
         match std::fs::OpenOptions::new()
             .write(true)
@@ -43,6 +46,7 @@ fn claim_with(dir: &Path, replaces: Option<u32>, running: fn(u32) -> bool) -> Cl
                 return Claim::Owner {
                     lock: Some(path),
                     unclean,
+                    took_over,
                 };
             }
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
@@ -54,6 +58,7 @@ fn claim_with(dir: &Path, replaces: Option<u32>, running: fn(u32) -> bool) -> Cl
                     let old = pid.filter(|p| Some(*p) == replaces);
                     if old.is_some_and(|p| wait_for_exit(p, running)) {
                         let _ = std::fs::remove_file(&path);
+                        took_over = true;
                         continue;
                     }
                     let _ = std::fs::write(dir.join(SHOW), b"");
@@ -68,6 +73,7 @@ fn claim_with(dir: &Path, replaces: Option<u32>, running: fn(u32) -> bool) -> Cl
                 return Claim::Owner {
                     lock: None,
                     unclean,
+                    took_over,
                 }
             }
         }
@@ -75,6 +81,7 @@ fn claim_with(dir: &Path, replaces: Option<u32>, running: fn(u32) -> bool) -> Cl
     Claim::Owner {
         lock: None,
         unclean,
+        took_over,
     }
 }
 
@@ -131,10 +138,15 @@ mod tests {
     #[test]
     fn first_claim_owns_and_release_frees() {
         let d = scratch("own");
-        let Claim::Owner { lock, unclean } = claim(&d) else {
+        let Claim::Owner {
+            lock,
+            unclean,
+            took_over,
+        } = claim(&d)
+        else {
             panic!("expected to own the lock");
         };
-        assert!(!unclean);
+        assert!(!unclean && !took_over);
         assert!(d.join(LOCK).exists());
         release(&lock);
         assert!(!d.join(LOCK).exists());
@@ -148,7 +160,8 @@ mod tests {
             claim(&d),
             Claim::Owner {
                 lock: Some(_),
-                unclean: true
+                unclean: true,
+                took_over: false
             }
         ));
     }
@@ -189,7 +202,8 @@ mod tests {
             claim,
             Claim::Owner {
                 lock: Some(_),
-                unclean: false
+                unclean: false,
+                took_over: true
             }
         ));
         assert!(!take_show_request(&d));

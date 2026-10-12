@@ -36,6 +36,7 @@
     "allow-check-for-updates",
     "allow-install-update",
     "allow-skip-update",
-    "allow-open-release-notes"
+    "allow-open-release-notes",
+    "allow-take-update-notice"
   ]
 }
