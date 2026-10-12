@@ -28,8 +28,12 @@ pub fn install(exe: &Path) -> Result<(PathBuf, Vec<String>), String> {
 }
 
 fn install_stamped(exe: &Path, source: &str) -> Result<(PathBuf, Vec<String>), String> {
+    let before = platform::identity();
     let target = platform::install(exe, source)?;
     let mut notes = vec![platform::installed_note(&target)];
+    if identity_changed(before.as_deref(), platform::identity().as_deref()) {
+        notes.push(start_over_permissions());
+    }
     if let Some(bin) = user_bin_dir() {
         let path_env = std::env::var_os("PATH").unwrap_or_default();
         match link_into(&target, &bin, &path_env) {
@@ -38,6 +42,25 @@ fn install_stamped(exe: &Path, source: &str) -> Result<(PathBuf, Vec<String>), S
         }
     }
     Ok((target, notes))
+}
+
+// macOS keys permissions to the signing identity; a new one shows old switches on but ignores them.
+fn identity_changed(before: Option<&str>, after: Option<&str>) -> bool {
+    before.is_some() && before != after
+}
+
+/// Clears the stale permissions and has the new copy open setup again; settings and data stay.
+fn start_over_permissions() -> String {
+    // Logged either way: a failed reset leaves switches on that do nothing, the bug this exists for.
+    crate::diag::log(if platform::reset_permissions() {
+        "install: new signing identity, permissions reset"
+    } else {
+        "install: new signing identity, permission reset failed"
+    });
+    let data = crate::paths::data_dir();
+    let _ = std::fs::create_dir_all(&data);
+    let _ = std::fs::write(data.join(PENDING), "reprompt");
+    "This version is signed differently, so macOS forgot local-stt's permissions. Setup opens to allow them again; your history and insights are kept.".into()
 }
 
 fn stamp_path(installed: &Path) -> Option<PathBuf> {
@@ -188,11 +211,12 @@ fn finish_pending_in(data: &Path) {
             let _ = std::fs::remove_file(data.join(name));
         }
     } else {
-        // Permissions were reset, so this copy asks for Accessibility again.
+        // Permissions were reset, so this copy runs setup again to ask for them; data stays.
         let path = data.join("config.json");
         if path.is_file() {
             let mut cfg = crate::config::load(&path);
             cfg.accessibility_prompted = None;
+            cfg.setup_done = false;
             let _ = crate::config::save(&path, &cfg);
         }
     }
@@ -390,6 +414,18 @@ mod platform {
         std::os::unix::process::parent_id() != 1
     }
 
+    // The designated requirement permissions are tied to: an ad-hoc copy's is its cdhash, new every build.
+    pub fn identity() -> Option<String> {
+        let app = app_dir().filter(|a| a.exists())?;
+        let out = crate::proc::command("/usr/bin/codesign")
+            .args(["-d", "-r-"])
+            .arg(&app)
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (out.status.success() && !text.is_empty()).then_some(text)
+    }
+
     // `tccutil reset All <bundle id>` (from its man page) clears every privacy decision for this app only.
     pub fn reset_permissions() -> bool {
         crate::proc::command("/usr/bin/tccutil")
@@ -582,6 +618,10 @@ mod platform {
         false
     }
 
+    pub fn identity() -> Option<String> {
+        None
+    }
+
     pub fn launch_installed(replaces: u32) -> Result<(), String> {
         let exe = installed_exe().ok_or("LOCALAPPDATA is not set")?;
         crate::output::keep_std_handles_private();
@@ -715,6 +755,10 @@ mod platform {
         false
     }
 
+    pub fn identity() -> Option<String> {
+        None
+    }
+
     pub fn launch_installed(_replaces: u32) -> Result<(), String> {
         Err("not supported here".into())
     }
@@ -818,20 +862,52 @@ mod tests {
     }
 
     #[test]
-    fn pending_reprompt_keeps_settings_and_asks_again() {
+    fn pending_reprompt_keeps_data_and_runs_setup_again() {
         let d = scratch("pending-reprompt");
         let cfg = crate::config::Config {
             accessibility_prompted: Some("old-build".into()),
             paste: false,
+            setup_done: true,
+            user_name: Some("Sam".into()),
             ..Default::default()
         };
         crate::config::save(&d.join("config.json"), &cfg).unwrap();
+        for f in ["history.jsonl", "insights.json"] {
+            std::fs::write(d.join(f), "kept").unwrap();
+        }
         std::fs::write(d.join(PENDING), "reprompt").unwrap();
         finish_pending_in(&d);
         let after = crate::config::load(&d.join("config.json"));
         assert_eq!(after.accessibility_prompted, None);
+        assert!(!after.setup_done, "setup opens again");
+        assert_eq!(
+            after.user_name.as_deref(),
+            Some("Sam"),
+            "setup starts with the name"
+        );
         assert!(!after.paste, "other settings stay");
+        for f in ["history.jsonl", "insights.json"] {
+            assert_eq!(std::fs::read_to_string(d.join(f)).unwrap(), "kept");
+        }
         assert!(!d.join(PENDING).exists());
+    }
+
+    #[test]
+    fn only_a_new_identity_over_an_installed_copy_resets_permissions() {
+        let adhoc = Some("cdhash H\"3a8f\"");
+        assert!(
+            identity_changed(adhoc, Some("cdhash H\"77b1\"")),
+            "new ad-hoc build"
+        );
+        assert!(
+            identity_changed(adhoc, Some("certificate leaf = H\"9c\"")),
+            "first signed build"
+        );
+        assert!(
+            !identity_changed(adhoc, adhoc),
+            "same build installed again"
+        );
+        assert!(!identity_changed(None, adhoc), "first install");
     }
 
     fn scratch(name: &str) -> PathBuf {

@@ -10,6 +10,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Releases build the wheels while the full CI runs on the merge commit, about 6 minutes
   faster; nothing is published until both pass.
+- macOS: Reinstall opens setup again after resetting permissions, so you can allow the
+  microphone and Accessibility in one place; your name, settings, history and insights stay.
+
+### Fixed
+
+- macOS: after an update, Accessibility read "Not allowed" and the shortcut did nothing, though
+  local-stt's switch was still on. macOS ties permissions to how each build is signed, and every
+  build was a new app to it. Installing a build that macOS sees as new now resets local-stt's
+  stale permissions and opens setup again (name, microphone test, Accessibility, model), keeping
+  your settings, history, notes and insights.
 
 ## [0.2.0] - 2026-10-12
 
