@@ -212,8 +212,11 @@ fn install() -> Result<(), String> {
 fn uninstall() -> Result<(), String> {
     // Report only what this machine had, so a clean one is not told about a login item or data.
     let mut notes = Vec::new();
-    if autostart::is_enabled() {
-        notes.push(autostart::set(false)?);
+    // Removal always runs, so a failed is_enabled check (reg.exe on Windows) cannot leave a login item.
+    let had_login_item = autostart::is_enabled();
+    let login_note = autostart::set(false)?;
+    if had_login_item {
+        notes.push(login_note);
     }
     notes.extend(local_stt::install::uninstall()?);
     let data = paths::data_dir();
