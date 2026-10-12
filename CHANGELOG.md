@@ -6,6 +6,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- While you talk, the pill follows focus: switch to a window on another screen and the pill
+  (and the live text) moves there within a third of a second. A pill you dragged stays put
+  until focus changes screen.
+
+### Fixed
+
+- macOS: the pill showed on another screen while you dictated into local-stt's own window,
+  such as setup's Try it box, because the app's own windows never counted as focused.
+
 ## [0.1.1] - 2026-10-12
 
 ### Fixed
