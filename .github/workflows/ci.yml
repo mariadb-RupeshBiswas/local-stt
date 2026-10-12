@@ -206,6 +206,22 @@ jobs:
         run: |
           wheel="$(ls dist/*.whl | head -n 1)"
           uvx --from "$wheel" local-stt --version
+      # Same script as the release, with a certificate made here, so no secret is needed.
+      - name: Signed wheel installs with its signature intact (throwaway certificate)
+        if: runner.os == 'macOS'
+        run: |
+          work="$RUNNER_TEMP/signing"
+          mkdir -p "$work"
+          cp dist/*.whl "$work/"
+          /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 1 -subj "/CN=local-stt CI throwaway" \
+            -keyout "$work/key.pem" -out "$work/cert.pem" \
+            -addext "keyUsage=critical,digitalSignature" -addext "extendedKeyUsage=critical,codeSigning" \
+            -addext "basicConstraints=critical,CA:false"
+          P12_PASSWORD="$(openssl rand -hex 16)"
+          export P12_PASSWORD
+          /usr/bin/openssl pkcs12 -export -inkey "$work/key.pem" -in "$work/cert.pem" \
+            -out "$work/ci.p12" -passout env:P12_PASSWORD
+          dev/sign-macos-wheel.sh "$(ls "$work"/*.whl | head -n 1)" "$work/ci.p12"
       - name: Keep the wheel for manual testing
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

@@ -85,9 +85,19 @@ fn installed_from(exe: &Path, installed: &Path) -> bool {
     if same_file(exe, installed) {
         return true;
     }
-    let stamp = stamp_path(installed).and_then(|p| std::fs::read_to_string(p).ok());
     let source = crate::download::sha256_file(exe).ok();
-    installed.is_file() && stamp.is_some() && stamp == source
+    if !installed.is_file() || source.is_none() {
+        return false;
+    }
+    let stamp = stamp_path(installed).and_then(|p| std::fs::read_to_string(p).ok());
+    // A release copy is never re-signed, so it matches byte for byte and carries no stamp.
+    stamp == source || crate::download::sha256_file(installed).ok() == source
+}
+
+/// True for a designated requirement that names a signing certificate rather than one build's cdhash.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+pub(crate) fn signed_by_certificate(requirement: &str) -> bool {
+    requirement.contains("certificate")
 }
 
 /// Typed in a terminal, `local-stt` hands over to the installed app so it runs on its own: macOS then
@@ -417,14 +427,9 @@ mod platform {
 
     // The designated requirement permissions are tied to: an ad-hoc copy's is its cdhash, new every build.
     pub fn identity() -> Option<String> {
-        let app = app_dir().filter(|a| a.exists())?;
-        let out = crate::proc::command("/usr/bin/codesign")
-            .args(["-d", "-r-"])
-            .arg(&app)
-            .output()
-            .ok()?;
-        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
-        (out.status.success() && !text.is_empty()).then_some(text)
+        app_dir()
+            .filter(|a| a.exists())
+            .and_then(|a| requirement(&a))
     }
 
     // `tccutil reset All <bundle id>` (from its man page) clears every privacy decision for this app only.
@@ -461,14 +466,7 @@ mod platform {
 
     // A changed binary or Info.plist breaks the ad-hoc seal; such a copy is reinstalled, never opened.
     pub fn intact(_installed: &Path) -> bool {
-        let Some(app) = app_dir() else {
-            return false;
-        };
-        crate::proc::command("/usr/bin/codesign")
-            .args(["--verify", "--deep", "--strict"])
-            .arg(&app)
-            .output()
-            .is_ok_and(|o| o.status.success())
+        app_dir().is_some_and(|a| verifies(&a))
     }
 
     // Through LaunchServices the app is its own process, so macOS shows its name in prompts and indicators.
@@ -508,20 +506,72 @@ mod platform {
         .map_err(|e| format!("cannot write Info.plist: {e}"))?;
         std::fs::write(resources.join("icon.icns"), ICON)
             .map_err(|e| format!("cannot write the app icon: {e}"))?;
+        let stamp = resources.join(super::STAMP);
+        let seal = shipped_seal(exe);
+        // A release binary is already signed for exactly these files, so an extra one breaks its seal.
+        let _ = std::fs::remove_file(&stamp);
+        let installed = super::copy_binary(exe, &contents.join("MacOS"))?;
+        if let Some(seal) = seal {
+            let dir = contents.join("_CodeSignature");
+            std::fs::create_dir_all(&dir)
+                .and_then(|()| std::fs::write(dir.join("CodeResources"), seal))
+                .map_err(|e| format!("cannot write the app's signature: {e}"))?;
+            if verifies(&app) {
+                spotlight(&app);
+                return Ok(installed);
+            }
+            crate::diag::log("install: release signature did not verify, signing ad-hoc");
+        }
         // Written before signing, so the seal covers it.
-        std::fs::write(resources.join(super::STAMP), source)
-            .map_err(|e| format!("cannot write the build stamp: {e}"))?;
-        let exe = super::copy_binary(exe, &contents.join("MacOS"))?;
+        std::fs::write(&stamp, source).map_err(|e| format!("cannot write the build stamp: {e}"))?;
         // Ad-hoc signing binds Info.plist to the binary so macOS treats it as one app.
         let _ = std::process::Command::new("/usr/bin/codesign")
             .args(["--force", "--sign", "-"])
             .arg(&app)
             .output();
-        // Ask Spotlight to index it now rather than at its next pass.
+        spotlight(&app);
+        Ok(installed)
+    }
+
+    // Ask Spotlight to index it now rather than at its next pass.
+    fn spotlight(app: &Path) {
         let _ = std::process::Command::new("/usr/bin/mdimport")
-            .arg(&app)
+            .arg(app)
             .output();
-        Ok(exe)
+    }
+
+    fn verifies(app: &Path) -> bool {
+        crate::proc::command("/usr/bin/codesign")
+            .args(["--verify", "--deep", "--strict"])
+            .arg(app)
+            .output()
+            .is_ok_and(|o| o.status.success())
+    }
+
+    /// The bundle seal a certificate-signed release ships beside its binary: `share/local-stt` in
+    /// the wheel's environment, `_CodeSignature` in an installed app. None for ad-hoc builds.
+    fn shipped_seal(exe: &Path) -> Option<Vec<u8>> {
+        let exe = exe.canonicalize().ok()?;
+        if !super::signed_by_certificate(requirement(&exe)?.as_str()) {
+            return None;
+        }
+        let root = exe.parent()?.parent()?;
+        [
+            root.join("share").join("local-stt").join("CodeResources"),
+            root.join("_CodeSignature").join("CodeResources"),
+        ]
+        .iter()
+        .find_map(|p| std::fs::read(p).ok())
+    }
+
+    fn requirement(path: &Path) -> Option<String> {
+        let out = crate::proc::command("/usr/bin/codesign")
+            .args(["-d", "-r-"])
+            .arg(path)
+            .output()
+            .ok()?;
+        let text = String::from_utf8_lossy(&out.stdout).trim().to_string();
+        (out.status.success() && !text.is_empty()).then_some(text)
     }
 
     pub fn installed_note(_exe: &Path) -> String {
@@ -799,7 +849,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn the_installed_copy_counts_as_this_build_only_by_its_stamp() {
+    fn the_installed_copy_counts_as_this_build_by_its_stamp_or_same_bytes() {
         let root = std::env::temp_dir().join(format!("lstt-stamp-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let bin_dir = if cfg!(target_os = "macos") {
@@ -813,6 +863,12 @@ mod tests {
         let source = root.join("source-build");
         std::fs::write(&source, b"the build").unwrap();
         assert!(!installed_from(&source, &installed), "no stamp yet");
+        let release = root.join("release-build");
+        std::fs::write(&release, b"signed copy").unwrap();
+        assert!(
+            installed_from(&release, &installed),
+            "a release copy is the same bytes"
+        );
         let stamp = stamp_path(&installed).unwrap();
         std::fs::create_dir_all(stamp.parent().unwrap()).unwrap();
         std::fs::write(&stamp, crate::download::sha256_file(&source).unwrap()).unwrap();
@@ -898,6 +954,14 @@ mod tests {
             assert_eq!(std::fs::read_to_string(d.join(f)).unwrap(), "kept");
         }
         assert!(!d.join(PENDING).exists());
+    }
+
+    #[test]
+    fn only_a_certificate_signature_is_kept_as_shipped() {
+        assert!(signed_by_certificate(
+            "designated => identifier \"io.github.localstt\" and certificate leaf = H\"17de\""
+        ));
+        assert!(!signed_by_certificate("# designated => cdhash H\"3a8f\""));
     }
 
     #[test]

@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-12
+
+### Added
+
+- macOS: releases are signed with local-stt's own certificate, so permissions stay allowed
+  across updates, as with Zoom or Wispr Flow. Updating to 0.3.0 asks for them one last time.
+
 ### Changed
 
 - Releases build the wheels while the full CI runs on the merge commit, about 6 minutes
@@ -20,6 +27,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   build was a new app to it. Installing a build that macOS sees as new now resets local-stt's
   stale permissions and opens setup again (name, microphone test, Accessibility, model), keeping
   your settings, history, notes and insights.
+
+### Security
+
+- The macOS signing key lives only in the GitHub release environment; a release without it fails
+  instead of shipping an ad-hoc app. Every pull request checks the signing path with a throwaway
+  certificate.
 
 ## [0.2.0] - 2026-10-12
 
