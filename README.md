@@ -185,6 +185,8 @@ local-stt checks your computer (memory, processor, graphics, free disk) and only
 
 Run `local-stt doctor` to see your hardware and which models fit, right in the terminal.
 
+Each model shows its SHA-256 checksum and a **View on Hugging Face** button that opens the file's page there, which lists the same checksum, so you can see exactly what the app downloads. **Delete** removes a downloaded model you no longer use and frees its disk space; the model in use stays until you switch to another.
+
 ![Model picker with hardware check](docs/screenshots/main-model.png)
 
 ## Languages

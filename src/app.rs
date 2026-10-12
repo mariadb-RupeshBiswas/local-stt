@@ -205,6 +205,8 @@ pub fn run() -> Result<(), String> {
             crate::commands::start_hotkey_capture,
             crate::commands::cancel_hotkey_capture,
             crate::commands::choose_model,
+            crate::commands::open_model_page,
+            crate::commands::delete_model,
             crate::commands::get_history,
             crate::commands::clear_history,
             crate::commands::delete_history,

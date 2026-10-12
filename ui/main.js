@@ -1454,10 +1454,30 @@
       });
     }
 
+    // the checksum and a link to the same file on Hugging Face, where its page shows that checksum too
+    function modelMeta(fit, inUse) {
+      var hash = typeof fit.sha256 === "string" && fit.sha256 ? fit.sha256 : "-";
+      var page = h("button", {
+        class: "btn btn-quiet",
+        type: "button",
+        text: "View on Hugging Face",
+        "aria-label": "View " + dash(fit.label) + " on Hugging Face",
+        onclick: function () { openModelPage(fit); }
+      });
+      var del = fit.downloaded && !inUse
+        ? h("button", { class: "btn btn-danger btn-icon", type: "button", "aria-label": "Delete " + dash(fit.label), onclick: function () { askDeleteModel(fit); } }, icon("trash"), h("span", { text: "Delete" }))
+        : null;
+      return h("div", { class: "mrow-meta" },
+        h("span", { class: "mrow-sum" }, "SHA-256 ", h("span", { class: "mrow-hash", text: hash })),
+        h("span", { class: "mrow-links" }, page, del)
+      );
+    }
+
     function modelRow(fit) {
       var active = S.activeModel === fit.id;
       var loading = S.loadingModel === fit.id;
       var progress = S.progress[fit.id];
+      var inUse = active || loading || !!progress || (S.config && S.config.model === fit.id);
       var disabled = !fit.supported;
       var reasons = Array.isArray(fit.reasons) ? fit.reasons : [];
 
@@ -1495,7 +1515,7 @@
           ),
           modelAction(fit, active, !!progress, loading)
         ),
-        why, detail, error
+        modelMeta(fit, inUse), why, detail, error
       );
     }
 
@@ -1539,6 +1559,30 @@
         body: (size ? size + " will be downloaded" : "It will be downloaded") + ", checked against a fixed checksum, and kept on " + thisDevice() + " for quick switching.",
         confirm: size ? "Download " + size : "Download",
         onConfirm: function () { chooseModel(fit); }
+      });
+    }
+
+    function openModelPage(fit) {
+      Promise.resolve(invoke("open_model_page", { id: fit.id })).catch(function (err) { toast(errText(err)); });
+    }
+
+    function askDeleteModel(fit) {
+      var size = sizeText(fit);
+      askConfirm({
+        title: "Delete " + dash(fit.label) + "?",
+        body: (size ? "This frees " + size + " on " : "This removes it from ") + thisDevice() + ". You can download it again here.",
+        confirm: "Delete",
+        danger: true,
+        onConfirm: function () {
+          delete S.modelErrors[fit.id];
+          Promise.resolve(invoke("delete_model", { id: fit.id })).then(function () {
+            toast(dash(fit.label) + " deleted.");
+            return refreshState();
+          }).catch(function (err) {
+            S.modelErrors[fit.id] = errText(err);
+            renderModels();
+          });
+        }
       });
     }
 

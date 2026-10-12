@@ -631,8 +631,13 @@ for (const dark of [false, true]) {
   const row = (name) => page.locator(".mrow", { hasText: name });
   check("model rows are not radios and have no tab stops", (await page.locator(".mrow[role=radio], .card[role=radiogroup], .mrow[tabindex]").count()) === 0);
   check("Active shown for the loaded model", (await row("Small").locator(".pill-active").count()) === 1 && (await row("Medium").locator(".pill-active").count()) === 0);
-  check("unsupported row has no button and keeps its reasons", (await row("Large v3").locator("button").count()) === 0 && (await row("Large v3").locator(".reasons li").count()) === 2);
-  const act = row("Medium").locator("button");
+  check("unsupported row has no action button and keeps its reasons", (await row("Large v3").locator(".mrow-head button").count()) === 0 && (await row("Large v3").locator(".reasons li").count()) === 2);
+  check("every row shows its full SHA-256 as selectable text", (await page.locator(".mrow-hash").allTextContents()).every((t) => /^[0-9a-f]{64}$/.test(t))
+    && (await page.locator(".mrow-hash").first().evaluate((e) => getComputedStyle(e).userSelect)) === "text");
+  check("no Delete on the active model or one not on disk", (await row("Small").getByRole("button", { name: /^Delete/ }).count()) === 0 && (await row("Medium").getByRole("button", { name: /^Delete/ }).count()) === 0);
+  await row("Large v3").getByRole("button", { name: "View Large v3 on Hugging Face" }).click();
+  check("Hugging Face opens through the app by model id, even for an unsupported model", (await calls(page)).includes("open_model_page:large-v3"), await calls(page));
+  const act = row("Medium").locator(".mrow-head button");
   const box = await act.boundingBox();
   check("Download is a real 28 pt button with the size", (await act.textContent()) === "Download 514 MB" && box.height >= 28, box);
 
@@ -649,8 +654,9 @@ for (const dark of [false, true]) {
   await page.waitForTimeout(900);
   check("confirmed download shows progress", (await row("Medium").locator("[role=progressbar]").count()) === 1);
   await page.waitForTimeout(5500);
-  check("Medium becomes Active and Small offers Use", (await row("Medium").locator(".pill-active").count()) === 1 && (await row("Small").locator("button").textContent()) === "Use");
-  await row("Small").locator("button").click();
+  check("Medium becomes Active and Small offers Use", (await row("Medium").locator(".pill-active").count()) === 1 && (await row("Small").locator(".mrow-head button").textContent()) === "Use");
+  check("the model no longer in use can be deleted, the active one cannot", (await row("Small").getByRole("button", { name: "Delete Small" }).count()) === 1 && (await row("Medium").getByRole("button", { name: /^Delete/ }).count()) === 0);
+  await row("Small").locator(".mrow-head button").click();
   await page.waitForTimeout(200);
   check("Use shows Loading, no confirmation for a downloaded model", (await row("Small").locator(".pill-busy").textContent()) === "Loading" && (await page.locator("dialog.dlg[open]").count()) === 0);
   await page.waitForTimeout(800);
@@ -661,7 +667,8 @@ for (const dark of [false, true]) {
 {
   const { page, ctx } = await open("?view=main&tab=model&scheme=light&active=none");
   const small = page.locator(".mrow", { hasText: "Small" });
-  check("Active follows the loaded model, not config.model", (await small.locator(".pill-active").count()) === 0 && (await small.locator("button").textContent()) === "Use");
+  check("Active follows the loaded model, not config.model", (await small.locator(".pill-active").count()) === 0 && (await small.locator(".mrow-head button").textContent()) === "Use");
+  check("the chosen model is not offered for deletion while it is not loaded", (await small.getByRole("button", { name: /^Delete/ }).count()) === 0);
   await ctx.close();
 }
 {
@@ -673,11 +680,32 @@ for (const dark of [false, true]) {
 {
   const { page, ctx } = await open("?view=main&tab=model&scheme=light&fail=medium");
   const med = page.locator(".mrow", { hasText: "Medium" });
-  await med.locator("button").click();
+  await med.locator(".mrow-head button").click();
   await page.locator("dialog.dlg .btn-action").click();
   await page.waitForTimeout(3200);
   check("failed download shows the error, offers Download again, keeps Small active",
-    (await med.locator(".model-error").count()) === 1 && (await med.locator("button").textContent()) === "Download 514 MB" && (await page.locator(".mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
+    (await med.locator(".model-error").count()) === 1 && (await med.locator(".mrow-head button").textContent()) === "Download 514 MB" && (await page.locator(".mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light&have=medium");
+  const med = page.locator(".mrow", { hasText: "Medium" });
+  const del = med.getByRole("button", { name: "Delete Medium" });
+  await del.click();
+  await page.waitForTimeout(250);
+  const body = await page.locator("dialog.dlg[open]").textContent();
+  check("delete asks first, names the space freed, and the confirm is destructive",
+    (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Delete Medium?" && body.includes("514 MB") && (await page.locator("dialog.dlg[open] .btn-danger-solid").textContent()) === "Delete", body);
+  await page.locator("dialog.dlg .btn", { hasText: "Cancel" }).click();
+  await page.waitForTimeout(150);
+  check("cancel keeps the model", !(await calls(page)).some((c) => c.startsWith("delete_model")) && (await med.locator(".tag-green").count()) === 1);
+  await del.click();
+  await page.locator("dialog.dlg .btn-danger-solid").click();
+  await page.waitForTimeout(400);
+  check("confirmed delete removes it: Download again, no Delete, Small still active",
+    (await calls(page)).includes("delete_model:medium") && (await med.locator(".mrow-head button").textContent()) === "Download 514 MB"
+    && (await med.getByRole("button", { name: /^Delete/ }).count()) === 0 && (await page.locator(".mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
+  check("no page errors (model delete)", errors.length === 0, errors);
   await ctx.close();
 }
 {

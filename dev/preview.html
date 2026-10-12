@@ -393,9 +393,13 @@
       },
       models: [
         // a fresh install has nothing on disk and Small recommended; ?downloaded=1 keeps it on disk
-        { id: "small", label: "Small", size_mb: 181, supported: true, recommended: onboarding, downloaded: !onboarding || params.get("downloaded") === "1", reasons: [] },
-        { id: "medium", label: "Medium", size_mb: 514, supported: true, recommended: !onboarding, downloaded: false, reasons: [] },
+        { id: "small", label: "Small", size_mb: 181, supported: true, recommended: onboarding, downloaded: !onboarding || params.get("downloaded") === "1", reasons: [],
+          sha256: "ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb" },
+        // ?have=medium puts Medium on disk without loading it, so it can be deleted
+        { id: "medium", label: "Medium", size_mb: 514, supported: true, recommended: !onboarding, downloaded: params.get("have") === "medium", reasons: [],
+          sha256: "19fea4b380c3a618ec4723c3eef2eb785ffba0d0538cf43f8f235e7b3b34220f" },
         { id: "large-v3", label: "Large v3", size_mb: 1031, supported: false, recommended: false, downloaded: false,
+          sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
           reasons: winReasons
             ? ["Needs 16 GB RAM, this PC has 8 GB", "Needs a GPU this app can use; Windows build runs on CPU"]
             : ["Needs 16 GB RAM, this Mac has 8 GB", "Free disk space could not be read"] }
@@ -635,6 +639,15 @@
       cancel_hotkey_capture: function () {
         window.__cfg.push("cancel_hotkey_capture");
         clearTimeout(captureTimer);
+      },
+      open_model_page: function (a) { window.__calls.push("open_model_page:" + a.id); },
+      // like the app: the loaded, chosen or downloading model is refused
+      delete_model: function (a) {
+        window.__calls.push("delete_model:" + a.id);
+        if (data.activeModel === a.id || data.config.model === a.id || data.downloading === a.id) {
+          return Promise.reject("This model is in use. Switch to another model first.");
+        }
+        data.models.forEach(function (m) { if (m.id === a.id) m.downloaded = false; });
       },
       choose_model: function (a) {
         window.__calls.push("choose_model:" + a.id);

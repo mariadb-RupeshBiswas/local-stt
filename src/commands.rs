@@ -196,6 +196,33 @@ pub fn choose_model(
 }
 
 #[tauri::command]
+pub fn open_model_page(id: ModelId) -> Result<(), String> {
+    crate::update::open_url(&models::page_url(id))
+}
+
+// The loaded, chosen or downloading model stays: Windows cannot delete an open file.
+fn model_in_use(
+    id: ModelId,
+    active: Option<ModelId>,
+    chosen: ModelId,
+    downloading: Option<ModelId>,
+) -> bool {
+    active == Some(id) || chosen == id || downloading == Some(id)
+}
+
+#[tauri::command]
+pub fn delete_model(state: State<'_, Arc<Shared>>, id: ModelId) -> Result<(), String> {
+    let active = *lock(&state.active_model);
+    let downloading = *lock(&state.downloading);
+    if model_in_use(id, active, state.config().model, downloading) {
+        return Err("This model is in use. Switch to another model first.".into());
+    }
+    models::delete(&paths::models_dir(), id)?;
+    diag::log(&format!("model {} deleted", models::info(id).label));
+    Ok(())
+}
+
+#[tauri::command]
 pub fn get_history() -> Result<Vec<history::Entry>, String> {
     history::read_newest_first(&paths::history_path(), HISTORY_LIMIT).map_err(|e| e.to_string())
 }
@@ -491,6 +518,16 @@ pub fn copy_text(text: String) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_model_in_use_is_never_deleted() {
+        let (s, m) = (ModelId::Small, ModelId::Medium);
+        assert!(!model_in_use(m, Some(s), s, None));
+        assert!(model_in_use(m, Some(m), s, None));
+        assert!(model_in_use(m, Some(s), m, None));
+        assert!(model_in_use(m, Some(s), s, Some(m)));
+        assert!(model_in_use(m, None, m, None));
+    }
 
     #[test]
     fn patch_changes_only_named_fields() {

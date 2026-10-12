@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Model tab: each model shows its SHA-256 checksum and a View on Hugging Face button, so you
+  can check the file the app downloads against its source.
+- Model tab: Delete removes a downloaded model you no longer use and frees its disk space; the
+  model in use is kept.
+
 ## [0.3.0] - 2026-10-12
 
 ### Added

@@ -567,6 +567,11 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
+.mrow-meta { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--s2) var(--s3); margin-top: 6px; }
+.mrow-sum { font-size: 11px; color: var(--label-2); min-width: 0; }
+.mrow-hash { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+.mrow-links { display: inline-flex; align-items: center; gap: var(--s2); margin-inline-start: -6px; }
+
 .badges { display: inline-flex; gap: 6px; }
 .mrow.is-disabled .mrow-name { color: var(--label-2); }
 

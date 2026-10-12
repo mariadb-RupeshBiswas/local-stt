@@ -64,6 +64,8 @@ fn main() {
         "start_hotkey_capture",
         "cancel_hotkey_capture",
         "choose_model",
+        "open_model_page",
+        "delete_model",
         "get_history",
         "clear_history",
         "delete_history",

@@ -68,6 +68,7 @@ pub struct Fit {
     pub supported: bool,
     pub recommended: bool,
     pub downloaded: bool,
+    pub sha256: &'static str,
     pub reasons: Vec<String>,
 }
 
@@ -86,8 +87,20 @@ pub fn url(id: ModelId) -> String {
     )
 }
 
+// The file's Hugging Face page shows the same SHA-256 the download is checked against.
+pub const PAGE_PREFIX: &str = "https://huggingface.co/ggerganov/whisper.cpp/blob/main/";
+
+pub fn page_url(id: ModelId) -> String {
+    format!("{PAGE_PREFIX}{}", info(id).file)
+}
+
 pub fn path(models_dir: &Path, id: ModelId) -> PathBuf {
     models_dir.join(info(id).file)
+}
+
+pub fn delete(models_dir: &Path, id: ModelId) -> Result<(), String> {
+    std::fs::remove_file(path(models_dir, id))
+        .map_err(|e| format!("cannot delete {}: {e}", info(id).label))
 }
 
 // Reasons a model does not fit; empty means supported.
@@ -155,6 +168,7 @@ pub fn evaluate(hw: &Hardware, models_dir: &Path) -> Vec<Fit> {
             supported: reasons.is_empty(),
             recommended: false,
             downloaded,
+            sha256: m.sha256,
             reasons,
         });
     }
@@ -229,6 +243,25 @@ mod tests {
             );
             assert_eq!(m.sha256.len(), 64);
         }
+    }
+    #[test]
+    fn pages_are_the_same_files_on_huggingface() {
+        for m in CATALOG.iter() {
+            assert_eq!(page_url(m.id), format!("{PAGE_PREFIX}{}", m.file));
+            assert_eq!(url(m.id).replace("/resolve/", "/blob/"), page_url(m.id));
+        }
+    }
+    #[test]
+    fn delete_removes_only_that_model() {
+        let dir = std::env::temp_dir().join(format!("lstt-delete-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(path(&dir, ModelId::Small), b"x").unwrap();
+        std::fs::write(path(&dir, ModelId::Medium), b"x").unwrap();
+        delete(&dir, ModelId::Medium).unwrap();
+        assert!(path(&dir, ModelId::Small).is_file());
+        assert!(!path(&dir, ModelId::Medium).exists());
+        assert!(delete(&dir, ModelId::Medium).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
     }
     #[test]
     fn unknown_ram_and_disk_block_medium_and_large() {
