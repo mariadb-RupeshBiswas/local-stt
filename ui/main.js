@@ -2102,7 +2102,7 @@
           onChange: function (v) { patchConfig({ diagnostic_log: v }); }
         }))),
         settingRow("Diagnostic report", "Saves a text file with app, system and settings details and the log, to share when something goes wrong. Read it before you share it.", addSync(reportControl())),
-        settingRow("Reinstall", "Fixes a broken install: installs local-stt again and resets its permissions, keeping your settings unless you choose otherwise.", addSync(reinstallControl()))
+        settingRow("Reinstall", "Fixes a broken install: installs local-stt again, resets its permissions and opens setup to allow them, keeping your settings and history unless you choose otherwise.", addSync(reinstallControl()))
       ]);
 
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "General" }));
