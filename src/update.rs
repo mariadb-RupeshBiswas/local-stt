@@ -219,9 +219,14 @@ fn run_with_timeout(
     Ok((status.success(), stdout, stderr))
 }
 
+// Only the project's releases and the model files' pages, so no other address reaches the browser.
+fn allowed(url: &str) -> bool {
+    url.starts_with(RELEASES_URL) || url.starts_with(crate::models::PAGE_PREFIX)
+}
+
 /// Opens a fixed project URL in the default browser.
 pub fn open_url(url: &str) -> Result<(), String> {
-    if !url.starts_with(RELEASES_URL) {
+    if !allowed(url) {
         return Err("refusing to open an unexpected address".into());
     }
     let status = if cfg!(target_os = "macos") {
@@ -315,5 +320,10 @@ mod tests {
     #[test]
     fn only_project_urls_are_opened() {
         assert!(open_url("https://example.com").is_err());
+        assert!(!allowed("https://huggingface.co/someone-else/model"));
+        assert!(allowed(&crate::models::page_url(
+            crate::models::ModelId::Medium
+        )));
+        assert!(allowed(RELEASES_URL));
     }
 }

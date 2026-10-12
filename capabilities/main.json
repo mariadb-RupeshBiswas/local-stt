@@ -12,6 +12,8 @@
     "allow-start-hotkey-capture",
     "allow-cancel-hotkey-capture",
     "allow-choose-model",
+    "allow-open-model-page",
+    "allow-delete-model",
     "allow-get-history",
     "allow-clear-history",
     "allow-delete-history",
