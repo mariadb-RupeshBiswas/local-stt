@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-10-12
+
 ### Fixed
 
 - `local-stt uninstall` reports only what was there: no login-item line when start at login
