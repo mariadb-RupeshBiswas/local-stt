@@ -1215,7 +1215,7 @@
 
     // "s2" is the second voice heard on the other side of the call
     function defaultSpeaker(id) {
-      if (id === "me") return "Me";
+      if (id === "me") return savedName() || "Me"; // the name given in setup
       if (id === "others") return "Others";
       var m = /^s([0-9]+)$/.exec(String(id || ""));
       return m ? "Speaker " + m[1] : String(id || "-");

@@ -129,7 +129,8 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 - On a Mac with Apple silicon, the call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
 - Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
-- Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat.
+- Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat. Bluetooth headphones that switch to call mode mid-note are picked up again within a second.
+- Your lines show the name you gave in setup.
 - macOS 14.6 or later (macOS asks once for System Audio Recording), or Windows 10 and 11.
 
 **Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
