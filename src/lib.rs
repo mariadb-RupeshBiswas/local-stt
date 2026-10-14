@@ -29,4 +29,5 @@ pub mod proc;
 pub mod recorder;
 pub mod sound;
 pub mod state;
+pub mod summary;
 pub mod update;

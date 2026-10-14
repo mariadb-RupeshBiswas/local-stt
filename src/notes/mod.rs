@@ -57,6 +57,9 @@ pub struct Note {
     /// The other people the call app listed during the note, offered as speaker names.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub participants: Vec<String>,
+    /// Written on this computer when the user asks for it; absent until then.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<crate::summary::write::Summary>,
 }
 
 /// One row of the notes list.
@@ -355,6 +358,20 @@ pub fn rename_speaker(id: &str, speaker: &str, name: &str) -> std::io::Result<No
     })
 }
 
+/// Saves a summary into a finished note; a note still recording has nothing final to summarize.
+pub fn set_summary(id: &str, summary: crate::summary::write::Summary) -> std::io::Result<Note> {
+    update(id, |note| {
+        if note.status != Status::Done {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidInput,
+                "the note is still recording",
+            ));
+        }
+        note.summary = Some(summary);
+        Ok(())
+    })
+}
+
 // Changes the note's header: the saved file once done, only the live file's first line while recording.
 fn update(
     id: &str,
@@ -436,6 +453,7 @@ mod tests {
             speakers: BTreeMap::new(),
             segments: Vec::new(),
             participants: Vec::new(),
+            summary: None,
         }
     }
 

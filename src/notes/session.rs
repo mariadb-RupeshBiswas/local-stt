@@ -81,6 +81,7 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
         speakers: Default::default(),
         segments: Vec::new(),
         participants: Vec::new(),
+        summary: None,
     };
     super::begin(&note).map_err(|e| format!("Could not start the note: {e}"))?;
     let (stop_tx, stop_rx) = channel::<()>();

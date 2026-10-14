@@ -22,6 +22,8 @@ fn main() {
         .include("vendor/whisper.cpp/ggml/include")
         .compile("lstt_shim");
 
+    link_llama(&dst);
+
     for sub in ["lib", "lib64"] {
         println!("cargo:rustc-link-search=native={}/{}", dst.display(), sub);
     }
@@ -59,8 +61,13 @@ fn main() {
     println!("cargo:rerun-if-changed=Info.plist");
     println!("cargo::rustc-check-cfg=cfg(lstt_voices)");
     let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH").unwrap_or_default();
-    if target_os == "macos" && target_arch == "aarch64" {
-        link_voices();
+    let sherpa = match (target_os.as_str(), target_arch.as_str()) {
+        ("macos", "aarch64") => Some(&SHERPA_MAC),
+        ("windows", "x86_64") => Some(&SHERPA_WIN),
+        _ => None,
+    };
+    if let Some(sherpa) = sherpa {
+        link_voices(sherpa);
     }
     // Listing the commands makes Tauri require a capability for each, so every window gets only what it needs.
     let manifest = tauri_build::AppManifest::new().commands(&[
@@ -71,6 +78,10 @@ fn main() {
         "choose_model",
         "open_model_page",
         "delete_model",
+        "choose_summary_model",
+        "open_summary_model_page",
+        "delete_summary_model",
+        "summarize_note",
         "get_history",
         "clear_history",
         "delete_history",
@@ -101,10 +112,61 @@ fn main() {
         .expect("tauri build step failed");
 }
 
+// Note summaries: llama.cpp's libllama alone, built on whisper.cpp's ggml so one copy of ggml is linked.
+fn link_llama(whisper_dst: &std::path::Path) {
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("llama");
+    let ggml_dir = whisper_dst.join("lib").join("cmake").join("ggml");
+    let dst = cmake::Config::new("vendor/llama.cpp")
+        .out_dir(&out)
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("LLAMA_USE_SYSTEM_GGML", "ON")
+        .define("ggml_DIR", &ggml_dir)
+        .define("LLAMA_BUILD_COMMON", "OFF")
+        .define("LLAMA_BUILD_TESTS", "OFF")
+        .define("LLAMA_BUILD_TOOLS", "OFF")
+        .define("LLAMA_BUILD_EXAMPLES", "OFF")
+        .define("LLAMA_BUILD_SERVER", "OFF")
+        .define("LLAMA_BUILD_APP", "OFF")
+        .define("LLAMA_CURL", "OFF")
+        .profile("Release")
+        .build();
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file("llm_shim.cpp")
+        .include("vendor/llama.cpp/include")
+        .include("vendor/whisper.cpp/ggml/include")
+        .compile("lstt_llm_shim");
+    for sub in ["lib", "lib64"] {
+        println!("cargo:rustc-link-search=native={}/{}", dst.display(), sub);
+    }
+    println!("cargo:rustc-link-lib=static=llama");
+    println!("cargo:rerun-if-changed=llm_shim.cpp");
+}
+
 // Telling speakers apart in notes: sherpa-onnx's prebuilt static library (Apache-2.0), pinned by checksum.
-const SHERPA_URL: &str = "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-arm64-static-no-tts-lib.tar.bz2";
-const SHERPA_SHA256: &str = "3d7f9b8a496694af13d9802c33b8133231e397bdef302f543d19468765e83136";
-const SHERPA_DIR: &str = "sherpa-onnx-v1.13.8-osx-arm64-static-no-tts-lib";
+struct Sherpa {
+    url: &'static str,
+    sha256: &'static str,
+    dir: &'static str,
+    c_api: &'static str,
+}
+
+const SHERPA_MAC: Sherpa = Sherpa {
+    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-osx-arm64-static-no-tts-lib.tar.bz2",
+    sha256: "3d7f9b8a496694af13d9802c33b8133231e397bdef302f543d19468765e83136",
+    dir: "sherpa-onnx-v1.13.8-osx-arm64-static-no-tts-lib",
+    c_api: "libsherpa-onnx-c-api.a",
+};
+
+// MD matches Rust's default MSVC runtime (/MD).
+const SHERPA_WIN: Sherpa = Sherpa {
+    url: "https://github.com/k2-fsa/sherpa-onnx/releases/download/v1.13.8/sherpa-onnx-v1.13.8-win-x64-static-MD-Release-no-tts-lib.tar.bz2",
+    sha256: "542348e56e827b59c6d249fd0dfd38dc34b7bd0c521a1ebe9eb6e2db154fa15d",
+    dir: "sherpa-onnx-v1.13.8-win-x64-static-MD-Release-no-tts-lib",
+    c_api: "sherpa-onnx-c-api.lib",
+};
+
 const SHERPA_LIBS: [&str; 10] = [
     "sherpa-onnx-c-api",
     "sherpa-onnx-core",
@@ -118,8 +180,8 @@ const SHERPA_LIBS: [&str; 10] = [
     "onnxruntime",
 ];
 
-fn link_voices() {
-    let lib = sherpa_lib_dir();
+fn link_voices(sherpa: &Sherpa) {
+    let lib = sherpa_lib_dir(sherpa);
     cc::Build::new()
         .file("voice_shim.c")
         .include("vendor/sherpa-onnx")
@@ -134,38 +196,71 @@ fn link_voices() {
 }
 
 // LOCAL_STT_SHERPA_LIB points at an unpacked lib folder for offline builds; otherwise it is fetched once per target dir.
-fn sherpa_lib_dir() -> std::path::PathBuf {
+fn sherpa_lib_dir(sherpa: &Sherpa) -> std::path::PathBuf {
     if let Some(dir) = std::env::var_os("LOCAL_STT_SHERPA_LIB") {
         return dir.into();
     }
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
-    let lib = out.join(SHERPA_DIR).join("lib");
-    if lib.join("libsherpa-onnx-c-api.a").exists() {
+    let lib = out.join(sherpa.dir).join("lib");
+    if lib.join(sherpa.c_api).exists() {
         return lib;
     }
     let archive = out.join("sherpa-onnx.tar.bz2");
     run(std::process::Command::new("curl")
         .args(["-fsSL", "--retry", "3", "-o"])
         .arg(&archive)
-        .arg(SHERPA_URL));
-    let sum = std::process::Command::new("shasum")
-        .args(["-a", "256"])
-        .arg(&archive)
-        .output()
-        .expect("shasum");
-    let sum = String::from_utf8_lossy(&sum.stdout);
+        .arg(sherpa.url));
     assert_eq!(
-        sum.split_whitespace().next(),
-        Some(SHERPA_SHA256),
+        sha256(&archive),
+        sherpa.sha256,
         "sherpa-onnx archive checksum mismatch"
     );
-    run(std::process::Command::new("tar")
+    run(std::process::Command::new(system_tar())
         .arg("-xjf")
         .arg(&archive)
         .arg("-C")
         .arg(&out));
     let _ = std::fs::remove_file(&archive);
     lib
+}
+
+// shasum on macOS, certutil on Windows; both ship with the OS.
+fn sha256(file: &std::path::Path) -> String {
+    let windows = cfg!(windows);
+    let out = if windows {
+        std::process::Command::new("certutil")
+            .arg("-hashfile")
+            .arg(file)
+            .arg("SHA256")
+            .output()
+    } else {
+        std::process::Command::new("shasum")
+            .args(["-a", "256"])
+            .arg(file)
+            .output()
+    }
+    .expect("cannot start a checksum tool");
+    let text = String::from_utf8_lossy(&out.stdout).to_lowercase();
+    let line = if windows {
+        text.lines().nth(1)
+    } else {
+        text.lines().next()
+    };
+    line.unwrap_or_default()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join("")
+        .chars()
+        .take(64)
+        .collect()
+}
+
+// Windows' own bsdtar reads bzip2; Git's GNU tar on PATH would take "C:" as a remote host.
+fn system_tar() -> std::path::PathBuf {
+    match std::env::var_os("SystemRoot") {
+        Some(root) if cfg!(windows) => std::path::Path::new(&root).join("System32").join("tar.exe"),
+        _ => "tar".into(),
+    }
 }
 
 fn run(cmd: &mut std::process::Command) {

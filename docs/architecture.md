@@ -62,7 +62,7 @@ becomes a paste.**
 | State machine | `src/state.rs` | Decides what a key press means right now (start, stop, cancel, hands-free) |
 | Hotkey hook | `src/hotkey/` | Listens to the keyboard; one file per operating system |
 | Recorder | `src/recorder.rs`, `src/audio.rs` | Opens the microphone and turns its sound into 16 kHz mono samples |
-| Engine | `src/engine.rs`, `shim.cpp` | Talks to whisper.cpp; the small C++ shim stops C++ errors crashing Rust |
+| Engine | `src/engine.rs`, `shim.cpp`, `llm_shim.cpp` | Talks to whisper.cpp and llama.cpp; the small C++ shims stop C++ errors crashing Rust |
 | Smart formatting | `src/format.rs` | Rules that tidy the text |
 | Paste | `src/output/`, `src/clipboard.rs` | The paste key press and the private clipboard write |
 | Pill placement | `src/overlay.rs`, `src/focus/` | Where the pill goes: the screen you are typing on, your saved spot |
@@ -85,7 +85,7 @@ Notes reuse the same engine for a whole call instead of one dictation:
    a call always jumps the queue, so your shortcut never waits behind the meeting.
 4. **Written as it happens.** Every finished line is added to the note's file in `notes/` at once,
    so a crash keeps everything up to that moment. The audio is still never saved.
-5. **Voices told apart (Mac with Apple silicon).** The worker takes a voice fingerprint of each line
+5. **Voices told apart.** The worker takes a voice fingerprint of each line
    from the call (`src/notes/voices.rs`, through sherpa-onnx in `src/engine.rs`). At Stop the
    fingerprints of lines 3 s or longer are grouped, and Others becomes Speaker 1, Speaker 2. A
    shorter line joins the closest voice, one under a second takes its neighbour's speaker, and a
@@ -99,6 +99,10 @@ Notes reuse the same engine for a whole call instead of one dictation:
 7. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
    lines from one speaker and cuts the other side's words out of your lines where the mic heard
    them from the speakers (runs of three or more words, or whole lines).
+7. **Summarized on request.** `src/summary/` picks the language models that fit this computer
+   (`mod.rs`), writes the summary in parts and joins them (`write.rs`), and runs downloads and
+   summaries off the UI thread (`run.rs`). llama.cpp runs through `llm_shim.cpp` and `Llm` in
+   `src/engine.rs`; a fixed grammar holds each reply to JSON, and the summary is saved into the note.
 
 ## Insights
 

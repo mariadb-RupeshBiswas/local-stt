@@ -24,6 +24,7 @@ steps to reproduce and the impact you see.
 | Clipboard (write, marked private) | Hand over the text; clipboard managers, Windows clipboard history and cloud clipboard skip it. macOS Universal Clipboard may still share it with your own nearby devices when Handoff is on | After each dictation |
 | Network | Download a model from `huggingface.co/ggerganov/whisper.cpp` (the whisper.cpp author's repository) over HTTPS | First run and when you choose another model |
 | Network | Download the voice model for telling speakers apart from `github.com/k2-fsa/sherpa-onnx` releases over HTTPS, checked against a pinned SHA-256 (Mac with Apple silicon) | Once, the first time you start a note |
+| Network | Download a summary model you chose in the Model tab from its maker's Hugging Face page (`huggingface.co/ibm-granite` or `huggingface.co/google`) over HTTPS, checked against a pinned SHA-256 | Only when you click Download in the Model tab's Summary model section |
 | Your web browser | Open a model's Hugging Face page or the release notes; the app builds the address, the page never passes one | Only when you click View on Hugging Face or Release Notes |
 | Network | Ask `pypi.org` for the latest version number (nothing else is sent) | 30 s after start, then once a day; Settings > Check automatically turns it off. Also when you click Check for Updates or Reinstall |
 | Running uv | Install a newer release you chose to install | Only when you click Install and Restart |
@@ -36,6 +37,7 @@ steps to reproduce and the impact you see.
 | Insights | `insights.json` in the app data folder: words, dictations and seconds per day, words by hour, the streak, and (with Word insights on) counts for the 200 words you use most; never sentences. Readable only by your user | After each dictation; Reset Insights deletes it, Word insights off deletes the word counts |
 | Notes | One file per note in `notes/` inside the app data folder (lines appended while recording, tidied on Stop), readable only by your user; delete removes the file | From New Note until you delete it |
 | Zoom participant names | Read from Zoom's participants panel through macOS Accessibility or Windows UI Automation every 5 s while a note records; kept in memory until Stop, then only the other people's names are saved in that note; never logged | Only while a note records |
+| Note summaries | Written by a local language model from the note's text, saved into that note's file; the model reads the transcript as data, its reply is held to a fixed JSON shape, and an action item counts only if the line it cites exists | Only when you click Summarize |
 | Voice fingerprints | A list of numbers per line from the call, in memory only, to tell voices apart at Stop; never written to disk, never kept between notes | While a note records (Mac with Apple silicon) |
 | Your voice fingerprint | `voice.json` in the app data folder: a running average of your own voice as 192 numbers and a count, never audio, never anyone else's voice; readable only by your user; discarded if the voice model changes | After each dictation once the voice model exists, when Learn my voice is on (default, Mac with Apple silicon); off deletes it |
 | Permission reset (macOS) | `tccutil reset All io.github.localstt` clears local-stt's own privacy entries, never another app's, so macOS asks again | When you click Reinstall or run `local-stt reinstall`, or when an install replaces a copy macOS sees as a different app |
@@ -66,7 +68,7 @@ signed ad-hoc on your Mac.
   Models come only from that list, never from a URL a user types.
 - Release wheels are published with PyPI Trusted Publishing (no stored tokens) and carry
   build provenance attestations.
-- whisper.cpp is vendored as a git submodule pinned to a release commit.
+- whisper.cpp is vendored as a git submodule pinned to a release commit; llama.cpp is vendored at a commit whose ggml is identical, so one ggml is linked.
 - sherpa-onnx's prebuilt static library (with ONNX Runtime) is fetched by `build.rs` from its GitHub release and checked against a pinned SHA-256 before it is linked.
 - Models are pinned by SHA-256, verified on download and again the first time they load in each run.
 - Each app window can call only the commands it needs (Tauri capabilities); the recording pill can only read state.
