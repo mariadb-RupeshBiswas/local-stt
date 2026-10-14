@@ -226,6 +226,15 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_targets_tell_voices_apart() {
+        let shipped = cfg!(any(
+            all(target_os = "macos", target_arch = "aarch64"),
+            all(target_os = "windows", target_arch = "x86_64")
+        ));
+        assert_eq!(supported(), shipped);
+    }
+
+    #[test]
     fn four_real_speakers_reading_the_same_lines_fall_into_four_groups() {
         let f = arctic();
         let group = cluster(&f.vectors, SAME_SPEAKER);

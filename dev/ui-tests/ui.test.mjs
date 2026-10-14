@@ -1569,7 +1569,7 @@ for (const dark of [false, true]) {
 }
 {
   const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows&h=1200", { tall: true });
-  check("Learn my voice is hidden where voices are not told apart (Windows)", (await page.getByRole("switch", { name: "Learn my voice" }).count()) === 0);
+  check("Learn my voice shows on Windows too", (await page.getByRole("switch", { name: "Learn my voice" }).count()) === 1);
   await ctx.close();
 }
 // ---------- Settings: Troubleshooting ----------

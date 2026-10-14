@@ -2508,11 +2508,11 @@
         installRow(),
         startAtLoginRow(),
         settingRow("Your name", "Used for greetings. Stays on " + thisDevice() + ".", addSync(nameControl())),
-        S.platform === "macos" ? settingRow("Learn my voice", "Lets notes tell you apart from people in the room. A voice fingerprint, never audio, stays on this computer. Off deletes it.", addSync(toggle({
+        settingRow("Learn my voice", "Lets notes tell you apart from people in the room. A voice fingerprint, never audio, stays on this computer. Off deletes it.", addSync(toggle({
           label: "Learn my voice",
           value: function () { return cfg().learn_my_voice !== false; },
           onChange: function (v) { patchConfig({ learn_my_voice: v }); }
-        }))) : null,
+        }))),
         settingRow("Run Setup Again", "Walks through setup again. Your settings stay as they are.", h("button", { class: "btn", type: "button", text: "Run Setup Again", onclick: openOnboarding })),
         settingRow("Updates", "local-stt " + dash(S.version), addSync(checkControl())),
         settingRow("Check automatically", "Looks for a new version once a day. Only the request is sent.", addSync(toggle({

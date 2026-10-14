@@ -10,11 +10,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Notes can be summarized on this computer: an overview, what each person said, and the action
   items with their owner and the moment they were said. The Model tab gains a Summary model
-  section with two optional models and recommends one for this computer: Granite 4.0 Micro (IBM, 2.1 GB) or Gemma 4 E4B
-  (Google, 5.2 GB, recommended with 16 GB of memory and a GPU it can use). Each is downloaded from
+  section with two optional models and recommends one for this computer: Granite 4.0 Micro
+  (IBM, 2.1 GB) or Gemma 4 E4B (Google, 5.2 GB, recommended with 16 GB of memory and a GPU it can use). Each is downloaded from
   its maker's Hugging Face page and checked against a pinned SHA-256.
 - Settings > Appearance: System, Light or Dark for the app's window, shown as small window
   pictures like the macOS picker. System follows the OS, as before.
+- Windows: notes tell the call's voices apart and Learn my voice works, as on the Mac. The voice
+  library is sherpa-onnx's Windows build, pinned by checksum like the Mac one.
 
 ## [0.8.0] - 2026-10-14
 
