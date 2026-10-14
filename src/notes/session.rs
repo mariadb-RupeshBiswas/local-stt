@@ -128,6 +128,10 @@ pub fn stop(app: &AppHandle) -> Result<(), String> {
 pub(crate) trait Feed: Send {
     fn drain(&self) -> Vec<f32>;
     fn close(self: Box<Self>);
+    /// True when the device changed under the stream and it must be opened again.
+    fn invalid(&self) -> bool {
+        false
+    }
 }
 
 impl Feed for Recorder {
@@ -137,7 +141,13 @@ impl Feed for Recorder {
     fn close(self: Box<Self>) {
         self.cancel();
     }
+    fn invalid(&self) -> bool {
+        self.invalidated()
+    }
 }
+
+// A dead stream is reopened at most this often, so a device that stays gone does not spin.
+const REOPEN_EVERY: Duration = Duration::from_secs(1);
 
 pub(crate) struct Channel {
     feed: Box<dyn Feed>,
@@ -147,6 +157,7 @@ pub(crate) struct Channel {
     offset_ms: u64,
     opened: Instant,
     fed: u64,
+    last_reopen: Option<Instant>,
 }
 
 impl Channel {
@@ -158,6 +169,7 @@ impl Channel {
             offset_ms,
             opened: Instant::now(),
             fed: 0,
+            last_reopen: None,
         }
     }
 }
@@ -179,27 +191,29 @@ fn feed(ch: &mut Channel, audio: &[f32], elapsed_ms: u64) -> Vec<super::segmente
     chunks
 }
 
+fn on_level(app: &AppHandle, speaker: &'static str) -> Box<dyn Fn(f32) + Send> {
+    if speaker != ME {
+        return Box::new(|_| {});
+    }
+    let level_app = app.clone();
+    // The pill meters the microphone while it shows Notes, never during a dictation.
+    Box::new(move |level| {
+        if app::shared_of(&level_app)
+            .notes_pill
+            .load(Ordering::Relaxed)
+        {
+            let _ = level_app.emit("overlay-level", json!({ "level": level }));
+        }
+    })
+}
+
 fn open(
     app: &AppHandle,
     source: Source,
     speaker: &'static str,
     started_ms: u64,
 ) -> Option<Channel> {
-    let level_app = app.clone();
-    let on_level: Box<dyn Fn(f32) + Send> = if speaker == ME {
-        // The pill meters the microphone while it shows Notes, never during a dictation.
-        Box::new(move |level| {
-            if app::shared_of(&level_app)
-                .notes_pill
-                .load(Ordering::Relaxed)
-            {
-                let _ = level_app.emit("overlay-level", json!({ "level": level }));
-            }
-        })
-    } else {
-        Box::new(|_| {})
-    };
-    match Recorder::start_from(source, on_level) {
+    match Recorder::start_from(source, on_level(app, speaker)) {
         Ok(rec) => Some(Channel::new(
             Box::new(rec),
             speaker,
@@ -231,6 +245,7 @@ pub(crate) fn run(
     opened: &Receiver<Channel>,
     max: Duration,
     mut emit: impl FnMut(&'static str, u64, Vec<f32>),
+    mut reopen: impl FnMut(&'static str) -> Option<Box<dyn Feed>>,
 ) -> bool {
     let began = Instant::now();
     let mut channels: Vec<Channel> = Vec::new();
@@ -248,6 +263,15 @@ pub(crate) fn run(
             let elapsed = ch.opened.elapsed().as_millis() as u64;
             for chunk in feed(ch, &audio, elapsed) {
                 emit(ch.speaker, ch.offset_ms + chunk.start_ms, chunk.pcm);
+            }
+            let due = ch.last_reopen.is_none_or(|t| t.elapsed() >= REOPEN_EVERY);
+            if ch.feed.invalid() && due {
+                ch.last_reopen = Some(Instant::now());
+                // The clock and segmenter stay, so the note's timeline runs on across the switch.
+                if let Some(fresh) = reopen(ch.speaker) {
+                    let dead = std::mem::replace(&mut ch.feed, fresh);
+                    dead.close();
+                }
             }
         }
         if began.elapsed() >= max {
@@ -284,10 +308,24 @@ fn capture(app: AppHandle, id: String, started_ms: u64, stop: Receiver<()>) {
     drop(opened_tx);
     let began = Instant::now();
     let mut segments = 0usize;
-    let hit_max = run(&stop, &opened_rx, MAX_NOTE, |speaker, start_ms, pcm| {
+    let reopen_app = app.clone();
+    let reopen = move |speaker: &'static str| -> Option<Box<dyn Feed>> {
+        let source = if speaker == ME {
+            mic_source(&reopen_app)
+        } else {
+            Source::System
+        };
+        let fresh = Recorder::start_from(source, on_level(&reopen_app, speaker)).ok()?;
+        diag::log(&format!(
+            "note: {speaker} capture reopened after the device changed"
+        ));
+        Some(Box::new(fresh))
+    };
+    let emit = |speaker, start_ms, pcm| {
         segments += 1;
         send(&app, &id, speaker, start_ms, pcm);
-    });
+    };
+    let hit_max = run(&stop, &opened_rx, MAX_NOTE, emit, reopen);
     if hit_max {
         let _ = app.emit(
             "notice",
@@ -442,7 +480,7 @@ mod tests {
         let (_opened_tx, opened_rx) = channel::<Channel>();
         stop_tx.send(()).unwrap();
         let started = Instant::now();
-        let hit_max = run(&stop_rx, &opened_rx, MAX_NOTE, |_, _, _| {});
+        let hit_max = run(&stop_rx, &opened_rx, MAX_NOTE, |_, _, _| {}, |_| None);
         assert!(!hit_max);
         assert!(started.elapsed() < Duration::from_secs(2));
     }
@@ -460,10 +498,90 @@ mod tests {
             std::thread::sleep(Duration::from_millis(400));
             stop_tx.send(()).unwrap();
         });
-        run(&stop_rx, &opened_rx, MAX_NOTE, |speaker, _, _| {
-            speakers.push(speaker)
-        });
+        run(
+            &stop_rx,
+            &opened_rx,
+            MAX_NOTE,
+            |speaker, _, _| speakers.push(speaker),
+            |_| None,
+        );
         assert!(speakers.is_empty(), "silence makes no segments");
+    }
+
+    // A stream the device killed: it delivers nothing more and asks to be reopened.
+    struct Dead;
+    impl Feed for Dead {
+        fn drain(&self) -> Vec<f32> {
+            Vec::new()
+        }
+        fn close(self: Box<Self>) {}
+        fn invalid(&self) -> bool {
+            true
+        }
+    }
+
+    // A reopened stream that hears speech once.
+    struct Talks(std::sync::Mutex<Vec<f32>>);
+    impl Feed for Talks {
+        fn drain(&self) -> Vec<f32> {
+            std::mem::take(&mut *self.0.lock().unwrap())
+        }
+        fn close(self: Box<Self>) {}
+    }
+
+    #[test]
+    fn a_stream_the_device_killed_is_reopened_and_keeps_recording() {
+        let (stop_tx, stop_rx) = channel::<()>();
+        let (opened_tx, opened_rx) = channel::<Channel>();
+        opened_tx
+            .send(Channel::new(Box::new(Dead), OTHERS, 0))
+            .unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(1_500));
+            stop_tx.send(()).unwrap();
+        });
+        let mut reopened = 0;
+        let mut heard = Vec::new();
+        run(
+            &stop_rx,
+            &opened_rx,
+            MAX_NOTE,
+            |speaker, _, _| heard.push(speaker),
+            |speaker| {
+                assert_eq!(speaker, OTHERS);
+                reopened += 1;
+                Some(Box::new(Talks(std::sync::Mutex::new(tone(1_000)))))
+            },
+        );
+        assert_eq!(reopened, 1, "a working stream is not reopened again");
+        assert_eq!(
+            heard,
+            vec![OTHERS],
+            "speech after the switch reaches the note"
+        );
+    }
+
+    #[test]
+    fn a_device_that_stays_gone_is_retried_once_a_second_not_every_tick() {
+        let (stop_tx, stop_rx) = channel::<()>();
+        let (opened_tx, opened_rx) = channel::<Channel>();
+        opened_tx.send(Channel::new(Box::new(Dead), ME, 0)).unwrap();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(2_300));
+            stop_tx.send(()).unwrap();
+        });
+        let mut tries = 0;
+        run(
+            &stop_rx,
+            &opened_rx,
+            MAX_NOTE,
+            |_, _, _| {},
+            |_| {
+                tries += 1;
+                None
+            },
+        );
+        assert!((2..=3).contains(&tries), "{tries} tries in 2.3 s");
     }
 
     fn tone(ms: u64) -> Vec<f32> {

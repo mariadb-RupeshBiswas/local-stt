@@ -503,6 +503,16 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Notes, the name from setup ----------
+{
+  const { page, ctx } = await open("?view=main&tab=notes&scheme=light&name=Rupesh");
+  const panel = page.locator("#panel-notes");
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("your lines carry the name you gave in setup", (await panel.locator(".turn-name").allTextContents()).join(",") === "Others,Rupesh,Others" && (await panel.locator(".speaker-key").first().textContent()) === "Rupesh");
+  await ctx.close();
+}
+
 // ---------- main: Notes ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light");

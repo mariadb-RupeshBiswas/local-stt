@@ -14,6 +14,18 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   instead of Me. Only numbers are kept, never audio, and never anyone else's voice. Off deletes
   the file.
 
+## [0.7.1] - 2026-10-13
+
+### Fixed
+
+- Notes kept only your microphone once Bluetooth headphones (AirPods) switched to call mode,
+  because the change of sample rate ended the call audio stream. A stream the device ends is
+  now opened again within a second and the note carries on.
+
+### Changed
+
+- Notes show the name you gave in setup instead of "Me".
+
 ## [0.7.0] - 2026-10-12
 
 ### Added

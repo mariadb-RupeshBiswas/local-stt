@@ -3,6 +3,7 @@
 use crate::audio::{resample_linear, to_mono};
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{ErrorKind, FromSample, SampleFormat, SizedSample, I24, U24};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -34,6 +35,8 @@ pub struct Recorder {
     stop_tx: Sender<()>,
     thread: JoinHandle<()>,
     samples: Shared,
+    // Set when the device changed under the stream (Bluetooth headphones switching to call mode) and it must be rebuilt.
+    invalid: Arc<AtomicBool>,
     channels: u16,
     rate: u32,
 }
@@ -64,12 +67,14 @@ impl Recorder {
         on_level: Box<dyn Fn(f32) + Send + 'static>,
     ) -> Result<Recorder, String> {
         let samples: Shared = Arc::new(Mutex::new(Vec::new()));
+        let invalid = Arc::new(AtomicBool::new(false));
         let (ready_tx, ready_rx) = channel::<Ready>();
         let (stop_tx, stop_rx) = channel::<()>();
         let shared = samples.clone();
+        let flag = invalid.clone();
         let thread = std::thread::Builder::new()
             .name("local-stt-capture".into())
-            .spawn(move || capture_thread(source, shared, on_level, ready_tx, stop_rx))
+            .spawn(move || capture_thread(source, shared, flag, on_level, ready_tx, stop_rx))
             .map_err(|e| format!("Could not start audio thread: {e}"))?;
         // Blocks through the first-run permission prompt, which can take a while.
         let (channels, rate) = match ready_rx.recv() {
@@ -84,9 +89,15 @@ impl Recorder {
             stop_tx,
             thread,
             samples,
+            invalid,
             channels,
             rate,
         })
+    }
+
+    /// True once the stream stopped for good and only a new Recorder records again.
+    pub fn invalidated(&self) -> bool {
+        self.invalid.load(Ordering::Relaxed)
     }
 
     pub fn stop(self) -> Recording {
@@ -151,11 +162,12 @@ fn finish(interleaved: Vec<f32>, channels: u16, rate: u32) -> Recording {
 fn capture_thread(
     source: Source,
     samples: Shared,
+    invalid: Arc<AtomicBool>,
     on_level: Box<dyn Fn(f32) + Send + 'static>,
     ready: Sender<Ready>,
     stop: Receiver<()>,
 ) {
-    let (stream, channels, rate) = match open(&source, samples, on_level) {
+    let (stream, channels, rate) = match open(&source, samples, invalid, on_level) {
         Ok(opened) => opened,
         Err(msg) => {
             let _ = ready.send(Err(msg));
@@ -171,6 +183,7 @@ fn capture_thread(
 fn open(
     source: &Source,
     samples: Shared,
+    invalid: Arc<AtomicBool>,
     on_level: Box<dyn Fn(f32) + Send + 'static>,
 ) -> Result<(cpal::Stream, u16, u32), String> {
     let host = cpal::default_host();
@@ -193,18 +206,18 @@ fn open(
     let config = supported.config();
     let format = supported.sample_format();
     let stream = match format {
-        SampleFormat::I8 => build::<i8>(&device, config, samples, on_level),
-        SampleFormat::I16 => build::<i16>(&device, config, samples, on_level),
-        SampleFormat::I24 => build::<I24>(&device, config, samples, on_level),
-        SampleFormat::I32 => build::<i32>(&device, config, samples, on_level),
-        SampleFormat::I64 => build::<i64>(&device, config, samples, on_level),
-        SampleFormat::U8 => build::<u8>(&device, config, samples, on_level),
-        SampleFormat::U16 => build::<u16>(&device, config, samples, on_level),
-        SampleFormat::U24 => build::<U24>(&device, config, samples, on_level),
-        SampleFormat::U32 => build::<u32>(&device, config, samples, on_level),
-        SampleFormat::U64 => build::<u64>(&device, config, samples, on_level),
-        SampleFormat::F32 => build::<f32>(&device, config, samples, on_level),
-        SampleFormat::F64 => build::<f64>(&device, config, samples, on_level),
+        SampleFormat::I8 => build::<i8>(&device, config, samples, invalid, on_level),
+        SampleFormat::I16 => build::<i16>(&device, config, samples, invalid, on_level),
+        SampleFormat::I24 => build::<I24>(&device, config, samples, invalid, on_level),
+        SampleFormat::I32 => build::<i32>(&device, config, samples, invalid, on_level),
+        SampleFormat::I64 => build::<i64>(&device, config, samples, invalid, on_level),
+        SampleFormat::U8 => build::<u8>(&device, config, samples, invalid, on_level),
+        SampleFormat::U16 => build::<u16>(&device, config, samples, invalid, on_level),
+        SampleFormat::U24 => build::<U24>(&device, config, samples, invalid, on_level),
+        SampleFormat::U32 => build::<u32>(&device, config, samples, invalid, on_level),
+        SampleFormat::U64 => build::<u64>(&device, config, samples, invalid, on_level),
+        SampleFormat::F32 => build::<f32>(&device, config, samples, invalid, on_level),
+        SampleFormat::F64 => build::<f64>(&device, config, samples, invalid, on_level),
         other => return Err(format!("Unsupported audio sample format: {other}")),
     }
     .map_err(describe)?;
@@ -236,6 +249,7 @@ fn build<T>(
     device: &cpal::Device,
     config: cpal::StreamConfig,
     samples: Shared,
+    invalid: Arc<AtomicBool>,
     on_level: Box<dyn Fn(f32) + Send + 'static>,
 ) -> Result<cpal::Stream, cpal::Error>
 where
@@ -268,8 +282,12 @@ where
             }
         }
     };
-    let on_error = |err: cpal::Error| match err.kind() {
+    let on_error = move |err: cpal::Error| match err.kind() {
         ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {}
+        ErrorKind::StreamInvalidated | ErrorKind::DeviceNotAvailable => {
+            invalid.store(true, Ordering::Relaxed);
+            eprintln!("local-stt: audio stream ended: {err}");
+        }
         _ => eprintln!("local-stt: microphone stream error: {err}"),
     };
     device.build_input_stream(config, on_data, on_error, None)
