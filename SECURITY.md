@@ -68,6 +68,7 @@ signed ad-hoc on your Mac.
   Models come only from that list, never from a URL a user types.
 - Release wheels are published with PyPI Trusted Publishing (no stored tokens) and carry
   build provenance attestations.
+- `sonora` (echo cancellation, BSD-3-Clause) is the one crate from a single maintainer, a one-time owner exception: pinned to an exact version, no build script, no network or process code (checked before adding).
 - whisper.cpp is vendored as a git submodule pinned to a release commit; llama.cpp is vendored at a commit whose ggml is identical, so one ggml is linked.
 - sherpa-onnx's prebuilt static library (with ONNX Runtime) is fetched by `build.rs` from its GitHub release and checked against a pinned SHA-256 before it is linked.
 - Models are pinned by SHA-256, verified on download and again the first time they load in each run.

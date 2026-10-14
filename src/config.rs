@@ -80,6 +80,8 @@ pub struct Config {
     pub appearance: Appearance,
     /// Summarize on finished notes; off (the default) hides it and no summary model runs.
     pub summaries: bool,
+    /// Takes the call's sound out of the microphone in notes, for laptop speakers.
+    pub echo_cancellation: bool,
 }
 
 impl Default for Config {
@@ -114,6 +116,7 @@ impl Default for Config {
             summary_model: None,
             appearance: Appearance::System,
             summaries: false,
+            echo_cancellation: true,
         }
     }
 }

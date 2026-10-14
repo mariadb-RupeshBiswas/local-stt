@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Echo cancellation in notes: the call's sound is taken out of your microphone before it is
+  transcribed, so laptop speakers no longer repeat the other side's words under your name. It is
+  WebRTC's AEC3 through the pure-Rust `sonora` crate, with the call audio as the reference.
+  Settings > Notes > Echo cancellation turns it off.
+
 ## [0.9.0] - 2026-10-14
 
 ### Added

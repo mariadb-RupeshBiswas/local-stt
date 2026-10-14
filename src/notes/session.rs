@@ -200,12 +200,21 @@ impl Channel {
 // Silence longer than this with no audio delivered is filled in, since loopback sends nothing while the computer is quiet.
 const GAP_FILL_MS: u64 = 300;
 
+// Samples of silence the device skipped before this audio, when long enough to fill in.
+fn gap(ch: &Channel, len: usize, elapsed_ms: u64) -> u64 {
+    let behind = (elapsed_ms * 16).saturating_sub(ch.fed + len as u64);
+    if behind > GAP_FILL_MS * 16 {
+        behind
+    } else {
+        0
+    }
+}
+
 /// Feeds what arrived, after zeros for any stretch the device skipped, so segment times follow the clock.
 fn feed(ch: &mut Channel, audio: &[f32], elapsed_ms: u64) -> Vec<super::segmenter::Chunk> {
-    let expected = elapsed_ms * 16;
-    let behind = expected.saturating_sub(ch.fed + audio.len() as u64);
+    let behind = gap(ch, audio.len(), elapsed_ms);
     let mut chunks = Vec::new();
-    if behind > GAP_FILL_MS * 16 {
+    if behind > 0 {
         chunks.extend(ch.segmenter.feed(&vec![0.0; behind as usize]));
         ch.fed += behind;
     }
@@ -269,10 +278,12 @@ pub(crate) fn run(
     max: Duration,
     mut emit: impl FnMut(&'static str, u64, Vec<f32>),
     mut reopen: impl FnMut(&'static str) -> Option<Box<dyn Feed>>,
+    mut echo: Option<super::echo::Echo>,
 ) -> bool {
     let began = Instant::now();
     let mut channels: Vec<Channel> = Vec::new();
     let mut hit_max = false;
+    let mut aligned = false;
     loop {
         match stop.recv_timeout(DRAIN_EVERY) {
             Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
@@ -281,8 +292,11 @@ pub(crate) fn run(
         while let Ok(ch) = opened.try_recv() {
             channels.push(ch);
         }
-        for ch in channels.iter_mut() {
-            let audio = ch.feed.drain();
+        let mut drained: Vec<Vec<f32>> = channels.iter().map(|ch| ch.feed.drain()).collect();
+        if let Some(e) = echo.as_mut() {
+            cancel_echo(e, &channels, &mut drained, &mut aligned);
+        }
+        for (ch, audio) in channels.iter_mut().zip(drained) {
             let elapsed = ch.opened.elapsed().as_millis() as u64;
             for chunk in feed(ch, &audio, elapsed) {
                 emit(ch.speaker, ch.offset_ms + chunk.start_ms, chunk.pcm);
@@ -312,7 +326,41 @@ pub(crate) fn run(
         }
         ch.feed.close();
     }
+    if let Some(e) = echo.as_ref() {
+        // A number only, for troubleshooting; nothing of the audio.
+        diag::log(&format!(
+            "note: echo cancellation removed {} dB",
+            e.erle_db().map_or("-".to_string(), |db| format!("{db:.0}"))
+        ));
+    }
     hit_max
+}
+
+// The call audio goes in first, so each 10 ms of microphone has the matching sound it may echo.
+fn cancel_echo(
+    e: &mut super::echo::Echo,
+    channels: &[Channel],
+    drained: &mut [Vec<f32>],
+    aligned: &mut bool,
+) {
+    let call = channels.iter().position(|c| c.speaker == OTHERS);
+    let mic = channels.iter().position(|c| c.speaker == ME);
+    let (Some(call), Some(mic)) = (call, mic) else {
+        return;
+    };
+    if !*aligned {
+        let mic_at = channels[mic].offset_ms + channels[mic].fed / 16;
+        let call_at = channels[call].offset_ms + channels[call].fed / 16;
+        e.align(mic_at as i64 - call_at as i64);
+        *aligned = true;
+    }
+    let elapsed = channels[call].opened.elapsed().as_millis() as u64;
+    let silent = gap(&channels[call], drained[call].len(), elapsed);
+    if silent > 0 {
+        e.render(&vec![0.0; silent as usize]);
+    }
+    e.render(&drained[call]);
+    drained[mic] = e.capture(&drained[mic]);
 }
 
 fn capture(app: AppHandle, id: String, started_ms: u64, stop: Receiver<()>) {
@@ -348,7 +396,11 @@ fn capture(app: AppHandle, id: String, started_ms: u64, stop: Receiver<()>) {
         segments += 1;
         send(&app, &id, speaker, start_ms, pcm);
     };
-    let hit_max = run(&stop, &opened_rx, MAX_NOTE, emit, reopen);
+    let echo = app::shared_of(&app)
+        .config()
+        .echo_cancellation
+        .then(super::echo::Echo::new);
+    let hit_max = run(&stop, &opened_rx, MAX_NOTE, emit, reopen, echo);
     if hit_max {
         let _ = app.emit(
             "notice",
@@ -507,7 +559,7 @@ mod tests {
         let (_opened_tx, opened_rx) = channel::<Channel>();
         stop_tx.send(()).unwrap();
         let started = Instant::now();
-        let hit_max = run(&stop_rx, &opened_rx, MAX_NOTE, |_, _, _| {}, |_| None);
+        let hit_max = run(&stop_rx, &opened_rx, MAX_NOTE, |_, _, _| {}, |_| None, None);
         assert!(!hit_max);
         assert!(started.elapsed() < Duration::from_secs(2));
     }
@@ -531,6 +583,7 @@ mod tests {
             MAX_NOTE,
             |speaker, _, _| speakers.push(speaker),
             |_| None,
+            None,
         );
         assert!(speakers.is_empty(), "silence makes no segments");
     }
@@ -579,6 +632,7 @@ mod tests {
                 reopened += 1;
                 Some(Box::new(Talks(std::sync::Mutex::new(tone(1_000)))))
             },
+            Some(crate::notes::echo::Echo::new()),
         );
         assert_eq!(reopened, 1, "a working stream is not reopened again");
         assert_eq!(
@@ -607,6 +661,7 @@ mod tests {
                 tries += 1;
                 None
             },
+            None,
         );
         assert!((2..=3).contains(&tries), "{tries} tries in 2.3 s");
     }

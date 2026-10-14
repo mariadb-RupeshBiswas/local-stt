@@ -1,6 +1,7 @@
 //! Meeting notes: one file per note, lines appended while recording, tidied into one file on Stop.
 
 pub mod callnames;
+pub mod echo;
 pub mod myvoice;
 pub mod segmenter;
 pub mod session;
