@@ -2584,6 +2584,12 @@
         settingRow("Reinstall", "Fixes a broken install: installs local-stt again, resets its permissions and opens setup to allow them, keeping your settings and history unless you choose otherwise.", addSync(reinstallControl()))
       ]);
 
+      settingsPanel.appendChild(h("h3", { class: "group-title", text: "Notes" }));
+      settingsPanel.appendChild(card([settingRow("Echo cancellation", "Takes the call's sound out of your microphone when you use speakers. Turn off if your own words go missing from notes.", addSync(toggle({
+        label: "Echo cancellation",
+        value: function () { return cfg().echo_cancellation !== false; },
+        onChange: function (v) { patchConfig({ echo_cancellation: v }); }
+      })))]));
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "General" }));
       settingsPanel.appendChild(general);
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Troubleshooting" }));

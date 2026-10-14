@@ -51,7 +51,7 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke; Windows console detach |
 | `src/summary/`, `llm_shim.cpp` | Note summaries: model catalog and hardware fit, the part-by-part writer with its grammar, background download and run |
-| `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session, voices (telling speakers apart), call names (`callnames/`: Zoom's participant list per OS) |
+| `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session, voices (telling speakers apart), call names (`callnames/`: Zoom's participant list per OS), echo cancellation (`echo.rs`) |
 | `src/insights/`, `src/localtime/` | Insights: workday streak and freezes (pure), word counts and part-of-speech tagger, `insights.json`; local date and hour from the OS |
 | `src/focus/` | The focused window's centre, so the pill shows on that screen |
 | `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |

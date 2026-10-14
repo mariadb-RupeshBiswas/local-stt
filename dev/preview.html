@@ -394,7 +394,7 @@
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", word_insights: true, learn_my_voice: true, autostart: false, model: "small",
         setup_done: !onboarding, user_name: params.get("name") || null,
-        summaries: params.get("summaries") === "on" || params.get("summary") === "granite"
+        summaries: params.get("summaries") === "on" || params.get("summary") === "granite", echo_cancellation: true
       },
       models: [
         // a fresh install has nothing on disk and Small recommended; ?downloaded=1 keeps it on disk

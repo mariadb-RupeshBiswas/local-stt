@@ -132,7 +132,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 - Names from Zoom: while a note records, local-stt reads who is in the call from Zoom's Participants panel (keep it open). Zoom does not tell other apps who is speaking, so a one-to-one call gets the other person's name on its own, and in a group call the names show as one-click choices for each speaker.
 - Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
 - **Summarize** a finished note on your computer: an overview, what each person said, and the action items with who owns them and when they were said. Pick a summary model in the **Model** tab (Summary model section), which recommends one for your computer: Granite 4.0 Micro (IBM, 2.1 GB, fastest) or Gemma 4 E4B (Google, 5.2 GB, best summaries). Both are optional downloads and Summaries are off until you turn them on (the Summaries switch, or downloading a model); the note never leaves your computer.
-- Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt cuts the repeated words out of your lines. Bluetooth headphones that switch to call mode mid-note are picked up again within a second.
+- Laptop speakers work: echo cancellation takes the call's sound out of your microphone before it is transcribed (Settings > Notes > Echo cancellation, on by default). Headphones still give the cleanest split, and any echo words left are cut from your lines. Bluetooth headphones that switch to call mode mid-note are picked up again within a second.
 - Your lines show the name you gave in setup.
 - macOS 14.6 or later (macOS asks once for System Audio Recording), or Windows 10 and 11.
 
@@ -294,7 +294,7 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 
 ## License
 
-[MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope). Summaries use llama.cpp (MIT, ggml-org) with Granite 4.0 Micro (Apache-2.0, IBM) or Gemma 4 E4B (Apache-2.0, Google).
+[MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope). Echo cancellation uses sonora (BSD-3-Clause), a Rust port of WebRTC's AEC3. Summaries use llama.cpp (MIT, ggml-org) with Granite 4.0 Micro (Apache-2.0, IBM) or Gemma 4 E4B (Apache-2.0, Google).
 
 Wispr Flow, Superwhisper and other product names mentioned here are trademarks of their owners. local-stt is an independent open-source project and is not affiliated with, endorsed by or sponsored by them; the names are used only to say what local-stt can be used instead of.
 

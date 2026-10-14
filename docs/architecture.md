@@ -79,6 +79,8 @@ Notes reuse the same engine for a whole call instead of one dictation:
 
 1. **Two sources at once.** Your microphone is **Me**; what your computer plays (the call) is
    **Others**, captured with the sound card's loopback, so no bot joins the meeting.
+   With Echo cancellation on, `src/notes/echo.rs` first takes the call's sound out of the
+   microphone in 10 ms frames, using the call audio as the reference (WebRTC AEC3 via `sonora`).
 2. **Cut at pauses.** Each source goes through the **segmenter** (`src/notes/segmenter.rs`), which
    ends a piece of speech after 0.6 seconds of quiet, or at 25 seconds, whichever comes first.
 3. **Dictation goes first.** Each piece becomes a job for the same worker; a dictation you make during

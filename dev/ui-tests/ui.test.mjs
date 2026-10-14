@@ -513,6 +513,18 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Settings > Notes > Echo cancellation ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light");
+  const sw = page.getByRole("switch", { name: "Echo cancellation" });
+  check("Settings has a Notes section with Echo cancellation, on by default", (await page.locator("#panel-settings .group-title", { hasText: "Notes" }).count()) === 1 && (await sw.getAttribute("aria-checked")) === "true");
+  await sw.click();
+  await page.waitForTimeout(250);
+  check("turning Echo cancellation off saves it", (await page.evaluate(() => window.__cfg)).includes('set_config:{"echo_cancellation":false}') && (await sw.getAttribute("aria-checked")) === "false");
+  check("no page errors (echo cancellation)", errors.length === 0, errors);
+  await ctx.close();
+}
+
 // ---------- main: Settings > Appearance ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light");
