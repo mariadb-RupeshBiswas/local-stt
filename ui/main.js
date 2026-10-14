@@ -478,6 +478,7 @@
       S.loaded = true;
       S.loadError = "";
       root.dataset.platform = S.platform;
+      applyAppearance();
       renderBanner();
     }
 
@@ -1921,6 +1922,7 @@
     var settingsPanel = panels.settings;
 
     function syncSettings() {
+      applyAppearance();
       syncers.forEach(function (fn) { fn(); });
       OB.syncers.forEach(function (fn) { fn(); });
       if (S.insightsSync) S.insightsSync(); // the Insights switch lives outside the settings syncers
@@ -2280,6 +2282,69 @@
       );
     }
 
+    // Light or Dark pins the window's look; System leaves it to the OS
+    function applyAppearance() {
+      var a = S.config && S.config.appearance;
+      var doc = document.documentElement;
+      if (a === "light" || a === "dark") doc.dataset.scheme = a;
+      else delete doc.dataset.scheme;
+    }
+
+    // a tiny window drawn in one look, for the Appearance tiles
+    function miniWindow(look) {
+      return h("span", { class: "look-win look-" + look, "aria-hidden": "true" },
+        h("span", { class: "look-bar" }, h("i"), h("i"), h("i")),
+        h("span", { class: "look-body" },
+          h("span", { class: "look-side" }),
+          h("span", { class: "look-lines" }, h("i", { class: "look-accent" }), h("i"), h("i"))
+        )
+      );
+    }
+
+    function appearanceControl() {
+      var system = S.platform === "windows" ? "Matches Windows" : "Matches macOS";
+      var cards = [
+        { value: "system", name: "System", note: system },
+        { value: "light", name: "Light", note: "Always light" },
+        { value: "dark", name: "Dark", note: "Always dark" }
+      ];
+      var group = h("div", { class: "themes looks", role: "radiogroup", "aria-label": "Appearance" });
+      var current = function () { return (S.config && S.config.appearance) || "system"; };
+      var buttons = cards.map(function (c) {
+        var stage = h("div", { class: "theme-stage look-stage" },
+          c.value === "system"
+            ? h("span", { class: "look-split" }, miniWindow("light"), miniWindow("dark"))
+            : miniWindow(c.value));
+        var button = h("button", { class: "theme-card", type: "button", role: "radio" },
+          stage,
+          h("span", { class: "theme-name", text: c.name }),
+          h("span", { class: "theme-note", text: c.note })
+        );
+        button.addEventListener("click", function () {
+          if (current() !== c.value) patchConfig({ appearance: c.value });
+        });
+        group.appendChild(button);
+        return button;
+      });
+      function sync() {
+        buttons.forEach(function (button, i) {
+          var on = current() === cards[i].value;
+          button.setAttribute("aria-checked", on ? "true" : "false");
+          button.tabIndex = on ? 0 : -1;
+        });
+      }
+      group.addEventListener("keydown", function (event) {
+        var at = cards.findIndex(function (c) { return c.value === current(); });
+        var next = stepTarget(event, at, cards.length);
+        if (next === -1) return;
+        event.preventDefault();
+        buttons[next].focus();
+        patchConfig({ appearance: cards[next].value });
+      });
+      sync();
+      return { el: group, sync: sync };
+    }
+
     function themeControl() {
       var cards = [
         { value: "pill", name: "Pill", note: "Level bars" },
@@ -2416,6 +2481,9 @@
 
       var themes = themeControl();
       syncers.push(themes.sync);
+      var looks = appearanceControl();
+      syncers.push(looks.sync);
+      var appearanceCard = card([h("div", { class: "srow srow-stack" }, looks.el)]);
       var overlayCard = card([
         settingRow("Show overlay", "A small indicator while you dictate.", addSync(toggle({
           label: "Show overlay",
@@ -2454,6 +2522,8 @@
         })))
       ]);
 
+      settingsPanel.appendChild(h("h3", { class: "group-title", text: "Appearance" }));
+      settingsPanel.appendChild(appearanceCard);
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Dictation" }));
       settingsPanel.appendChild(dictation);
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Output" }));

@@ -151,6 +151,9 @@ pub async fn set_config(
     if saved.theme != before.theme || saved.show_overlay != before.show_overlay {
         app::overlay_theme_changed(&app);
     }
+    if saved.appearance != before.appearance {
+        app::apply_appearance(&app);
+    }
     Ok(saved)
 }
 

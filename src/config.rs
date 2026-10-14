@@ -16,6 +16,16 @@ pub enum Theme {
     Minimal,
 }
 
+/// Light or dark for the app's window; System follows the OS.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum Appearance {
+    #[default]
+    System,
+    Light,
+    Dark,
+}
+
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq)]
 pub struct OverlayPos {
     pub monitor: String,
@@ -67,6 +77,7 @@ pub struct Config {
     pub model: ModelId,
     /// The language model chosen for note summaries; None until one is downloaded.
     pub summary_model: Option<crate::summary::SummaryModelId>,
+    pub appearance: Appearance,
 }
 
 impl Default for Config {
@@ -99,6 +110,7 @@ impl Default for Config {
             last_version: None,
             model: ModelId::Small,
             summary_model: None,
+            appearance: Appearance::System,
         }
     }
 }
@@ -316,6 +328,20 @@ mod tests {
         assert!(!c.paste);
         assert!(p.with_extension("json.bak").exists());
     }
+    #[test]
+    fn appearance_is_system_until_chosen_and_round_trips() {
+        assert_eq!(Config::default().appearance, Appearance::System);
+        let p = tmp("appearance");
+        std::fs::write(&p, r#"{"appearance":"dark"}"#).unwrap();
+        assert_eq!(load(&p).appearance, Appearance::Dark);
+        std::fs::write(&p, r#"{"paste":false}"#).unwrap();
+        assert_eq!(
+            load(&p).appearance,
+            Appearance::System,
+            "an older config follows the OS"
+        );
+    }
+
     #[test]
     fn defaults_match_spec() {
         let c = Config::default();

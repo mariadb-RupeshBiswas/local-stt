@@ -513,6 +513,34 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Settings > Appearance ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light");
+  const looks = page.locator("#panel-settings .looks");
+  check("Appearance is the first Settings section", (await page.locator("#panel-settings .group-title").first().textContent()) === "Appearance");
+  check("Appearance offers System, Light and Dark tiles", (await looks.locator(".theme-name").allTextContents()).join(",") === "System,Light,Dark");
+  check("System is chosen until the user picks a look", (await looks.locator('[aria-checked="true"] .theme-name').textContent()) === "System" && (await page.evaluate(() => document.documentElement.dataset.scheme)) === undefined);
+  check("the System tile names the OS it follows", (await looks.locator(".theme-note").first().textContent()) === "Matches macOS");
+  const bg = () => page.evaluate(() => getComputedStyle(document.querySelector("#panel-settings .card")).backgroundColor);
+  const lightBg = await bg();
+  await looks.locator(".theme-card", { hasText: "Dark" }).click();
+  await page.waitForTimeout(250);
+  check("Dark saves appearance dark and pins the page dark", (await page.evaluate(() => window.__cfg)).includes('set_config:{"appearance":"dark"}') && (await page.evaluate(() => document.documentElement.dataset.scheme)) === "dark" && (await bg()) !== lightBg, [lightBg, await bg()]);
+  await looks.locator('[aria-checked="true"]').press("ArrowLeft");
+  await page.waitForTimeout(250);
+  check("arrow keys move the choice like a radio group", (await looks.locator('[aria-checked="true"] .theme-name').textContent()) === "Light" && (await page.evaluate(() => document.documentElement.dataset.scheme)) === "light");
+  await looks.locator(".theme-card", { hasText: "System" }).click();
+  await page.waitForTimeout(250);
+  check("System hands the look back to the OS", (await page.evaluate(() => document.documentElement.dataset.scheme)) === undefined);
+  check("no page errors (appearance)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows");
+  check("on Windows the System tile says it matches Windows", (await page.locator("#panel-settings .looks .theme-note").first().textContent()) === "Matches Windows");
+  await ctx.close();
+}
+
 // ---------- main: summary models in the Model tab, and note summaries ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light");

@@ -417,7 +417,20 @@ pub fn show_main(app: &AppHandle) {
         .center()
         .build();
     if let Ok(w) = built {
+        apply_appearance(app);
         let _ = w.set_focus();
+    }
+}
+
+/// The window's own chrome (title bar, scroll bars) follows the Appearance setting like its page does.
+pub fn apply_appearance(app: &AppHandle) {
+    let theme = match shared(app).config().appearance {
+        crate::config::Appearance::System => None,
+        crate::config::Appearance::Light => Some(tauri::Theme::Light),
+        crate::config::Appearance::Dark => Some(tauri::Theme::Dark),
+    };
+    if let Some(w) = app.get_webview_window(MAIN) {
+        let _ = w.set_theme(theme);
     }
 }
 

@@ -13,6 +13,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   section with two optional models and recommends one for this computer: Granite 4.0 Micro (IBM, 2.1 GB) or Gemma 4 E4B
   (Google, 5.2 GB, recommended with 16 GB of memory and a GPU it can use). Each is downloaded from
   its maker's Hugging Face page and checked against a pinned SHA-256.
+- Settings > Appearance: System, Light or Dark for the app's window, shown as small window
+  pictures like the macOS picker. System follows the OS, as before.
 
 ## [0.8.0] - 2026-10-14
 

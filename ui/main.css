@@ -840,6 +840,23 @@ body {
   background: linear-gradient(135deg, #5b7cfa 0%, #a46bf5 55%, #ff8f7a 100%);
 }
 
+/* Appearance tiles: a small window drawn in fixed light and dark colors, whatever the app's own look */
+.look-stage { overflow: hidden; }
+.look-win { position: relative; display: flex; flex-direction: column; width: 92px; height: 50px; border-radius: 6px; overflow: hidden; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25); }
+.look-light { background: #ffffff; --look-bar: #ececf0; --look-side: #f2f2f7; --look-line: #d8d8de; }
+.look-dark { background: #232326; --look-bar: #38383b; --look-side: #2c2c2f; --look-line: #4a4a4e; }
+.look-bar { display: flex; gap: 3px; align-items: center; height: 10px; padding: 0 5px; background: var(--look-bar); }
+.look-bar i { width: 4px; height: 4px; border-radius: 50%; background: var(--look-line); }
+.look-body { display: flex; flex: 1; }
+.look-side { width: 24px; background: var(--look-side); }
+.look-lines { display: flex; flex-direction: column; gap: 5px; flex: 1; padding: 7px 8px; }
+.look-lines i { display: block; height: 4px; border-radius: 2px; background: var(--look-line); }
+.look-lines i:nth-child(3) { width: 60%; }
+.look-lines .look-accent { width: 45%; background: #0a84ff; }
+/* System shows both looks, split on the diagonal like the OS picker */
+.look-split { position: relative; display: block; width: 92px; height: 50px; }
+.look-split .look-win { position: absolute; inset: 0; }
+.look-split .look-dark { clip-path: polygon(100% 0, 100% 100%, 0 100%); }
 .theme-name { font-weight: 500; }
 .theme-note { font-size: 12px; color: var(--label-2); }
 
