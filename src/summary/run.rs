@@ -55,7 +55,7 @@ pub fn start_summarize(app: AppHandle, note_id: String) -> Result<(), String> {
     let cfg = s.config();
     let fits = super::evaluate(&s.hardware, &paths::models_dir());
     let Some(model) = super::pick(&fits, cfg.summary_model) else {
-        return Err("Download a summary model in the Summary tab first.".into());
+        return Err("Download a summary model in the Model tab first.".into());
     };
     let note =
         crate::notes::get(&note_id).map_err(|_| "This note could not be read.".to_string())?;
@@ -102,7 +102,7 @@ fn verify_once(model: SummaryModelId, path: &std::path::Path) -> Result<(), Stri
         crate::download::sha256_file(path).map_err(|e| format!("cannot read the model: {e}"))?;
     if sum != super::info(model).sha256 {
         return Err(format!(
-            "{} does not match its checksum. Delete it in the Summary tab and download it again.",
+            "{} does not match its checksum. Delete it in the Model tab and download it again.",
             super::info(model).label
         ));
     }

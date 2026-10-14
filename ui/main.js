@@ -26,7 +26,6 @@
     { value: "notes", label: "Notes" },
     { value: "insights", label: "Insights" },
     { value: "model", label: "Model" },
-    { value: "summary", label: "Summary" },
     { value: "settings", label: "Settings" }
   ];
   var LANGUAGES = ("en:English|zh:Chinese|de:German|es:Spanish|ru:Russian|ko:Korean|fr:French|ja:Japanese|pt:Portuguese|tr:Turkish|" +
@@ -389,11 +388,11 @@
 
     // ---------- keyboard shortcuts ----------
 
-    // Cmd on macOS, Ctrl on Windows: 1 to 6 pick a tab, F searches the history, W closes the window
+    // Cmd on macOS, Ctrl on Windows: 1 to 5 pick a tab, F searches the history, W closes the window
     function onShortcut(event) {
       var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
       if (!mod || event.altKey || event.shiftKey || S.capturingSlot || dialog.open) return;
-      var tab = { "1": "history", "2": "notes", "3": "insights", "4": "model", "5": "summary", "6": "settings" }[event.key];
+      var tab = { "1": "history", "2": "notes", "3": "insights", "4": "model", "5": "settings" }[event.key];
       var win = tauri && tauri.window && tauri.window.getCurrentWindow ? tauri.window.getCurrentWindow() : null;
       if ((event.key === "w" || event.key === "W") && win) {
         event.preventDefault();
@@ -1621,10 +1620,11 @@
       modelPanel.appendChild(h("h3", { class: "group-title", text: "This computer" }));
       modelPanel.appendChild(hardwareCard());
       modelPanel.appendChild(h("h3", { class: "group-title", text: "Speech model" }));
-      var list = h("div", { class: "card", role: "list", "aria-label": "Speech models" });
+      var list = h("div", { class: "card speech-list", role: "list", "aria-label": "Speech models" });
       S.models.forEach(function (fit) { list.appendChild(modelRow(fit)); });
       modelPanel.appendChild(list);
       modelPanel.appendChild(h("p", { class: "footnote", text: "Models run on this computer. A download is checked against a fixed checksum before it is used." }));
+      renderSummaryModels();
     }
 
     function paintProgress(id) {
@@ -1696,9 +1696,8 @@
     }
 
 
-    // ---------- Summary ----------
+    // ---------- Summary models (a section of the Model tab) ----------
 
-    var summaryPanel = panels.summary;
     var summaryRefs = {};
 
     // the model a Summarize click uses, as the app picks it: chosen and downloaded, else the recommended one
@@ -1763,16 +1762,21 @@
       );
     }
 
-    function renderSummaryTab() {
-      clear(summaryPanel);
+    // appended by renderModels, below the speech models
+    function renderSummaryModels() {
       summaryRefs = {};
-      if (!S.loaded) return;
-      summaryPanel.appendChild(h("h3", { class: "group-title", text: "Summary model" }));
-      summaryPanel.appendChild(h("p", { class: "footnote", text: "Optional. A summary model writes an overview, what each person said and the action items for a note. Notes work without one." }));
-      var list = h("div", { class: "card", role: "list", "aria-label": "Summary models" });
+      modelPanel.appendChild(h("h3", { class: "group-title", id: "summary-models", text: "Summary model" }));
+      modelPanel.appendChild(h("p", { class: "footnote", text: "Optional. A summary model writes an overview, what each person said and the action items for a note. Notes work without one." }));
+      var list = h("div", { class: "card summary-list", role: "list", "aria-label": "Summary models" });
       S.summaryModels.forEach(function (fit) { list.appendChild(summaryRow(fit)); });
-      summaryPanel.appendChild(list);
-      summaryPanel.appendChild(h("p", { class: "footnote", text: "Recommended fits this computer's memory and graphics. Summaries are written on this computer; the note never leaves it. A download is checked against a fixed checksum before it is used." }));
+      modelPanel.appendChild(list);
+      modelPanel.appendChild(h("p", { class: "footnote", text: "Recommended fits this computer's memory and graphics. Summaries are written on this computer; the note never leaves it." }));
+    }
+
+    function showSummaryModels() {
+      showTab("model");
+      var head = document.getElementById("summary-models");
+      if (head) head.scrollIntoView({ block: "start" });
     }
 
     function requestSummaryModel(fit) {
@@ -1793,13 +1797,13 @@
       if (!fit.supported || S.progress[fit.id]) return;
       delete S.modelErrors[fit.id];
       if (!fit.downloaded) S.progress[fit.id] = { downloaded: null, total: null };
-      renderSummaryTab();
+      renderModels();
       Promise.resolve(invoke("choose_summary_model", { id: fit.id })).then(function () {
         if (fit.downloaded) return refreshState();
       }).catch(function (err) {
         delete S.progress[fit.id];
         S.modelErrors[fit.id] = errText(err);
-        renderSummaryTab();
+        renderModels();
       });
     }
 
@@ -1821,7 +1825,7 @@
             return refreshState();
           }).catch(function (err) {
             S.modelErrors[fit.id] = errText(err);
-            renderSummaryTab();
+            renderModels();
           });
         }
       });
@@ -1864,12 +1868,12 @@
         head.appendChild(h("button", { class: note.summary ? "btn" : "btn btn-action", type: "button", text: label,
           disabled: !!S.summarizing, onclick: function () { summarize(note.id); } }));
       } else {
-        head.appendChild(h("button", { class: "btn", type: "button", text: "Choose a Summary Model", onclick: function () { showTab("summary"); } }));
+        head.appendChild(h("button", { class: "btn", type: "button", text: "Choose a Summary Model", onclick: showSummaryModels }));
       }
       if (!note.summary) {
         box.appendChild(h("p", { class: "sum-empty", text: model
           ? "An overview, what each person said and the action items, written on this computer with " + dash(model.label) + "."
-          : "Download a summary model in the Summary tab to summarize notes on this computer." }));
+          : "Download a summary model in the Model tab to summarize notes on this computer." }));
         return box;
       }
       var sum = note.summary;
@@ -3379,7 +3383,7 @@
 
     function renderAll() {
       if (!S.loaded) {
-        [panels.history, panels.notes, panels.insights, panels.model, panels.summary, panels.settings].forEach(function (p) { clear(p); });
+        [panels.history, panels.notes, panels.insights, panels.model, panels.settings].forEach(function (p) { clear(p); });
         if (S.loadError) {
           panels[S.tab].appendChild(emptyState("Couldn't load", S.loadError,
             h("button", { class: "btn", type: "button", text: "Try Again", onclick: refreshState })));
@@ -3399,7 +3403,6 @@
       }
       renderNotesList();
       renderModels();
-      renderSummaryTab();
       buildSettings();
       renderHistoryList();
     }
@@ -3437,7 +3440,7 @@
       if (!p || !p.id) return;
       S.progress[p.id] = { downloaded: p.downloaded, total: p.total };
       if (summaryRefs[p.id]) paintProgress(p.id);
-      else if (S.loaded) renderSummaryTab();
+      else if (S.loaded) renderModels();
     });
 
     subscribe("summary-model-done", function (p) {

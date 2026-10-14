@@ -24,7 +24,7 @@ steps to reproduce and the impact you see.
 | Clipboard (write, marked private) | Hand over the text; clipboard managers, Windows clipboard history and cloud clipboard skip it. macOS Universal Clipboard may still share it with your own nearby devices when Handoff is on | After each dictation |
 | Network | Download a model from `huggingface.co/ggerganov/whisper.cpp` (the whisper.cpp author's repository) over HTTPS | First run and when you choose another model |
 | Network | Download the voice model for telling speakers apart from `github.com/k2-fsa/sherpa-onnx` releases over HTTPS, checked against a pinned SHA-256 (Mac with Apple silicon) | Once, the first time you start a note |
-| Network | Download a summary model you chose in the Summary tab from its maker's Hugging Face page (`huggingface.co/ibm-granite` or `huggingface.co/google`) over HTTPS, checked against a pinned SHA-256 | Only when you click Download in the Summary tab |
+| Network | Download a summary model you chose in the Model tab from its maker's Hugging Face page (`huggingface.co/ibm-granite` or `huggingface.co/google`) over HTTPS, checked against a pinned SHA-256 | Only when you click Download in the Model tab's Summary model section |
 | Your web browser | Open a model's Hugging Face page or the release notes; the app builds the address, the page never passes one | Only when you click View on Hugging Face or Release Notes |
 | Network | Ask `pypi.org` for the latest version number (nothing else is sent) | 30 s after start, then once a day; Settings > Check automatically turns it off. Also when you click Check for Updates or Reinstall |
 | Running uv | Install a newer release you chose to install | Only when you click Install and Restart |
