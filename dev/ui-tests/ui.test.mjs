@@ -513,6 +513,35 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Notes, names from Zoom's participant list ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light&notes=split&people=1");
+  const panel = page.locator("#panel-notes");
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("a note shows who the call app listed", (await panel.locator(".call-people .chip").allTextContents()).join(",") === "Simon Keller,Priya Shah" && (await panel.locator(".call-people-label").textContent()) === "Zoom showed:");
+  check("the hint says Zoom does not tell who spoke", (await panel.locator(".call-people-help").textContent()).includes("does not say who spoke"));
+  const box = panel.locator(".speaker-field", { hasText: "Speaker 1" }).locator("input");
+  check("speaker boxes offer the listed names, your own box does not", (await box.getAttribute("list")) !== null && (await panel.locator(".speaker-field", { hasText: "Me" }).locator("input").getAttribute("list")) === null && (await page.locator("#panel-notes datalist option").count()) === 2);
+  await box.fill("Priya Shah");
+  await box.press("Enter");
+  await page.waitForTimeout(250);
+  check("picking a listed name renames that speaker", (await page.evaluate(() => window.__calls)).includes("rename_speaker:s1=Priya Shah"));
+  await panel.locator(".speaker-field", { hasText: "Speaker 2" }).locator("input").focus();
+  await panel.locator(".call-people .chip", { hasText: "Simon Keller" }).click();
+  await page.waitForTimeout(250);
+  check("clicking a name chip fills the box you last touched", (await page.evaluate(() => window.__calls)).includes("rename_speaker:s2=Simon Keller") && (await panel.locator(".turn-name").allTextContents()).join(",") === "Priya Shah,Me,Simon Keller");
+  check("no page errors (call names)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=notes&scheme=light");
+  await page.locator("#panel-notes .nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("without a participant list there is no hint", (await page.locator("#panel-notes .call-people").count()) === 0);
+  await ctx.close();
+}
+
 // ---------- main: Notes ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light");

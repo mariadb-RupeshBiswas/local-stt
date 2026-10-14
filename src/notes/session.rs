@@ -80,6 +80,7 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
         status: Status::Recording,
         speakers: Default::default(),
         segments: Vec::new(),
+        participants: Vec::new(),
     };
     super::begin(&note).map_err(|e| format!("Could not start the note: {e}"))?;
     let (stop_tx, stop_rx) = channel::<()>();
@@ -96,6 +97,11 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
         .name("local-stt-note".into())
         .spawn(move || capture(thread_app, thread_id, started_ms, stop_rx))
         .map_err(|e| format!("Could not start the note: {e}"))?;
+    let names_app = app.clone();
+    let names_id = id.clone();
+    let _ = std::thread::Builder::new()
+        .name("local-stt-call-names".into())
+        .spawn(move || sample_call_names(names_app, names_id));
     app::show_notes_pill(app);
     app::refresh_update_menu(app);
     let _ = app.emit_to(
@@ -104,6 +110,22 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
         json!({ "id": id, "status": "recording", "startedMs": started_ms }),
     );
     Ok(id)
+}
+
+// Looks at the call app's participant list every few seconds while this note records; names stay in memory.
+fn sample_call_names(app: AppHandle, id: String) {
+    let recording = |app: &AppHandle| active(app).is_some_and(|(now, _)| now == id);
+    while recording(&app) {
+        if let Some(rows) = super::callnames::read_rows() {
+            super::callnames::remember(&id, rows);
+        }
+        for _ in 0..super::callnames::EVERY_SECS {
+            if !recording(&app) {
+                return;
+            }
+            std::thread::sleep(std::time::Duration::from_secs(1));
+        }
+    }
 }
 
 /// Stops the running note; the worker tidies and saves it once its last segments are in.
@@ -436,14 +458,18 @@ pub fn finish(
 ) {
     let cfg = app::shared_of(app).config();
     let english = app::english_output(&cfg);
-    match super::finish(id, ended_ms, cfg.smart_format, english, voices) {
+    let rows = super::callnames::take(id);
+    let others = super::callnames::others(&rows, cfg.user_name.as_deref());
+    match super::finish(id, ended_ms, cfg.smart_format, english, voices, &others) {
         Ok(note) => {
             let speakers: std::collections::HashSet<&str> =
                 voices.values().map(String::as_str).collect();
+            // Counts only; the names never reach the log.
             diag::log(&format!(
-                "note saved: {} lines, {} voices told apart",
+                "note saved: {} lines, {} voices told apart, {} call participants read",
                 note.segments.len(),
-                speakers.len()
+                speakers.len(),
+                others.len()
             ));
             let _ = app.emit_to(
                 app::MAIN,

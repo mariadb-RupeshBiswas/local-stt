@@ -54,6 +54,9 @@ pub struct Note {
     pub speakers: BTreeMap<String, String>,
     #[serde(default)]
     pub segments: Vec<Segment>,
+    /// The other people the call app listed during the note, offered as speaker names.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub participants: Vec<String>,
 }
 
 /// One row of the notes list.
@@ -166,9 +169,10 @@ pub fn finish(
     smart_format: bool,
     english: bool,
     voices: &HashMap<u64, String>,
+    others: &[String],
 ) -> std::io::Result<Note> {
     let _guard = files();
-    finish_locked(id, ended_ms, smart_format, english, voices)
+    finish_locked(id, ended_ms, smart_format, english, voices, others)
 }
 
 fn finish_locked(
@@ -177,12 +181,18 @@ fn finish_locked(
     smart_format: bool,
     english: bool,
     voices: &HashMap<u64, String>,
+    others: &[String],
 ) -> std::io::Result<Note> {
     let mut note = read_live(id)?;
     // Before relabelling: only a microphone line can be the speakers' echo.
     note.segments = tidy::drop_echo(note.segments);
     assign_speakers(&mut note.segments, voices);
     keep_others_name(&mut note);
+    callnames::apply(&note.segments, &mut note.speakers, others);
+    if !others.is_empty() {
+        note.participants = others.to_vec();
+        note.source.get_or_insert_with(|| "Zoom".to_string());
+    }
     note.segments = tidy::tidy(note.segments, smart_format, english);
     note.ended_ms = Some(ended_ms.max(note.started_ms));
     note.status = Status::Done;
@@ -251,7 +261,7 @@ pub fn recover(smart_format: bool, english: bool) -> usize {
         let ended = read_live(&id)
             .map(|n| n.segments.iter().map(|s| s.end_ms).max().unwrap_or(0) + n.started_ms)
             .unwrap_or(0);
-        if finish_locked(&id, ended, smart_format, english, &HashMap::new()).is_ok() {
+        if finish_locked(&id, ended, smart_format, english, &HashMap::new(), &[]).is_ok() {
             recovered += 1;
         }
     }
@@ -425,6 +435,7 @@ mod tests {
             status: Status::Recording,
             speakers: BTreeMap::new(),
             segments: Vec::new(),
+            participants: Vec::new(),
         }
     }
 
@@ -462,12 +473,33 @@ mod tests {
         append(id, &seg(OTHERS, 5_000, "Agreed.")).unwrap();
         assert_eq!(get(id).unwrap().status, Status::Recording);
         assert_eq!(list()[0].status, Status::Recording);
-        let note = finish(id, 9_000, false, true, &HashMap::new()).unwrap();
+        let note = finish(id, 9_000, false, true, &HashMap::new(), &[]).unwrap();
         assert_eq!(note.status, Status::Done);
         assert_eq!(note.segments.len(), 2);
         assert_eq!(note.segments[0].text, "First point. Second point.");
         assert!(!live_path(id).exists());
         assert_eq!(get(id).unwrap().ended_ms, Some(9_000));
+    }
+
+    #[test]
+    fn a_one_to_one_zoom_call_names_the_other_side_and_keeps_the_list() {
+        let _g = sandbox();
+        let id = "00000000000000c1";
+        begin(&header(id, 1_000)).unwrap();
+        append(id, &seg(ME, 0, "Shall we start?")).unwrap();
+        append(id, &seg(OTHERS, 5_000, "Yes, go ahead.")).unwrap();
+        let note = finish(
+            id,
+            9_000,
+            false,
+            true,
+            &HashMap::new(),
+            &["Simon".to_string()],
+        )
+        .unwrap();
+        assert_eq!(note.speakers.get(OTHERS).map(String::as_str), Some("Simon"));
+        assert_eq!(note.participants, vec!["Simon".to_string()]);
+        assert_eq!(get(id).unwrap().participants, vec!["Simon".to_string()]);
     }
 
     #[cfg(unix)]
@@ -480,7 +512,7 @@ mod tests {
         let mode = |p: PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(live_path(id)), 0o600);
         assert_eq!(mode(dir()), 0o700);
-        finish(id, 2, false, true, &HashMap::new()).unwrap();
+        finish(id, 2, false, true, &HashMap::new(), &[]).unwrap();
         assert_eq!(mode(saved_path(id)), 0o600);
     }
 
@@ -513,7 +545,7 @@ mod tests {
         let live = get(id).unwrap();
         assert_eq!(live.title, "Weekly sync");
         assert_eq!(live.segments.len(), 1);
-        finish(id, 5, false, true, &HashMap::new()).unwrap();
+        finish(id, 5, false, true, &HashMap::new(), &[]).unwrap();
         rename(id, &"x".repeat(500)).unwrap();
         assert_eq!(get(id).unwrap().title.chars().count(), MAX_TITLE_CHARS);
     }
@@ -527,7 +559,7 @@ mod tests {
         rename_speaker(id, OTHERS, "  Priya\u{7} ").unwrap();
         assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
         assert_eq!(get(id).unwrap().segments.len(), 1);
-        finish(id, 5, false, true, &HashMap::new()).unwrap();
+        finish(id, 5, false, true, &HashMap::new(), &[]).unwrap();
         assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
         rename_speaker(id, ME, &"x".repeat(100)).unwrap();
         assert_eq!(
@@ -551,7 +583,7 @@ mod tests {
         let voices: HashMap<u64, String> =
             [(0, "s1".to_string()), (30_000, "s2".to_string())].into();
         rename_speaker(id, OTHERS, "Priya").unwrap();
-        let note = finish(id, 40_000, false, true, &voices).unwrap();
+        let note = finish(id, 40_000, false, true, &voices, &[]).unwrap();
         let who: Vec<&str> = note.segments.iter().map(|s| s.speaker.as_str()).collect();
         assert_eq!(who, vec!["s1", ME, "s2"]);
         assert_eq!(note.segments[0].text, "Hello, I'm Priya. Hi.");
@@ -580,7 +612,7 @@ mod tests {
             (10_000 | voices::ROOM, "s2".to_string()),
         ]
         .into();
-        let note = finish(id, 30_000, false, true, &voices).unwrap();
+        let note = finish(id, 30_000, false, true, &voices, &[]).unwrap();
         let lines: Vec<(&str, u64)> = note
             .segments
             .iter()
@@ -594,7 +626,7 @@ mod tests {
         let _g = sandbox();
         let (a, b) = ("00000000000000e5", "00000000000000e6");
         begin(&header(a, 1)).unwrap();
-        finish(a, 2, false, true, &HashMap::new()).unwrap();
+        finish(a, 2, false, true, &HashMap::new(), &[]).unwrap();
         begin(&header(b, 3)).unwrap();
         let ids: HashSet<String> = [a, b, "../config"].iter().map(|s| s.to_string()).collect();
         assert_eq!(delete(&ids, Some(b)).unwrap(), 1);
@@ -609,7 +641,7 @@ mod tests {
         for (id, at) in [("00000000000000f1", 100), ("00000000000000f2", 300)] {
             begin(&header(id, at)).unwrap();
             append(id, &seg(ME, 0, "Opening line.")).unwrap();
-            finish(id, at + 10, false, true, &HashMap::new()).unwrap();
+            finish(id, at + 10, false, true, &HashMap::new(), &[]).unwrap();
         }
         let rows = list();
         assert_eq!(rows[0].id, "00000000000000f2");

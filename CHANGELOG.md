@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Notes read who is in a Zoom call from Zoom's participants panel (macOS through Accessibility,
+  Windows through UI Automation). Zoom does not tell other apps who is speaking, so a one-to-one
+  call names the other voice on its own; in a group call the names are offered as one-click
+  choices for each speaker. Names stay in memory until Stop and only the other people's names are
+  kept in the note. `local-stt call-names` shows what is read, for checking.
+
 ## [0.8.0] - 2026-10-14
 
 ### Added

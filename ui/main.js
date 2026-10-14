@@ -1232,14 +1232,38 @@
       var keys = ["me"];
       (note.segments || []).forEach(function (seg) { if (keys.indexOf(seg.speaker) === -1) keys.push(seg.speaker); });
       if (keys.length === 1) keys.push("others"); // nothing heard from the call yet
+      var people = Array.isArray(note.participants) ? note.participants.filter(function (p) { return typeof p === "string" && p; }) : [];
+      var listId = "call-people-" + note.id;
       var row = h("div", { class: "note-speakers", role: "group", "aria-label": "Speaker names" });
+      var boxes = []; // the other speakers' name boxes, for the name chips
+      var lastBox = null;
+      if (people.length) row.appendChild(h("datalist", { id: listId }, people.map(function (p) { return h("option", { value: p }); })));
       keys.forEach(function (key) {
-        var input = h("input", { class: "speaker-input", type: "text", maxlength: "60", placeholder: "Add a name", value: (note.speakers || {})[key] || "" });
+        var input = h("input", { class: "speaker-input", type: "text", maxlength: "60", placeholder: people.length && key !== "me" ? "Pick or type a name" : "Add a name", list: people.length && key !== "me" ? listId : null, value: (note.speakers || {})[key] || "" });
         input.addEventListener("change", function () { saveSpeaker(note.id, key, input.value.trim()); });
+        if (key !== "me") {
+          boxes.push(input);
+          input.addEventListener("focus", function () { lastBox = input; });
+        }
         input.addEventListener("keydown", function (event) { if (event.key === "Enter") input.blur(); });
         row.appendChild(h("label", { class: "speaker-field" }, h("span", { class: "speaker-key", text: defaultSpeaker(key) }), input));
       });
-      return row;
+      if (!people.length) return row;
+      // Zoom lists who was there, not who spoke: the user matches names to voices, one click each
+      var hint = h("div", { class: "call-people" },
+        h("span", { class: "call-people-label", text: (note.source || "The call") + " showed:" }),
+        people.map(function (p) {
+          return h("button", { class: "chip", type: "button", text: p, "aria-label": "Use " + p + " as a speaker name", onclick: function () {
+            var target = lastBox || boxes.filter(function (b) { return !b.value; })[0];
+            if (!target) return;
+            target.value = p;
+            target.dispatchEvent(new Event("change"));
+            lastBox = null;
+          } });
+        }),
+        h("span", { class: "call-people-help", text: "Click a speaker's box, then a name, or pick from the box's list. A call app does not say who spoke, so local-stt only names a speaker on its own in a one-to-one call." })
+      );
+      return h("div", {}, row, hint);
     }
 
     function saveSpeaker(id, key, name) {
@@ -1914,8 +1938,8 @@
 
     function accessDescription() {
       return S.accessibility === true
-        ? "The shortcut and paste work."
-        : "Needed for the shortcut and paste. Already on? Remove local-stt with the minus button and add it again.";
+        ? "The shortcut, paste and Zoom names in notes work."
+        : "Needed for the shortcut, paste and Zoom names in notes. Already on? Remove local-stt with the minus button and add it again.";
     }
 
     // quits, installs again (the newest version when one is out), and reopens
@@ -2977,7 +3001,7 @@
       paintMic();
 
       if (S.platform === "macos" && S.accessibility !== null) {
-        var ax = permCard("Accessibility", "Needed for the shortcut and to paste into the app you are using.", "access");
+        var ax = permCard("Accessibility", "Needed for the shortcut and to paste into the app you are using. Notes also use it to read who is in a Zoom call.", "access");
         OB.refs.ax = ax;
         ax.open = h("button", { class: "btn btn-action", type: "button", text: "Open Settings", onclick: function () {
           OB.access = "waiting";

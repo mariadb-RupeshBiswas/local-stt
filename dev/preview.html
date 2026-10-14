@@ -425,7 +425,9 @@
         ? { supported: false, reason: "Notes need macOS 14.6 or later.", active: null }
         : { supported: true, reason: null, active: null },
       noteFiles: params.get("notes") === "none" ? [] : [
-        { id: "a1b2c3d4e5f60718", title: "", started_ms: now - 2 * hour, ended_ms: now - 2 * hour + 42 * minute, source: "Zoom", status: "done", segments: [
+        // ?people=1: Zoom's participant list was read during the call
+        { id: "a1b2c3d4e5f60718", title: "", started_ms: now - 2 * hour, ended_ms: now - 2 * hour + 42 * minute, source: "Zoom", status: "done",
+          participants: params.get("people") === "1" ? ["Simon Keller", "Priya Shah"] : [], segments: [
           // ?notes=split: the call's two voices were told apart at Stop
           { start_ms: 4000, end_ms: 9000, speaker: params.get("notes") === "split" ? "s1" : "others", text: "Let's start with the September numbers. Revenue is up eight percent." },
           { start_ms: 10000, end_ms: 14000, speaker: "me", text: "Great. Can we split that by region before Friday?" },

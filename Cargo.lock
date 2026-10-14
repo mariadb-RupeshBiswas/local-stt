@@ -1945,6 +1945,7 @@ dependencies = [
  "sha2 0.11.0",
  "tauri",
  "tauri-build",
+ "windows",
  "windows-sys 0.61.2",
 ]
 
