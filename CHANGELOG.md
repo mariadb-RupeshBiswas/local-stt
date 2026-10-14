@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-10-14
+
 ### Added
 
 - Notes can be summarized on this computer: an overview, what each person said, and the action
