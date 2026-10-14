@@ -6,6 +6,25 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-14
+
+### Added
+
+- Learn my voice (Mac with Apple silicon, on by default, Settings > General): your own voice
+  fingerprint is learned from your dictations and kept in `voice.json` on this computer, readable
+  only by you. Notes use it to tell a person in the room from you, giving them a Speaker label
+  instead of Me. Only numbers are kept, never audio, and never anyone else's voice. Off deletes
+  the file.
+
+### Fixed
+
+- Notes split one call into dozens of speakers (Speaker 3 to Speaker 51 for three people), because
+  every short "yeah" or "okay" got a voice of its own. Speakers now come from lines of 3 seconds
+  or more; shorter lines join the closest voice, and a voice heard in only one line joins the
+  closest speaker.
+- Notes recorded on laptop speakers repeated the other side's words under your name. Echo is now
+  cut out of your lines even when it sits next to your own words or spans two of their lines.
+
 ## [0.7.1] - 2026-10-13
 
 ### Fixed

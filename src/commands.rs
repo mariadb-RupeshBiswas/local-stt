@@ -118,6 +118,10 @@ pub async fn set_config(
         crate::insights::clear_words();
         let _ = tauri::Emitter::emit(&app, "insights-changed", ());
     }
+    if before.learn_my_voice && !next.learn_my_voice {
+        // "Off" deletes the voice fingerprint, like history.
+        crate::notes::myvoice::clear();
+    }
     if before.diagnostic_log != next.diagnostic_log {
         if next.diagnostic_log {
             diag::set_enabled(true);

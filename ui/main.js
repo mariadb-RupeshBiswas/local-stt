@@ -1935,7 +1935,7 @@
         var body = h("p", { class: "dlg-body", text: intro });
         dialog.appendChild(body);
         var wipe = h("input", { type: "checkbox", class: "check", id: "reinstall-clean" });
-        dialog.appendChild(h("label", { class: "dlg-check", for: "reinstall-clean" }, wipe, h("span", { text: "Also delete my settings, history, notes, insights and logs. Downloaded models stay." })));
+        dialog.appendChild(h("label", { class: "dlg-check", for: "reinstall-clean" }, wipe, h("span", { text: "Also delete my settings, history, notes, insights, voice fingerprint and logs. Downloaded models stay." })));
         var cancel = h("button", { class: "btn", type: "button", text: "Cancel", onclick: function () { closeDialog(); } });
         var go = h("button", { class: "btn btn-action", type: "button", text: "Reinstall", onclick: function () {
           var clean = wipe.checked;
@@ -2207,6 +2207,11 @@
         installRow(),
         startAtLoginRow(),
         settingRow("Your name", "Used for greetings. Stays on " + thisDevice() + ".", addSync(nameControl())),
+        S.platform === "macos" ? settingRow("Learn my voice", "Lets notes tell you apart from people in the room. A voice fingerprint, never audio, stays on this computer. Off deletes it.", addSync(toggle({
+          label: "Learn my voice",
+          value: function () { return cfg().learn_my_voice !== false; },
+          onChange: function (v) { patchConfig({ learn_my_voice: v }); }
+        }))) : null,
         settingRow("Run Setup Again", "Walks through setup again. Your settings stay as they are.", h("button", { class: "btn", type: "button", text: "Run Setup Again", onclick: openOnboarding })),
         settingRow("Updates", "local-stt " + dash(S.version), addSync(checkControl())),
         settingRow("Check automatically", "Looks for a new version once a day. Only the request is sent.", addSync(toggle({

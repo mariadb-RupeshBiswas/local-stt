@@ -47,7 +47,7 @@ fn assert_grouped_by_speaker(ex: &VoiceEmbedder, lines: &[(String, Vec<f32>)]) {
             pcm.len(),
             started.elapsed().as_millis()
         );
-        voiced.push((i as u64 * 10_000, v));
+        voiced.push((i as u64 * 10_000, pcm.len(), v));
     }
     let keys = voices::speakers(&voiced);
     let people: std::collections::HashSet<&str> =
