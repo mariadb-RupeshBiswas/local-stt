@@ -16,6 +16,8 @@ pub const MIN_SAMPLES: usize = 16_000;
 pub const CLEAR_SAMPLES: usize = 48_000;
 /// Grouping is cubic in lines; past this the note keeps one Others label rather than stall the save.
 const MAX_LINES: usize = 2_000;
+/// Set on the start time of a microphone line that is not the user's, so it cannot collide with an Others line.
+pub const ROOM: u64 = 1 << 63;
 
 pub fn model_path() -> PathBuf {
     crate::paths::models_dir().join(MODEL_FILE)
@@ -56,7 +58,7 @@ impl Lazy {
     }
 }
 
-fn cosine(a: &[f32], b: &[f32]) -> f32 {
+pub(super) fn cosine(a: &[f32], b: &[f32]) -> f32 {
     let mut dot = 0.0;
     let mut na = 0.0;
     let mut nb = 0.0;
@@ -130,7 +132,7 @@ pub fn cluster(voices: &[Vec<f32>], threshold: f32) -> Vec<usize> {
     group
 }
 
-/// Speaker keys for the other side's (start ms, samples, fingerprint) lines: "s1".."sN" by first speaking; empty when one voice.
+/// Speaker keys by line start (start ms, samples, fingerprint): "s1".."sN" by first speaking; empty when one voice and no room voice.
 pub fn speakers(voiced: &[(u64, usize, Vec<f32>)]) -> HashMap<u64, String> {
     if voiced.len() > MAX_LINES {
         return HashMap::new();
@@ -153,7 +155,8 @@ pub fn speakers(voiced: &[(u64, usize, Vec<f32>)]) -> HashMap<u64, String> {
     if kept.len() < 2 {
         kept = (0..count).collect();
     }
-    if kept.len() < 2 {
+    let room = voiced.iter().any(|(k, _, _)| k & ROOM != 0);
+    if kept.is_empty() || (kept.len() < 2 && !room) {
         return HashMap::new();
     }
     let mut centre = vec![Vec::new(); kept.len()];
@@ -165,7 +168,7 @@ pub fn speakers(voiced: &[(u64, usize, Vec<f32>)]) -> HashMap<u64, String> {
         }
     }
     let mut order: Vec<usize> = (0..voiced.len()).collect();
-    order.sort_by_key(|&i| voiced[i].0);
+    order.sort_by_key(|&i| voiced[i].0 & !ROOM);
     let mut number: HashMap<usize, usize> = HashMap::new();
     let mut labels = HashMap::new();
     for i in order {
@@ -352,6 +355,26 @@ mod tests {
         assert!(speakers(&one).is_empty());
         assert!(speakers(&[]).is_empty());
         assert!(speakers(&[(0, CLEAR_SAMPLES, vec![0.0; 192])]).is_empty());
+    }
+
+    #[test]
+    fn a_room_voice_on_the_microphone_is_numbered_in_time_and_never_collides() {
+        let f = arctic();
+        let first = |label: &str| f.labels.iter().position(|l| l == label).unwrap();
+        let (a, b) = (first("ljm"), first("aup"));
+        // One Others voice at 5 s and a different voice on the microphone at 1 s and at 5 s.
+        let voiced = vec![
+            (5_000, CLEAR_SAMPLES, f.vectors[a].clone()),
+            (1_000 | ROOM, CLEAR_SAMPLES, f.vectors[b].clone()),
+            (5_000 | ROOM, CLEAR_SAMPLES, f.vectors[b].clone()),
+        ];
+        let labels = speakers(&voiced);
+        assert_eq!(labels[&(1_000 | ROOM)], "s1");
+        assert_eq!(labels[&(5_000 | ROOM)], "s1");
+        assert_eq!(labels[&5_000], "s2");
+        // One voice and nothing from the microphone keeps Others; a lone room voice is named.
+        assert!(speakers(&voiced[..1]).is_empty());
+        assert_eq!(speakers(&voiced[1..2])[&(1_000 | ROOM)], "s1");
     }
 
     #[test]

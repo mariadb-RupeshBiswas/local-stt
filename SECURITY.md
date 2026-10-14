@@ -36,6 +36,7 @@ steps to reproduce and the impact you see.
 | Insights | `insights.json` in the app data folder: words, dictations and seconds per day, words by hour, the streak, and (with Word insights on) counts for the 200 words you use most; never sentences. Readable only by your user | After each dictation; Reset Insights deletes it, Word insights off deletes the word counts |
 | Notes | One file per note in `notes/` inside the app data folder (lines appended while recording, tidied on Stop), readable only by your user; delete removes the file | From New Note until you delete it |
 | Voice fingerprints | A list of numbers per line from the call, in memory only, to tell voices apart at Stop; never written to disk, never kept between notes | While a note records (Mac with Apple silicon) |
+| Your voice fingerprint | `voice.json` in the app data folder: a running average of your own voice as 192 numbers and a count, never audio, never anyone else's voice; readable only by your user; discarded if the voice model changes | After each dictation once the voice model exists, when Learn my voice is on (default, Mac with Apple silicon); off deletes it |
 | Permission reset (macOS) | `tccutil reset All io.github.localstt` clears local-stt's own privacy entries, never another app's, so macOS asks again | When you click Reinstall or run `local-stt reinstall`, or when an install replaces a copy macOS sees as a different app |
 | Login item | `~/Library/LaunchAgents/io.github.localstt.plist` (macOS) or a `HKCU\...\Run` value (Windows) | Only when Start at login is on |
 

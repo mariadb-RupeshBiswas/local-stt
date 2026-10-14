@@ -1,5 +1,6 @@
 //! Meeting notes: one file per note, lines appended while recording, tidied into one file on Stop.
 
+pub mod myvoice;
 pub mod segmenter;
 pub mod session;
 pub mod tidy;
@@ -177,6 +178,8 @@ fn finish_locked(
     voices: &HashMap<u64, String>,
 ) -> std::io::Result<Note> {
     let mut note = read_live(id)?;
+    // Before relabelling: only a microphone line can be the speakers' echo.
+    note.segments = tidy::drop_echo(note.segments);
     assign_speakers(&mut note.segments, voices);
     keep_others_name(&mut note);
     note.segments = tidy::tidy(note.segments, smart_format, english);
@@ -188,9 +191,15 @@ fn finish_locked(
 }
 
 // Others lines take the speaker their voice was grouped into; a line too short to tell takes the nearest grouped line's.
+// A microphone line the user's own voice did not match is a person in the room and takes its group's speaker.
 fn assign_speakers(segments: &mut [Segment], voices: &HashMap<u64, String>) {
     if voices.is_empty() {
         return;
+    }
+    for seg in segments.iter_mut().filter(|s| s.speaker == ME) {
+        if let Some(key) = voices.get(&(seg.start_ms | voices::ROOM)) {
+            seg.speaker = key.clone();
+        }
     }
     let grouped: Vec<(u64, String)> = segments
         .iter()
@@ -548,6 +557,35 @@ mod tests {
         // the name typed for Others during the call lands on the voice with the most lines
         assert_eq!(note.speakers.get("s1").map(String::as_str), Some("Priya"));
         assert!(!note.speakers.contains_key(OTHERS));
+    }
+
+    #[test]
+    fn a_room_voice_on_the_microphone_is_a_speaker_but_a_relabelled_echo_still_goes() {
+        let _g = sandbox();
+        let id = "00000000000000d7";
+        begin(&header(id, 1)).unwrap();
+        append(
+            id,
+            &seg(OTHERS, 0, "Let's review the September numbers first."),
+        )
+        .unwrap();
+        append(id, &seg(ME, 100, "let's review the September numbers")).unwrap();
+        append(id, &seg(ME, 10_000, "Sorry to interrupt, quick question.")).unwrap();
+        append(id, &seg(ME, 20_000, "Yes, that works for me.")).unwrap();
+        // The echo and the room voice were both flagged as not the user's; only the echo must go.
+        let voices: HashMap<u64, String> = [
+            (0, "s1".to_string()),
+            (100 | voices::ROOM, "s1".to_string()),
+            (10_000 | voices::ROOM, "s2".to_string()),
+        ]
+        .into();
+        let note = finish(id, 30_000, false, true, &voices).unwrap();
+        let lines: Vec<(&str, u64)> = note
+            .segments
+            .iter()
+            .map(|s| (s.speaker.as_str(), s.start_ms))
+            .collect();
+        assert_eq!(lines, vec![("s1", 0), ("s2", 10_000), (ME, 20_000)]);
     }
 
     #[test]

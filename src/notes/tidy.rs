@@ -10,7 +10,8 @@ const ECHO_RUN: usize = 3;
 // Lines from one speaker this close together read as one turn.
 const MERGE_GAP_MS: u64 = 2_000;
 
-pub fn tidy(mut segments: Vec<Segment>, smart_format: bool, english: bool) -> Vec<Segment> {
+/// Takes the other side's words, heard through the speakers, out of the microphone lines, in time order.
+pub fn drop_echo(mut segments: Vec<Segment>) -> Vec<Segment> {
     segments.sort_by_key(|s| s.start_ms);
     let heard: Vec<Option<String>> = segments
         .iter()
@@ -22,15 +23,20 @@ pub fn tidy(mut segments: Vec<Segment>, smart_format: bool, english: bool) -> Ve
             }
         })
         .collect();
+    segments
+        .into_iter()
+        .zip(heard)
+        .filter_map(|(seg, text)| text.map(|text| Segment { text, ..seg }))
+        .collect()
+}
+
+pub fn tidy(segments: Vec<Segment>, smart_format: bool, english: bool) -> Vec<Segment> {
     let mut out: Vec<Segment> = Vec::new();
-    for (seg, kept) in segments.into_iter().zip(heard) {
-        let Some(raw) = kept else {
-            continue;
-        };
+    for seg in drop_echo(segments) {
         let text = if smart_format {
-            crate::format::tidy_for(&raw, english)
+            crate::format::tidy_for(&seg.text, english)
         } else {
-            raw.trim().to_string()
+            seg.text.trim().to_string()
         };
         if !text.chars().any(char::is_alphanumeric) {
             continue;
@@ -185,6 +191,25 @@ mod tests {
             true,
         );
         assert!(out.iter().all(|s| s.speaker == OTHERS), "{out:?}");
+    }
+
+    #[test]
+    fn drop_echo_removes_only_microphone_lines_that_repeat_the_other_side() {
+        let out = drop_echo(vec![
+            seg(ME, 1_200, 4_100, "let's review the September numbers"),
+            seg(
+                OTHERS,
+                1_000,
+                4_000,
+                "Let's review the September numbers first.",
+            ),
+            seg(ME, 5_000, 6_000, "Sounds good."),
+        ]);
+        let who: Vec<(&str, u64)> = out
+            .iter()
+            .map(|s| (s.speaker.as_str(), s.start_ms))
+            .collect();
+        assert_eq!(who, vec![(OTHERS, 1_000), (ME, 5_000)]);
     }
 
     #[test]

@@ -1335,6 +1335,8 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
         let mut voice = crate::notes::voices::Lazy::default();
         let mut voiced: std::collections::HashMap<String, Vec<(u64, usize, Vec<f32>)>> =
             std::collections::HashMap::new();
+        // The user's own voice, learned from dictations; empty until the voice model exists.
+        let mut mine = crate::notes::myvoice::load_from(&crate::notes::myvoice::path());
         loop {
             let job = match rx.try_recv() {
                 Ok(job @ (Job::NoteSegment { .. } | Job::NoteFinish { .. })) => {
@@ -1398,6 +1400,10 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     duration_ms,
                 } => {
                     let started = Instant::now();
+                    let learn = shared(&app).config().learn_my_voice;
+                    if !learn {
+                        mine = crate::notes::myvoice::Profile::default();
+                    }
                     let result = match engine.as_ref() {
                         Some(e) => e.transcribe(&pcm, &opts),
                         None => {
@@ -1414,11 +1420,25 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                         ));
                     }
                     shared(&app).final_pending.store(false, Ordering::SeqCst);
+                    let heard = matches!(&result, Ok(text) if !text.trim().is_empty());
                     let ctrl = lock(&shared(&app).ctrl).clone();
                     let _ = ctrl.send(Msg::Done {
                         result,
                         duration_ms,
                     });
+                    // After Done, so the paste never waits for the fingerprint.
+                    if learn && heard && pcm.len() >= crate::notes::voices::MIN_SAMPLES {
+                        let clip = &pcm[..pcm.len().min(crate::notes::myvoice::MAX_CLIP)];
+                        if let Some(v) = voice.get().and_then(|x| x.embed(clip)) {
+                            mine.learn(&v);
+                            if let Err(e) = crate::notes::myvoice::save_to(
+                                &crate::notes::myvoice::path(),
+                                &mine,
+                            ) {
+                                diag::log(&format!("voice fingerprint not saved: {e}"));
+                            }
+                        }
+                    }
                 }
                 Job::NoteSegment {
                     id,
@@ -1427,6 +1447,10 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     pcm,
                     opts,
                 } => {
+                    let learn = shared(&app).config().learn_my_voice;
+                    if !learn {
+                        mine = crate::notes::myvoice::Profile::default();
+                    }
                     if let Some(e) = engine.as_ref() {
                         let samples = pcm.len();
                         // whisper.cpp returns nothing for under a second of audio; quiet padding fixes that.
@@ -1439,11 +1463,20 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                                 &app, &id, speaker, start_ms, samples, &text,
                             );
                             let long_enough = samples >= crate::notes::voices::MIN_SAMPLES;
-                            if kept && long_enough && speaker == crate::notes::OTHERS {
+                            let others = speaker == crate::notes::OTHERS;
+                            // Only a profile that has heard enough dictations may call a microphone voice someone else's.
+                            let judge_mic =
+                                !others && mine.count() >= crate::notes::myvoice::MIN_COUNT;
+                            if kept && long_enough && (others || judge_mic) {
                                 if let Some(v) =
                                     voice.get().and_then(|x| x.embed(&padded[..samples]))
                                 {
-                                    voiced.entry(id).or_default().push((start_ms, samples, v));
+                                    if others {
+                                        voiced.entry(id).or_default().push((start_ms, samples, v));
+                                    } else if mine.is_someone_else(&v) {
+                                        let key = start_ms | crate::notes::voices::ROOM;
+                                        voiced.entry(id).or_default().push((key, samples, v));
+                                    }
                                 }
                             }
                         }

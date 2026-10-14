@@ -89,7 +89,10 @@ Notes reuse the same engine for a whole call instead of one dictation:
    from the call (`src/notes/voices.rs`, through sherpa-onnx in `src/engine.rs`). At Stop the
    fingerprints of lines 3 s or longer are grouped, and Others becomes Speaker 1, Speaker 2. A
    shorter line joins the closest voice, one under a second takes its neighbour's speaker, and a
-   voice heard in a single line joins the closest speaker. Fingerprints live in memory only.
+   voice heard in a single line joins the closest speaker. Fingerprints live in memory only. The
+   one exception is your own voice: with Learn my voice on, each dictation updates a running
+   average in `voice.json` (`src/notes/myvoice.rs`). Once it has ten dictations, a Me line far
+   from it is a person in the room and joins the grouping.
 6. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
    lines from one speaker and cuts the other side's words out of your lines where the mic heard
    them from the speakers (runs of three or more words, or whole lines).

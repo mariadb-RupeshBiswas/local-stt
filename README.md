@@ -127,9 +127,11 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 - Works with Zoom, Google Meet, Teams, Slack, or any app that plays sound. No bot joins the call.
 - Audio is never saved. Each few seconds of speech is transcribed and then dropped.
 - On a Mac with Apple silicon, the call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
+- **Learn my voice** (Settings, on by default): your own voice fingerprint is built from your dictations and kept on your computer in `voice.json`, readable only by you. Notes use it to tell you from a person sitting in the room, who then gets a Speaker label instead of Me. It is numbers, never audio, and other people's voices are never stored. Turn it off and the file is deleted.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
 - Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
-- Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat.
+- Use headphones for the cleanest split; with speakers your own words can echo into Others, and local-stt drops lines that repeat. Bluetooth headphones that switch to call mode mid-note are picked up again within a second.
+- Your lines show the name you gave in setup.
 - macOS 14.6 or later (macOS asks once for System Audio Recording), or Windows 10 and 11.
 
 **Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
@@ -262,7 +264,7 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 **The shortcut does nothing on macOS, though local-stt is switched on.** macOS can keep the switch of an older copy. In System Settings > Privacy & Security > Accessibility (Device Control and Data Access on newer macOS), select local-stt, click the minus button and add it again, or use Reinstall below. Settings > General shows **Allowed** once it works.
 
-**Reinstall.** Settings > Troubleshooting > **Reinstall** (or `local-stt reinstall`) quits local-stt, installs it again (the newest version when one is out) and opens it. On macOS it also resets local-stt's permissions and opens setup, so you can allow them again; your name, history and insights stay. An update that macOS sees as a new app does the same on its own. Tick the box, or add `--clean`, to also delete your settings, history, notes, insights and logs; downloaded models stay.
+**Reinstall.** Settings > Troubleshooting > **Reinstall** (or `local-stt reinstall`) quits local-stt, installs it again (the newest version when one is out) and opens it. On macOS it also resets local-stt's permissions and opens setup, so you can allow them again; your name, history and insights stay. An update that macOS sees as a new app does the same on its own. Tick the box, or add `--clean`, to also delete your settings, history, notes, insights, voice fingerprint and logs; downloaded models stay.
 
 ## Updating
 
