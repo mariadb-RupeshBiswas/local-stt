@@ -6,6 +6,15 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Notes split one call into dozens of speakers (Speaker 3 to Speaker 51 for three people), because
+  every short "yeah" or "okay" got a voice of its own. Speakers now come from lines of 3 seconds
+  or more; shorter lines join the closest voice, and a voice heard in only one line joins the
+  closest speaker.
+- Notes recorded on laptop speakers repeated the other side's words under your name. Echo is now
+  cut out of your lines even when it sits next to your own words or spans two of their lines.
+
 ## [0.7.0] - 2026-10-12
 
 ### Added

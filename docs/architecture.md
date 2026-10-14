@@ -87,10 +87,12 @@ Notes reuse the same engine for a whole call instead of one dictation:
    so a crash keeps everything up to that moment. The audio is still never saved.
 5. **Voices told apart (Mac with Apple silicon).** The worker takes a voice fingerprint of each line
    from the call (`src/notes/voices.rs`, through sherpa-onnx in `src/engine.rs`). At Stop the
-   fingerprints are grouped, and Others becomes Speaker 1, Speaker 2; a line too short to tell takes
-   its neighbour's speaker. Fingerprints live in memory only.
+   fingerprints of lines 3 s or longer are grouped, and Others becomes Speaker 1, Speaker 2. A
+   shorter line joins the closest voice, one under a second takes its neighbour's speaker, and a
+   voice heard in a single line joins the closest speaker. Fingerprints live in memory only.
 6. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
-   lines from one speaker and drops lines that appear twice because of echo between speakers and mic.
+   lines from one speaker and cuts the other side's words out of your lines where the mic heard
+   them from the speakers (runs of three or more words, or whole lines).
 
 ## Insights
 

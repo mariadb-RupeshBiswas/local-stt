@@ -1333,7 +1333,7 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
         let mut note_jobs: std::collections::VecDeque<Job> = std::collections::VecDeque::new();
         // Voice fingerprints of each note's other side, kept in memory until Stop groups them.
         let mut voice = crate::notes::voices::Lazy::default();
-        let mut voiced: std::collections::HashMap<String, Vec<(u64, Vec<f32>)>> =
+        let mut voiced: std::collections::HashMap<String, Vec<(u64, usize, Vec<f32>)>> =
             std::collections::HashMap::new();
         loop {
             let job = match rx.try_recv() {
@@ -1443,7 +1443,7 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                                 if let Some(v) =
                                     voice.get().and_then(|x| x.embed(&padded[..samples]))
                                 {
-                                    voiced.entry(id).or_default().push((start_ms, v));
+                                    voiced.entry(id).or_default().push((start_ms, samples, v));
                                 }
                             }
                         }

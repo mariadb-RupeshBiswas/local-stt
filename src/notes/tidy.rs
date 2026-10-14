@@ -3,26 +3,34 @@
 use super::Segment;
 use std::collections::HashSet;
 
-// A Me line sharing this much of its wording with an Others line at the same time is the speakers' echo.
+// A Me line sharing this much of its wording with the Others lines at the same time is the speakers' echo.
 const ECHO_SHARE: f32 = 0.7;
+// This many Me words in a row that Others said at the same time are echo, even inside the user's own line.
+const ECHO_RUN: usize = 3;
 // Lines from one speaker this close together read as one turn.
 const MERGE_GAP_MS: u64 = 2_000;
 
 pub fn tidy(mut segments: Vec<Segment>, smart_format: bool, english: bool) -> Vec<Segment> {
     segments.sort_by_key(|s| s.start_ms);
-    let echo: Vec<bool> = segments
+    let heard: Vec<Option<String>> = segments
         .iter()
-        .map(|s| s.speaker == super::ME && is_echo(s, &segments))
+        .map(|s| {
+            if s.speaker == super::ME {
+                without_echo(s, &segments)
+            } else {
+                Some(s.text.clone())
+            }
+        })
         .collect();
     let mut out: Vec<Segment> = Vec::new();
-    for (seg, dropped) in segments.into_iter().zip(echo) {
-        if dropped {
+    for (seg, kept) in segments.into_iter().zip(heard) {
+        let Some(raw) = kept else {
             continue;
-        }
+        };
         let text = if smart_format {
-            crate::format::tidy_for(&seg.text, english)
+            crate::format::tidy_for(&raw, english)
         } else {
-            seg.text.trim().to_string()
+            raw.trim().to_string()
         };
         if !text.chars().any(char::is_alphanumeric) {
             continue;
@@ -40,18 +48,56 @@ pub fn tidy(mut segments: Vec<Segment>, smart_format: bool, english: bool) -> Ve
     out
 }
 
-fn is_echo(me: &Segment, all: &[Segment]) -> bool {
-    let mine = words(&me.text);
-    if mine.is_empty() {
-        return false;
+// The Me line without the speakers' echo of the other side; None when little of the user's own is left.
+fn without_echo(me: &Segment, all: &[Segment]) -> Option<String> {
+    let mut theirs: HashSet<String> = HashSet::new();
+    for o in all.iter().filter(|o| o.speaker != super::ME) {
+        if o.start_ms < me.end_ms && me.start_ms < o.end_ms {
+            theirs.extend(words(&o.text));
+        }
     }
-    all.iter()
-        .filter(|o| o.speaker != super::ME && o.start_ms < me.end_ms && me.start_ms < o.end_ms)
-        .any(|o| {
-            let theirs = words(&o.text);
-            let shared = mine.intersection(&theirs).count();
-            shared as f32 / mine.len() as f32 >= ECHO_SHARE
+    if theirs.is_empty() {
+        return Some(me.text.clone());
+    }
+    let tokens: Vec<&str> = me.text.split_whitespace().collect();
+    let heard: Vec<bool> = tokens
+        .iter()
+        .map(|t| {
+            let w = words(t);
+            !w.is_empty() && w.is_subset(&theirs)
         })
+        .collect();
+    let mut keep = vec![true; tokens.len()];
+    let mut i = 0;
+    while i < tokens.len() {
+        let mut end = i;
+        while end < tokens.len() && heard[end] {
+            end += 1;
+        }
+        if end - i >= ECHO_RUN {
+            keep[i..end].fill(false);
+        }
+        i = end.max(i + 1);
+    }
+    let left: Vec<&str> = tokens
+        .iter()
+        .zip(&keep)
+        .filter(|(_, k)| **k)
+        .map(|(t, _)| *t)
+        .collect();
+    if left.len() < tokens.len() && left.len() < ECHO_RUN {
+        return None;
+    }
+    let text = left.join(" ");
+    let mine = words(&text);
+    if mine.is_empty() {
+        return Some(text);
+    }
+    let shared = mine.intersection(&theirs).count();
+    if shared as f32 / mine.len() as f32 >= ECHO_SHARE {
+        return None;
+    }
+    Some(text)
 }
 
 fn words(text: &str) -> HashSet<String> {
@@ -92,6 +138,53 @@ mod tests {
         );
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].speaker, OTHERS);
+    }
+
+    #[test]
+    fn echo_inside_my_own_line_is_cut_and_my_words_stay() {
+        let out = tidy(
+            vec![
+                seg(
+                    OTHERS,
+                    189_000,
+                    193_000,
+                    "Bless you. I think we should finish the call early.",
+                ),
+                seg(
+                    ME,
+                    185_000,
+                    194_000,
+                    "I'm so sorry. I think we should finish the call early.",
+                ),
+            ],
+            false,
+            true,
+        );
+        let mine: Vec<&str> = out
+            .iter()
+            .filter(|s| s.speaker == ME)
+            .map(|s| s.text.as_str())
+            .collect();
+        assert_eq!(mine, vec!["I'm so sorry."]);
+    }
+
+    #[test]
+    fn echo_of_two_others_lines_in_one_of_mine_is_dropped() {
+        let out = tidy(
+            vec![
+                seg(OTHERS, 0, 2_000, "Okay, cool."),
+                seg(
+                    OTHERS,
+                    2_000,
+                    5_000,
+                    "There's one more, the Apex dashboard.",
+                ),
+                seg(ME, 0, 5_000, "okay cool there's one more"),
+            ],
+            false,
+            true,
+        );
+        assert!(out.iter().all(|s| s.speaker == OTHERS), "{out:?}");
     }
 
     #[test]
