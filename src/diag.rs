@@ -610,6 +610,8 @@ mod tests {
             "language",
             "theme",
             "model",
+            "summary_model",
+            "appearance",
             "microphone",
             "overlay_pos",
             "skip_update",

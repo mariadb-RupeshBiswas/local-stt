@@ -46,6 +46,9 @@ pub async fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Result<
         "update": lock(&state.update).clone(),
         "activeModel": *lock(&state.active_model),
         "downloading": *lock(&state.downloading),
+        "summaryModels": crate::summary::evaluate(&state.hardware, &paths::models_dir()),
+        "summaryDownloading": *lock(&state.summary_downloading),
+        "summarizing": lock(&state.summarizing).clone(),
         "autostartEnabled": autostart::is_enabled(),
     }))
 }
@@ -148,6 +151,9 @@ pub async fn set_config(
     if saved.theme != before.theme || saved.show_overlay != before.show_overlay {
         app::overlay_theme_changed(&app);
     }
+    if saved.appearance != before.appearance {
+        app::apply_appearance(&app);
+    }
     Ok(saved)
 }
 
@@ -224,6 +230,64 @@ pub fn delete_model(state: State<'_, Arc<Shared>>, id: ModelId) -> Result<(), St
     models::delete(&paths::models_dir(), id)?;
     diag::log(&format!("model {} deleted", models::info(id).label));
     Ok(())
+}
+
+#[tauri::command]
+pub fn choose_summary_model(
+    app: AppHandle,
+    state: State<'_, Arc<Shared>>,
+    id: crate::summary::SummaryModelId,
+) -> Result<(), String> {
+    let fits = crate::summary::evaluate(&state.hardware, &paths::models_dir());
+    let Some(fit) = fits.iter().find(|f| f.id == id) else {
+        return Err("unknown model".into());
+    };
+    if fit.downloaded {
+        state.update_config(|c| {
+            c.summary_model = Some(id);
+            c.summaries = true;
+        });
+        return Ok(());
+    }
+    if !fit.supported {
+        return Err(fit.reasons.join(" "));
+    }
+    crate::summary::run::start_download(app, id)
+}
+
+#[tauri::command]
+pub fn open_summary_model_page(id: crate::summary::SummaryModelId) -> Result<(), String> {
+    crate::update::open_url(&crate::summary::page_url(id))
+}
+
+// A summary in progress keeps its model: Windows cannot delete an open file.
+#[tauri::command]
+pub fn delete_summary_model(
+    state: State<'_, Arc<Shared>>,
+    id: crate::summary::SummaryModelId,
+) -> Result<(), String> {
+    if *lock(&state.summary_downloading) == Some(id) || lock(&state.summarizing).is_some() {
+        return Err(
+            "This model is in use. Try again when the summary or download finishes.".into(),
+        );
+    }
+    crate::summary::delete(&paths::models_dir(), id)?;
+    if state.config().summary_model == Some(id) {
+        state.update_config(|c| c.summary_model = None);
+    }
+    diag::log(&format!(
+        "summary model {} deleted",
+        crate::summary::info(id).label
+    ));
+    Ok(())
+}
+
+#[tauri::command]
+pub fn summarize_note(app: AppHandle, id: String) -> Result<(), String> {
+    if !crate::notes::valid_id(&id) {
+        return Err("invalid note id".into());
+    }
+    crate::summary::run::start_summarize(app, id)
 }
 
 #[tauri::command]

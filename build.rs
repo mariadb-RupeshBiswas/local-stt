@@ -22,6 +22,8 @@ fn main() {
         .include("vendor/whisper.cpp/ggml/include")
         .compile("lstt_shim");
 
+    link_llama(&dst);
+
     for sub in ["lib", "lib64"] {
         println!("cargo:rustc-link-search=native={}/{}", dst.display(), sub);
     }
@@ -76,6 +78,10 @@ fn main() {
         "choose_model",
         "open_model_page",
         "delete_model",
+        "choose_summary_model",
+        "open_summary_model_page",
+        "delete_summary_model",
+        "summarize_note",
         "get_history",
         "clear_history",
         "delete_history",
@@ -104,6 +110,38 @@ fn main() {
     ]);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest))
         .expect("tauri build step failed");
+}
+
+// Note summaries: llama.cpp's libllama alone, built on whisper.cpp's ggml so one copy of ggml is linked.
+fn link_llama(whisper_dst: &std::path::Path) {
+    let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap()).join("llama");
+    let ggml_dir = whisper_dst.join("lib").join("cmake").join("ggml");
+    let dst = cmake::Config::new("vendor/llama.cpp")
+        .out_dir(&out)
+        .define("BUILD_SHARED_LIBS", "OFF")
+        .define("LLAMA_USE_SYSTEM_GGML", "ON")
+        .define("ggml_DIR", &ggml_dir)
+        .define("LLAMA_BUILD_COMMON", "OFF")
+        .define("LLAMA_BUILD_TESTS", "OFF")
+        .define("LLAMA_BUILD_TOOLS", "OFF")
+        .define("LLAMA_BUILD_EXAMPLES", "OFF")
+        .define("LLAMA_BUILD_SERVER", "OFF")
+        .define("LLAMA_BUILD_APP", "OFF")
+        .define("LLAMA_CURL", "OFF")
+        .profile("Release")
+        .build();
+    cc::Build::new()
+        .cpp(true)
+        .std("c++17")
+        .file("llm_shim.cpp")
+        .include("vendor/llama.cpp/include")
+        .include("vendor/whisper.cpp/ggml/include")
+        .compile("lstt_llm_shim");
+    for sub in ["lib", "lib64"] {
+        println!("cargo:rustc-link-search=native={}/{}", dst.display(), sub);
+    }
+    println!("cargo:rustc-link-lib=static=llama");
+    println!("cargo:rerun-if-changed=llm_shim.cpp");
 }
 
 // Telling speakers apart in notes: sherpa-onnx's prebuilt static library (Apache-2.0), pinned by checksum.

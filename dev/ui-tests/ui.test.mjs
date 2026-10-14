@@ -513,6 +513,174 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Settings > Appearance ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light");
+  const looks = page.locator("#panel-settings .looks");
+  check("Appearance is the first Settings section", (await page.locator("#panel-settings .group-title").first().textContent()) === "Appearance");
+  check("Appearance offers System, Light and Dark tiles", (await looks.locator(".theme-name").allTextContents()).join(",") === "System,Light,Dark");
+  check("System is chosen until the user picks a look", (await looks.locator('[aria-checked="true"] .theme-name').textContent()) === "System" && (await page.evaluate(() => document.documentElement.dataset.scheme)) === undefined);
+  check("the System tile names the OS it follows", (await looks.locator(".theme-note").first().textContent()) === "Matches macOS");
+  const bg = () => page.evaluate(() => getComputedStyle(document.querySelector("#panel-settings .card")).backgroundColor);
+  const lightBg = await bg();
+  await looks.locator(".theme-card", { hasText: "Dark" }).click();
+  await page.waitForTimeout(250);
+  check("Dark saves appearance dark and pins the page dark", (await page.evaluate(() => window.__cfg)).includes('set_config:{"appearance":"dark"}') && (await page.evaluate(() => document.documentElement.dataset.scheme)) === "dark" && (await bg()) !== lightBg, [lightBg, await bg()]);
+  await looks.locator('[aria-checked="true"]').press("ArrowLeft");
+  await page.waitForTimeout(250);
+  check("arrow keys move the choice like a radio group", (await looks.locator('[aria-checked="true"] .theme-name').textContent()) === "Light" && (await page.evaluate(() => document.documentElement.dataset.scheme)) === "light");
+  await looks.locator(".theme-card", { hasText: "System" }).click();
+  await page.waitForTimeout(250);
+  check("System hands the look back to the OS", (await page.evaluate(() => document.documentElement.dataset.scheme)) === undefined);
+  check("no page errors (appearance)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows");
+  check("on Windows the System tile says it matches Windows", (await page.locator("#panel-settings .looks .theme-note").first().textContent()) === "Matches Windows");
+  await ctx.close();
+}
+
+// ---------- main: summary models in the Model tab, and note summaries ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light&ram=24");
+  const panel = page.locator("#panel-model .summary-list");
+  check("the Model tab has Speech model and Summary model sections", (await page.locator("#panel-model .group-title").allTextContents()).join(",") === "This computer,Speech model,Summary model");
+  check("the Summary model section lists both summary models", (await panel.locator(".mrow-name").allTextContents()).join(",") === "Granite 4.0 Micro,Gemma 4 E4B");
+  check("on a 24 GB Mac with a GPU, Gemma is recommended", (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 0);
+  check("each row says who made it and what it is good at", (await panel.locator(".mrow-about").first().textContent()).startsWith("IBM. Fastest and smallest."));
+  await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".btn-action").click();
+  await page.waitForTimeout(200);
+  check("a download asks first and names its size and source", (await page.locator("dialog.dlg[open] .dlg-title").textContent()) === "Download Gemma 4 E4B?" && (await page.locator("dialog.dlg[open] .dlg-body").textContent()).includes("Google's page on Hugging Face"));
+  await page.locator("dialog.dlg .btn-action").click();
+  await page.waitForTimeout(150);
+  check("the download shows progress", (await panel.locator(".progress-text").count()) === 1);
+  await page.waitForTimeout(3200);
+  check("a finished download is the model in use", (await page.evaluate(() => window.__calls)).includes("choose_summary_model:gemma4-e4b") && (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".pill-active").count()) === 1);
+  check("no page errors (summary models)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=model&scheme=light&platform=windows&ram=32");
+  const panel = page.locator("#panel-model .summary-list");
+  check("on Windows, Granite is recommended and Gemma warns it runs on the CPU", (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".reasons").textContent()).includes("Runs on the CPU here"));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=model&scheme=light");
+  const panel = page.locator("#panel-model .summary-list");
+  check("on an 8 GB Mac, Granite is recommended and Gemma says it needs 16 GB", (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".reasons").textContent()).includes("Needs 16 GB RAM"));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=notes&scheme=light&summaries=on");
+  const panel = page.locator("#panel-notes");
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("without a summary model the note offers to choose one", (await panel.locator(".note-summary .btn").textContent()) === "Choose a Summary Model");
+  await panel.locator(".note-summary .btn").click();
+  await page.waitForTimeout(200);
+  check("that button opens the Model tab at its Summary model section", (await page.locator("#tab-model").getAttribute("aria-selected")) === "true" && (await page.locator("#summary-models").isVisible()));
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light&summary=granite");
+  const panel = page.locator("#panel-notes");
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("a note offers Summarize with the downloaded model", (await panel.locator(".note-summary .btn-action").textContent()) === "Summarize" && (await panel.locator(".note-summary .sum-empty").textContent()).includes("Granite 4.0 Micro"));
+  check("the summary sits above the transcript", await page.evaluate(() => { const s = document.querySelector(".note-summary"); const t = document.querySelector(".transcript"); return !!s && !!t && (s.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0; }));
+  await panel.locator(".note-summary .btn-action").click();
+  await page.waitForTimeout(250);
+  check("summarizing shows its steps", /^Summarizing/.test(await panel.locator(".sum-busy").textContent()));
+  await page.waitForTimeout(900);
+  check("the summary shows an overview", (await panel.locator(".sum-overview").textContent()).startsWith("The team reviewed"));
+  check("who said what uses the note's speaker names", (await panel.locator(".sum-name").allTextContents()).join(",") === "Me,Others");
+  check("action items show owner and time, or Unassigned", (await panel.locator(".sum-owner").allTextContents()).join("|") === "Others, 0:12|Unassigned, 0:30");
+  check("a summarized note offers Summarize Again", (await panel.locator(".note-summary .sum-head .btn").textContent()) === "Summarize Again");
+  const othersBox = panel.locator(".speaker-field", { hasText: "Others" }).locator("input");
+  await othersBox.fill("Priya");
+  await othersBox.press("Enter");
+  await page.waitForTimeout(300);
+  await panel.locator(".note-back").click();
+  await page.waitForTimeout(200);
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("renaming a speaker renames them in the summary too", (await panel.locator(".sum-name").allTextContents()).join(",") === "Me,Priya");
+  check("no page errors (note summary)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: the Summaries switch ----------
+{
+  const { page, ctx } = await open("?view=main&tab=model&scheme=light");
+  check("Summaries start off", (await page.getByRole("switch", { name: "Summaries" }).getAttribute("aria-checked")) === "false");
+  await page.locator("#tab-notes").click();
+  await page.waitForTimeout(200);
+  await page.locator("#panel-notes .nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("with Summaries off by default a note has no Summary card", (await page.locator("#panel-notes .note-summary").count()) === 0);
+  await page.locator("#tab-model").click();
+  await page.waitForTimeout(200);
+  await page.locator("#panel-model .summary-list .mrow", { hasText: "Granite" }).locator(".btn-action").click();
+  await page.waitForTimeout(250);
+  await page.locator("dialog.dlg .btn-action").click();
+  await page.waitForTimeout(3000);
+  check("downloading a summary model turns Summaries on", (await page.getByRole("switch", { name: "Summaries" }).getAttribute("aria-checked")) === "true");
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light&summary=granite");
+  const sw = page.getByRole("switch", { name: "Summaries" });
+  check("the Summary model section has a Summaries switch, on once a model is downloaded", (await sw.count()) === 1 && (await sw.getAttribute("aria-checked")) === "true");
+  await sw.click();
+  await page.waitForTimeout(300);
+  check("turning Summaries off saves summaries false and says nothing runs", (await page.evaluate(() => window.__cfg)).includes('set_config:{"summaries":false}') && (await page.locator("#panel-model .srow", { has: page.locator(".srow-title", { hasText: "Summaries" }) }).locator(".srow-desc").textContent()).includes("no summary model runs"));
+  await page.locator("#tab-notes").click();
+  await page.waitForTimeout(200);
+  await page.locator("#panel-notes .nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("with Summaries off a note has no Summary card", (await page.locator("#panel-notes .note-summary").count()) === 0);
+  await page.locator("#tab-model").click();
+  await page.waitForTimeout(200);
+  await page.getByRole("switch", { name: "Summaries" }).click();
+  await page.waitForTimeout(300);
+  await page.locator("#tab-notes").click();
+  await page.waitForTimeout(200);
+  check("turning it back on brings Summarize back", (await page.locator("#panel-notes .note-summary .btn-action").textContent()) === "Summarize");
+  check("no page errors (summaries switch)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: Notes, names from Zoom's participant list ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light&notes=split&people=1");
+  const panel = page.locator("#panel-notes");
+  await panel.locator(".nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("a note shows who the call app listed", (await panel.locator(".call-people .chip").allTextContents()).join(",") === "Simon Keller,Priya Shah" && (await panel.locator(".call-people-label").textContent()) === "Zoom showed:");
+  check("the hint says Zoom does not tell who spoke", (await panel.locator(".call-people-help").textContent()).includes("does not say who spoke"));
+  const box = panel.locator(".speaker-field", { hasText: "Speaker 1" }).locator("input");
+  check("speaker boxes offer the listed names, your own box does not", (await box.getAttribute("list")) !== null && (await panel.locator(".speaker-field", { hasText: "Me" }).locator("input").getAttribute("list")) === null && (await page.locator("#panel-notes datalist option").count()) === 2);
+  await box.fill("Priya Shah");
+  await box.press("Enter");
+  await page.waitForTimeout(250);
+  check("picking a listed name renames that speaker", (await page.evaluate(() => window.__calls)).includes("rename_speaker:s1=Priya Shah"));
+  await panel.locator(".speaker-field", { hasText: "Speaker 2" }).locator("input").focus();
+  await panel.locator(".call-people .chip", { hasText: "Simon Keller" }).click();
+  await page.waitForTimeout(250);
+  check("clicking a name chip fills the box you last touched", (await page.evaluate(() => window.__calls)).includes("rename_speaker:s2=Simon Keller") && (await panel.locator(".turn-name").allTextContents()).join(",") === "Priya Shah,Me,Simon Keller");
+  check("no page errors (call names)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=notes&scheme=light");
+  await page.locator("#panel-notes .nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("without a participant list there is no hint", (await page.locator("#panel-notes .call-people").count()) === 0);
+  await ctx.close();
+}
+
 // ---------- main: Notes ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=notes&scheme=light");
@@ -667,12 +835,12 @@ for (const dark of [false, true]) {
 // ---------- main: Model ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light");
-  const row = (name) => page.locator(".mrow", { hasText: name });
-  check("model rows are not radios and have no tab stops", (await page.locator(".mrow[role=radio], .card[role=radiogroup], .mrow[tabindex]").count()) === 0);
+  const row = (name) => page.locator("#panel-model .speech-list .mrow", { hasText: name });
+  check("model rows are not radios and have no tab stops", (await page.locator("#panel-model .speech-list .mrow[role=radio], .card[role=radiogroup], .mrow[tabindex]").count()) === 0);
   check("Active shown for the loaded model", (await row("Small").locator(".pill-active").count()) === 1 && (await row("Medium").locator(".pill-active").count()) === 0);
   check("unsupported row has no action button and keeps its reasons", (await row("Large v3").locator(".mrow-head button").count()) === 0 && (await row("Large v3").locator(".reasons li").count()) === 2);
-  check("every row shows its full SHA-256 as selectable text", (await page.locator(".mrow-hash").allTextContents()).every((t) => /^[0-9a-f]{64}$/.test(t))
-    && (await page.locator(".mrow-hash").first().evaluate((e) => getComputedStyle(e).userSelect)) === "text");
+  check("every row shows its full SHA-256 as selectable text", (await page.locator("#panel-model .speech-list .mrow-hash").allTextContents()).every((t) => /^[0-9a-f]{64}$/.test(t))
+    && (await page.locator("#panel-model .speech-list .mrow-hash").first().evaluate((e) => getComputedStyle(e).userSelect)) === "text");
   check("no Delete on the active model or one not on disk", (await row("Small").getByRole("button", { name: /^Delete/ }).count()) === 0 && (await row("Medium").getByRole("button", { name: /^Delete/ }).count()) === 0);
   await row("Large v3").getByRole("button", { name: "View Large v3 on Hugging Face" }).click();
   check("Hugging Face opens through the app by model id, even for an unsupported model", (await calls(page)).includes("open_model_page:large-v3"), await calls(page));
@@ -705,30 +873,30 @@ for (const dark of [false, true]) {
 }
 {
   const { page, ctx } = await open("?view=main&tab=model&scheme=light&active=none");
-  const small = page.locator(".mrow", { hasText: "Small" });
+  const small = page.locator("#panel-model .speech-list .mrow", { hasText: "Small" });
   check("Active follows the loaded model, not config.model", (await small.locator(".pill-active").count()) === 0 && (await small.locator(".mrow-head button").textContent()) === "Use");
   check("the chosen model is not offered for deletion while it is not loaded", (await small.getByRole("button", { name: /^Delete/ }).count()) === 0);
   await ctx.close();
 }
 {
   const { page, ctx } = await open("?view=main&tab=model&scheme=light&downloading=medium");
-  const med = page.locator(".mrow", { hasText: "Medium" });
+  const med = page.locator("#panel-model .speech-list .mrow", { hasText: "Medium" });
   check("a download already running shows at once", (await med.locator(".pill-busy").textContent()) === "Downloading" && (await med.locator("[role=progressbar]").count()) === 1);
   await ctx.close();
 }
 {
   const { page, ctx } = await open("?view=main&tab=model&scheme=light&fail=medium");
-  const med = page.locator(".mrow", { hasText: "Medium" });
+  const med = page.locator("#panel-model .speech-list .mrow", { hasText: "Medium" });
   await med.locator(".mrow-head button").click();
   await page.locator("dialog.dlg .btn-action").click();
   await page.waitForTimeout(3200);
   check("failed download shows the error, offers Download again, keeps Small active",
-    (await med.locator(".model-error").count()) === 1 && (await med.locator(".mrow-head button").textContent()) === "Download 514 MB" && (await page.locator(".mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
+    (await med.locator(".model-error").count()) === 1 && (await med.locator(".mrow-head button").textContent()) === "Download 514 MB" && (await page.locator("#panel-model .speech-list .mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
   await ctx.close();
 }
 {
   const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light&have=medium");
-  const med = page.locator(".mrow", { hasText: "Medium" });
+  const med = page.locator("#panel-model .speech-list .mrow", { hasText: "Medium" });
   const del = med.getByRole("button", { name: "Delete Medium" });
   await del.click();
   await page.waitForTimeout(250);
@@ -743,7 +911,7 @@ for (const dark of [false, true]) {
   await page.waitForTimeout(400);
   check("confirmed delete removes it: Download again, no Delete, Small still active",
     (await calls(page)).includes("delete_model:medium") && (await med.locator(".mrow-head button").textContent()) === "Download 514 MB"
-    && (await med.getByRole("button", { name: /^Delete/ }).count()) === 0 && (await page.locator(".mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
+    && (await med.getByRole("button", { name: /^Delete/ }).count()) === 0 && (await page.locator("#panel-model .speech-list .mrow", { hasText: "Small" }).locator(".pill-active").count()) === 1);
   check("no page errors (model delete)", errors.length === 0, errors);
   await ctx.close();
 }

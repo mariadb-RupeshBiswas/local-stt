@@ -259,6 +259,102 @@ impl Drop for VoiceEmbedder {
     }
 }
 
+extern "C" {
+    fn lstt_llm_load(path: *const c_char, gpu_layers: c_int) -> *mut c_void;
+    fn lstt_llm_free(model: *mut c_void);
+    fn lstt_llm_set_abort(on: c_int);
+    fn lstt_llm_generate(
+        model: *mut c_void,
+        prompt: *const c_char,
+        grammar: *const c_char,
+        root: *const c_char,
+        n_ctx: c_int,
+        max_tokens: c_int,
+        threads: c_int,
+        out: *mut c_char,
+        out_len: c_int,
+    ) -> c_int;
+}
+
+/// A language model for note summaries, through llama.cpp.
+pub struct Llm {
+    model: *mut c_void,
+}
+
+// SAFETY: the model is only used from the summary thread that owns it.
+unsafe impl Send for Llm {}
+
+const LLM_OUT_LEN: usize = 256 * 1024;
+
+impl Llm {
+    /// None when the file cannot be loaded; Apple silicon runs every layer on the GPU.
+    pub fn load(path: &Path) -> Option<Self> {
+        let c = CString::new(path.to_str()?).ok()?;
+        let gpu_layers = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+            999
+        } else {
+            0
+        };
+        // SAFETY: c is NUL-terminated and outlives the call; the shim copies what it needs.
+        let model = unsafe { lstt_llm_load(c.as_ptr(), gpu_layers) };
+        (!model.is_null()).then_some(Self { model })
+    }
+
+    /// The reply to one prompt, held to the grammar's `root` rule.
+    pub fn generate(
+        &self,
+        prompt: &str,
+        grammar: &str,
+        root: &str,
+        n_ctx: u32,
+        max_tokens: u32,
+        threads: u32,
+    ) -> Result<String, String> {
+        let prompt = CString::new(prompt).map_err(|_| "prompt holds a NUL byte")?;
+        let grammar = CString::new(grammar).map_err(|_| "grammar holds a NUL byte")?;
+        let root = CString::new(root).map_err(|_| "root holds a NUL byte")?;
+        let mut out = vec![0 as c_char; LLM_OUT_LEN];
+        // SAFETY: model is live; the strings are NUL-terminated; out holds LLM_OUT_LEN bytes, the length passed.
+        let rc = unsafe {
+            lstt_llm_generate(
+                self.model,
+                prompt.as_ptr(),
+                grammar.as_ptr(),
+                root.as_ptr(),
+                n_ctx as c_int,
+                max_tokens as c_int,
+                threads.max(1) as c_int,
+                out.as_mut_ptr(),
+                LLM_OUT_LEN as c_int,
+            )
+        };
+        match rc {
+            n if n >= 0 => {
+                // SAFETY: on success the shim wrote a NUL-terminated string into out.
+                let text = unsafe { CStr::from_ptr(out.as_ptr()) };
+                Ok(text.to_string_lossy().into_owned())
+            }
+            -2 => Err("the note part is too long for the model".into()),
+            -3 => Err("the reply is too long".into()),
+            -4 => Err("stopped".into()),
+            _ => Err("the model could not write a reply".into()),
+        }
+    }
+}
+
+/// Stops a running summary at its next token (on quit).
+pub fn abort_llm(on: bool) {
+    // SAFETY: sets an atomic flag in the shim; no pointers involved.
+    unsafe { lstt_llm_set_abort(c_int::from(on)) }
+}
+
+impl Drop for Llm {
+    fn drop(&mut self) {
+        // SAFETY: model came from lstt_llm_load, is non-null, and is freed exactly once here.
+        unsafe { lstt_llm_free(self.model) }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::clean;
