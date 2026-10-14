@@ -6,6 +6,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Windows: notes tell the call's voices apart and Learn my voice works, as on the Mac. The voice
+  library is sherpa-onnx's Windows build, pinned by checksum like the Mac one.
+
 ## [0.8.0] - 2026-10-14
 
 ### Added

@@ -126,7 +126,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 
 - Works with Zoom, Google Meet, Teams, Slack, or any app that plays sound. No bot joins the call.
 - Audio is never saved. Each few seconds of speech is transcribed and then dropped.
-- On a Mac with Apple silicon, the call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
+- The call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
 - **Learn my voice** (Settings, on by default): your own voice fingerprint is built from your dictations and kept on your computer in `voice.json`, readable only by you. Notes use it to tell you from a person sitting in the room, who then gets a Speaker label instead of Me. It is numbers, never audio, and other people's voices are never stored. Turn it off and the file is deleted.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
 - Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
