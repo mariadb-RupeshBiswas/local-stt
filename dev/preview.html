@@ -381,6 +381,8 @@
       entries.unshift({ ts_ms: now - minute, text: "<img src=x onerror=window.__pwned=1> & <b>bold</b>", duration_ms: 1000, model: "small", ok: true });
     }
     var winReasons = platform === "windows";
+    var ram = parseInt(params.get("ram"), 10) || 8; // ?ram=24 is a bigger computer, for the summary model fit
+    var bigGemma = ram >= 16;
     var hold = platform === "windows" ? { modifiers: ["Ctrl", "Alt"], key: null } : { modifiers: ["Fn", "Shift"], key: null };
     var toggle = params.get("toggle") === "off" ? null : params.get("toggle") === "custom" ? { modifiers: ["Ctrl", "Alt"], key: "H" } : { modifiers: hold.modifiers.slice(), key: "Space" };
     return {
@@ -407,15 +409,17 @@
             : ["Needs 16 GB RAM, this Mac has 8 GB", "Free disk space could not be read"] }
       ],
       hardware: winReasons
-        ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: 8, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
-        : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: 8, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: null },
-      // ?summary=granite puts Granite on disk; Gemma is recommended on the Mac, Granite on Windows
+        ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: ram, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
+        : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: ram, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: params.get("ram") ? 200 : null },
+      // like the app: Gemma needs 16 GB and is recommended only where the GPU runs it; ?summary=granite puts Granite on disk
       summaryModels: [
         { id: "granite-micro", label: "Granite 4.0 Micro", maker: "IBM", about: "Fastest and smallest. Good summaries; may guess who owns a task.", size_mb: 2002,
-          supported: true, recommended: !!winReasons, downloaded: params.get("summary") === "granite", reasons: [], hint: null,
+          supported: true, recommended: !(bigGemma && !winReasons), downloaded: params.get("summary") === "granite", reasons: [], hint: null,
           sha256: "97c417dcc0534b0737c74016fb2af083cb17c3b51eaac621192d23961b7024eb" },
         { id: "gemma4-e4b", label: "Gemma 4 E4B", maker: "Google", about: "Best summaries: catches deadlines and says when a task has no owner. Slower and larger.", size_mb: 4916,
-          supported: true, recommended: !winReasons, downloaded: false, reasons: [], hint: winReasons ? "Runs on the CPU here: several minutes per call" : null,
+          supported: bigGemma, recommended: bigGemma && !winReasons, downloaded: false,
+          reasons: bigGemma ? [] : ["Needs 16 GB RAM, this computer has " + ram + " GB"],
+          hint: bigGemma && winReasons ? "Runs on the CPU here: several minutes per call" : null,
           sha256: "676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee" }
       ],
       summaryDownloading: null,

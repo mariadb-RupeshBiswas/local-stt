@@ -543,11 +543,11 @@ for (const dark of [false, true]) {
 
 // ---------- main: summary models in the Model tab, and note summaries ----------
 {
-  const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light");
+  const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light&ram=24");
   const panel = page.locator("#panel-model .summary-list");
   check("the Model tab has Speech model and Summary model sections", (await page.locator("#panel-model .group-title").allTextContents()).join(",") === "This computer,Speech model,Summary model");
   check("the Summary model section lists both summary models", (await panel.locator(".mrow-name").allTextContents()).join(",") === "Granite 4.0 Micro,Gemma 4 E4B");
-  check("on a Mac with a GPU, Gemma is recommended", (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 0);
+  check("on a 24 GB Mac with a GPU, Gemma is recommended", (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 0);
   check("each row says who made it and what it is good at", (await panel.locator(".mrow-about").first().textContent()).startsWith("IBM. Fastest and smallest."));
   await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".btn-action").click();
   await page.waitForTimeout(200);
@@ -561,9 +561,15 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 {
-  const { page, ctx } = await open("?view=main&tab=model&scheme=light&platform=windows");
+  const { page, ctx } = await open("?view=main&tab=model&scheme=light&platform=windows&ram=32");
   const panel = page.locator("#panel-model .summary-list");
   check("on Windows, Granite is recommended and Gemma warns it runs on the CPU", (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".reasons").textContent()).includes("Runs on the CPU here"));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=model&scheme=light");
+  const panel = page.locator("#panel-model .summary-list");
+  check("on an 8 GB Mac, Granite is recommended and Gemma says it needs 16 GB", (await panel.locator(".mrow", { hasText: "Granite" }).locator(".tag-blue").count()) === 1 && (await panel.locator(".mrow", { hasText: "Gemma 4 E4B" }).locator(".reasons").textContent()).includes("Needs 16 GB RAM"));
   await ctx.close();
 }
 {
