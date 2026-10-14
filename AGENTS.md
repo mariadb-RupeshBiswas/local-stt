@@ -19,6 +19,7 @@ whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local
 | Build | `cargo build` |
 | Unit tests | `cargo test --lib --bins` |
 | Engine tests | `LOCAL_STT_TEST_MODEL=<path to ggml-small-q5_1.bin> cargo test --release --test engine` |
+| Summary tests | `LOCAL_STT_TEST_SUMMARY_MODEL=<path to a summary model .gguf> cargo test --release --test summary` (add `LOCAL_STT_TEST_SUMMARY_NOTE=<saved note .json>` for a real call) |
 | Lint | `cargo fmt --all --check && cargo clippy --all-targets -- -D warnings` |
 | Wheel | `uvx maturin build --release` then `uvx --from target/wheels/<file>.whl local-stt` |
 | UI checks | `cd dev/ui-tests && npm ci --ignore-scripts && npm test` (headless Chrome against `dev/preview.html`) |
@@ -26,7 +27,8 @@ whisper.cpp compiled in, shipped as a Python wheel through maturin so `uvx local
 | Hardware report | `cargo run -- doctor` |
 | Note pipeline on real audio (macOS, needs mic and System Audio permission) | `cargo run --release --example note_probe -- 20` while something plays |
 
-Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pinned to a release commit.
+Clone with `--recurse-submodules`; whisper.cpp lives in `vendor/whisper.cpp` pinned to a release commit, and
+llama.cpp in `vendor/llama.cpp` at the commit whose ggml matches it (libllama builds on whisper's ggml).
 `LOCAL_STT_DATA_DIR` overrides the app data folder, which keeps tests away from real user data.
 `LOCAL_STT_NO_PERMISSION_PROMPTS=1` starts without the Accessibility prompt, and
 `LOCAL_STT_EXIT_AFTER_MS=<ms>` quits the app after that long, for headless start-and-quit checks.
@@ -48,6 +50,7 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/recorder.rs`, `src/audio.rs`, `src/sound.rs` | Microphone capture, resampling, level, cues |
 | `src/hotkey/` | Combo matching (pure) and OS keyboard hooks |
 | `src/output/` | Synthetic paste keystroke; Windows console detach |
+| `src/summary/`, `llm_shim.cpp` | Note summaries: model catalog and hardware fit, the part-by-part writer with its grammar, background download and run |
 | `src/notes/` | Meeting notes: store (`mod.rs`), segmenter, tidy pass, recording session, voices (telling speakers apart) |
 | `src/insights/`, `src/localtime/` | Insights: workday streak and freezes (pure), word counts and part-of-speech tagger, `insights.json`; local date and hour from the OS |
 | `src/focus/` | The focused window's centre, so the pill shows on that screen |

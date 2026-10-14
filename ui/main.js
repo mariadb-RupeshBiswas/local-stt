@@ -26,6 +26,7 @@
     { value: "notes", label: "Notes" },
     { value: "insights", label: "Insights" },
     { value: "model", label: "Model" },
+    { value: "summary", label: "Summary" },
     { value: "settings", label: "Settings" }
   ];
   var LANGUAGES = ("en:English|zh:Chinese|de:German|es:Spanish|ru:Russian|ko:Korean|fr:French|ja:Japanese|pt:Portuguese|tr:Turkish|" +
@@ -299,6 +300,10 @@
       openStatus: "done", // recording, tidying or done
       progress: {},
       modelErrors: {},
+      summaryModels: [], // summary model fits from the app
+      summaryDownloading: null,
+      summarizing: null, // the note id being summarized
+      summaryStep: null, // { done, total } for that note
       activeModel: null, // the model actually loaded, which config.model may not be
       downloading: null,
       loadingModel: "",
@@ -384,11 +389,11 @@
 
     // ---------- keyboard shortcuts ----------
 
-    // Cmd on macOS, Ctrl on Windows: 1 to 5 pick a tab, F searches the history, W closes the window
+    // Cmd on macOS, Ctrl on Windows: 1 to 6 pick a tab, F searches the history, W closes the window
     function onShortcut(event) {
       var mod = S.platform === "windows" ? event.ctrlKey : event.metaKey;
       if (!mod || event.altKey || event.shiftKey || S.capturingSlot || dialog.open) return;
-      var tab = { "1": "history", "2": "notes", "3": "insights", "4": "model", "5": "settings" }[event.key];
+      var tab = { "1": "history", "2": "notes", "3": "insights", "4": "model", "5": "summary", "6": "settings" }[event.key];
       var win = tauri && tauri.window && tauri.window.getCurrentWindow ? tauri.window.getCurrentWindow() : null;
       if ((event.key === "w" || event.key === "W") && win) {
         event.preventDefault();
@@ -455,6 +460,9 @@
       S.installed = state.installed === true;
       S.activeModel = typeof state.activeModel === "string" ? state.activeModel : null;
       S.downloading = typeof state.downloading === "string" ? state.downloading : null;
+      S.summaryModels = Array.isArray(state.summaryModels) ? state.summaryModels : [];
+      S.summaryDownloading = typeof state.summaryDownloading === "string" ? state.summaryDownloading : null;
+      S.summarizing = typeof state.summarizing === "string" ? state.summarizing : null;
       S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
       S.accessibility = typeof state.accessibility === "boolean" ? state.accessibility : null;
       S.update = state.update && typeof state.update === "object" ? state.update : null;
@@ -466,6 +474,7 @@
         };
       }
       if (S.downloading && !S.progress[S.downloading]) S.progress[S.downloading] = { downloaded: null, total: null };
+      if (S.summaryDownloading && !S.progress[S.summaryDownloading]) S.progress[S.summaryDownloading] = { downloaded: null, total: null };
       if (S.loadingModel && S.loadingModel === S.activeModel) S.loadingModel = "";
       S.loaded = true;
       S.loadError = "";
@@ -1207,6 +1216,7 @@
 
     function noteText(note) {
       var lines = [noteTitle(note), new Date(note.started_ms).toLocaleString(), ""];
+      if (note.summary) lines = lines.concat(summaryText(note), [""]);
       (note.segments || []).forEach(function (seg) {
         lines.push(speakerName(seg.speaker, note) + " (" + clock(seg.start_ms) + "): " + seg.text);
       });
@@ -1322,6 +1332,7 @@
           if (S.notes.active) timer.textContent = clock(Date.now() - S.notes.active.startedMs);
         }, 1000);
       }
+      if (S.openStatus === "done") noteView.appendChild(summaryCard(note));
       var card = h("div", { class: "card transcript", role: "log", "aria-live": recording ? "polite" : "off" });
       noteView.appendChild(card);
       renderTranscript(card);
@@ -1538,17 +1549,18 @@
     }
 
     // the checksum and a link to the same file on Hugging Face, where its page shows that checksum too
-    function modelMeta(fit, inUse) {
+    function modelMeta(fit, inUse, ops) {
+      ops = ops || { page: openModelPage, del: askDeleteModel };
       var hash = typeof fit.sha256 === "string" && fit.sha256 ? fit.sha256 : "-";
       var page = h("button", {
         class: "btn btn-quiet",
         type: "button",
         text: "View on Hugging Face",
         "aria-label": "View " + dash(fit.label) + " on Hugging Face",
-        onclick: function () { openModelPage(fit); }
+        onclick: function () { ops.page(fit); }
       });
       var del = fit.downloaded && !inUse
-        ? h("button", { class: "btn btn-danger btn-icon", type: "button", "aria-label": "Delete " + dash(fit.label), onclick: function () { askDeleteModel(fit); } }, icon("trash"), h("span", { text: "Delete" }))
+        ? h("button", { class: "btn btn-danger btn-icon", type: "button", "aria-label": "Delete " + dash(fit.label), onclick: function () { ops.del(fit); } }, icon("trash"), h("span", { text: "Delete" }))
         : null;
       return h("div", { class: "mrow-meta" },
         h("span", { class: "mrow-sum" }, "SHA-256 ", h("span", { class: "mrow-hash", text: hash })),
@@ -1616,7 +1628,7 @@
     }
 
     function paintProgress(id) {
-      var ref = progressRefs[id];
+      var ref = progressRefs[id] || summaryRefs[id];
       var info = S.progress[id];
       if (!ref || !info) return;
       var known = typeof info.total === "number" && info.total > 0 && typeof info.downloaded === "number";
@@ -1680,6 +1692,223 @@
         if (S.loadingModel === fit.id) S.loadingModel = "";
         S.modelErrors[fit.id] = errText(err);
         renderModels();
+      });
+    }
+
+
+    // ---------- Summary ----------
+
+    var summaryPanel = panels.summary;
+    var summaryRefs = {};
+
+    // the model a Summarize click uses, as the app picks it: chosen and downloaded, else the recommended one
+    function summaryModel() {
+      var list = S.summaryModels || [];
+      var chosen = S.config && S.config.summary_model;
+      var usable = list.filter(function (f) { return f.downloaded && f.supported; });
+      return usable.filter(function (f) { return f.id === chosen; })[0] ||
+        usable.filter(function (f) { return f.recommended; })[0] ||
+        usable[usable.length - 1] || null;
+    }
+
+    function summaryRow(fit) {
+      var used = summaryModel();
+      var inUse = !!used && used.id === fit.id;
+      var progress = S.progress[fit.id];
+      var busy = !!progress || (inUse && !!S.summarizing);
+      var disabled = !fit.supported;
+      var reasons = Array.isArray(fit.reasons) ? fit.reasons : [];
+      var badges = h("span", { class: "badges" },
+        fit.recommended ? h("span", { class: "tag tag-blue", text: "Recommended" }) : null,
+        fit.downloaded ? h("span", { class: "tag tag-green", text: "Downloaded" }) : null,
+        disabled ? h("span", { class: "tag tag-grey", text: "Not supported" }) : null
+      );
+      var action = null;
+      if (progress) action = h("span", { class: "pill pill-busy", text: "Downloading" });
+      else if (inUse) action = h("span", { class: "pill pill-active" }, icon("check"), "In use");
+      else if (!disabled) {
+        var size = sizeText(fit);
+        action = h("button", {
+          class: "btn btn-action", type: "button",
+          text: fit.downloaded ? "Use" : size ? "Download " + size : "Download",
+          "aria-label": (fit.downloaded ? "Use " : "Download ") + dash(fit.label) + (fit.downloaded || !size ? "" : ", " + size),
+          onclick: function () { requestSummaryModel(fit); }
+        });
+      }
+      var detail = null;
+      if (progress) {
+        var track = h("div", { class: "track", role: "progressbar", "aria-label": "Download progress", "aria-valuemin": "0", "aria-valuemax": "100" }, h("i"));
+        var line = h("div", { class: "progress-text" });
+        summaryRefs[fit.id] = { track: track, bar: track.firstChild, text: line };
+        paintProgress(fit.id);
+        detail = h("div", { class: "progress" }, track, line);
+      }
+      var notes = reasons.slice();
+      if (fit.hint) notes.push(fit.hint);
+      var why = notes.length
+        ? h("ul", { class: "reasons" }, notes.map(function (r) { return h("li", {}, icon("info"), h("span", { text: r })); }))
+        : null;
+      var error = S.modelErrors[fit.id] ? h("div", { class: "model-error", role: "alert", text: S.modelErrors[fit.id] }) : null;
+      return h("div", { class: "mrow" + (disabled ? " is-disabled" : "") + (inUse ? " is-active" : ""), role: "listitem" },
+        h("div", { class: "mrow-head" },
+          h("div", { class: "mrow-title" },
+            h("span", { class: "mrow-name", text: dash(fit.label) }),
+            h("span", { class: "mrow-size", text: sizeText(fit) || "-" }),
+            badges
+          ),
+          action
+        ),
+        h("p", { class: "mrow-about", text: dash(fit.maker) + ". " + dash(fit.about) }),
+        modelMeta(fit, busy, { page: openSummaryModelPage, del: askDeleteSummaryModel }), why, detail, error
+      );
+    }
+
+    function renderSummaryTab() {
+      clear(summaryPanel);
+      summaryRefs = {};
+      if (!S.loaded) return;
+      summaryPanel.appendChild(h("h3", { class: "group-title", text: "Summary model" }));
+      summaryPanel.appendChild(h("p", { class: "footnote", text: "Optional. A summary model writes an overview, what each person said and the action items for a note. Notes work without one." }));
+      var list = h("div", { class: "card", role: "list", "aria-label": "Summary models" });
+      S.summaryModels.forEach(function (fit) { list.appendChild(summaryRow(fit)); });
+      summaryPanel.appendChild(list);
+      summaryPanel.appendChild(h("p", { class: "footnote", text: "Recommended fits this computer's memory and graphics. Summaries are written on this computer; the note never leaves it. A download is checked against a fixed checksum before it is used." }));
+    }
+
+    function requestSummaryModel(fit) {
+      if (fit.downloaded) {
+        chooseSummaryModel(fit);
+        return;
+      }
+      var size = sizeText(fit);
+      askConfirm({
+        title: "Download " + dash(fit.label) + "?",
+        body: (size ? size + " will be downloaded from " : "It will be downloaded from ") + dash(fit.maker) + "'s page on Hugging Face, checked against a fixed checksum, and kept on " + thisDevice() + ". After that, summaries need no network.",
+        confirm: size ? "Download " + size : "Download",
+        onConfirm: function () { chooseSummaryModel(fit); }
+      });
+    }
+
+    function chooseSummaryModel(fit) {
+      if (!fit.supported || S.progress[fit.id]) return;
+      delete S.modelErrors[fit.id];
+      if (!fit.downloaded) S.progress[fit.id] = { downloaded: null, total: null };
+      renderSummaryTab();
+      Promise.resolve(invoke("choose_summary_model", { id: fit.id })).then(function () {
+        if (fit.downloaded) return refreshState();
+      }).catch(function (err) {
+        delete S.progress[fit.id];
+        S.modelErrors[fit.id] = errText(err);
+        renderSummaryTab();
+      });
+    }
+
+    function openSummaryModelPage(fit) {
+      Promise.resolve(invoke("open_summary_model_page", { id: fit.id })).catch(function (err) { toast(errText(err)); });
+    }
+
+    function askDeleteSummaryModel(fit) {
+      var size = sizeText(fit);
+      askConfirm({
+        title: "Delete " + dash(fit.label) + "?",
+        body: (size ? "This frees " + size + " on " : "This removes it from ") + thisDevice() + ". Summaries you already have stay.",
+        confirm: "Delete",
+        danger: true,
+        onConfirm: function () {
+          delete S.modelErrors[fit.id];
+          Promise.resolve(invoke("delete_summary_model", { id: fit.id })).then(function () {
+            toast(dash(fit.label) + " deleted.");
+            return refreshState();
+          }).catch(function (err) {
+            S.modelErrors[fit.id] = errText(err);
+            renderSummaryTab();
+          });
+        }
+      });
+    }
+
+    // the summary as plain lines, for Copy note
+    function summaryText(note) {
+      var sum = note.summary;
+      var lines = ["Summary", sum.overview || ""];
+      (sum.by_speaker || []).forEach(function (p) {
+        lines.push("", speakerName(p.speaker, note) + ":");
+        (p.points || []).forEach(function (point) { lines.push("- " + point); });
+      });
+      if ((sum.action_items || []).length) {
+        lines.push("", "Action items:");
+        sum.action_items.forEach(function (a) {
+          lines.push("- " + a.task + " (" + (a.owner ? speakerName(a.owner, note) : "Unassigned") + ", " + clock(a.at_ms) + ")");
+        });
+      }
+      return lines;
+    }
+
+    function summaryCard(note) {
+      var box = h("section", { class: "card note-summary", "aria-label": "Summary" });
+      var head = h("div", { class: "sum-head" }, h("h3", { class: "sum-title", text: "Summary" }));
+      box.appendChild(head);
+      var mine = S.summarizing === note.id;
+      if (mine) {
+        var step = S.summaryStep;
+        var part = step && typeof step.total === "number" && step.total > 0
+          ? "Summarizing: step " + Math.min(step.done + 1, step.total) + " of " + step.total + "..."
+          : "Summarizing...";
+        box.appendChild(h("p", { class: "sum-busy", role: "status", text: part }));
+        box.appendChild(h("p", { class: "footnote", text: "This runs on this computer and can take a few minutes for a long call." }));
+        return box;
+      }
+      var model = summaryModel();
+      var label = note.summary ? "Summarize Again" : "Summarize";
+      if (model) {
+        head.appendChild(h("button", { class: note.summary ? "btn" : "btn btn-action", type: "button", text: label,
+          disabled: !!S.summarizing, onclick: function () { summarize(note.id); } }));
+      } else {
+        head.appendChild(h("button", { class: "btn", type: "button", text: "Choose a Summary Model", onclick: function () { showTab("summary"); } }));
+      }
+      if (!note.summary) {
+        box.appendChild(h("p", { class: "sum-empty", text: model
+          ? "An overview, what each person said and the action items, written on this computer with " + dash(model.label) + "."
+          : "Download a summary model in the Summary tab to summarize notes on this computer." }));
+        return box;
+      }
+      var sum = note.summary;
+      box.appendChild(h("p", { class: "sum-overview", text: sum.overview || "-" }));
+      if ((sum.by_speaker || []).length) {
+        box.appendChild(h("h4", { class: "sum-sub", text: "Who said what" }));
+        var people = h("div", { class: "sum-people" });
+        sum.by_speaker.forEach(function (p) {
+          people.appendChild(h("div", { class: "sum-person" },
+            h("div", { class: "sum-name", text: speakerName(p.speaker, note) }),
+            h("ul", { class: "sum-list" }, (p.points || []).map(function (point) { return h("li", { text: point }); }))
+          ));
+        });
+        box.appendChild(people);
+      }
+      box.appendChild(h("h4", { class: "sum-sub", text: "Action items" }));
+      var items = sum.action_items || [];
+      box.appendChild(items.length
+        ? h("ul", { class: "sum-list sum-actions" }, items.map(function (a) {
+          return h("li", {},
+            h("span", { text: a.task }),
+            h("span", { class: "sum-owner", text: (a.owner ? speakerName(a.owner, note) : "Unassigned") + ", " + clock(a.at_ms) })
+          );
+        }))
+        : h("p", { class: "sum-empty", text: "None found." }));
+      var made = (S.summaryModels || []).filter(function (f) { return f.id === sum.model; })[0];
+      box.appendChild(h("p", { class: "footnote", text: "Written on this computer by " + (made ? made.label : "a summary model") + ". Check it against the transcript below." }));
+      return box;
+    }
+
+    function summarize(id) {
+      if (S.summarizing) return;
+      S.summarizing = id;
+      S.summaryStep = null;
+      renderNoteView();
+      Promise.resolve(invoke("summarize_note", { id: id })).catch(function (err) {
+        S.summarizing = null;
+        toast("Couldn't summarize: " + errText(err));
+        renderNoteView();
       });
     }
 
@@ -3150,7 +3379,7 @@
 
     function renderAll() {
       if (!S.loaded) {
-        [panels.history, panels.notes, panels.insights, panels.model, panels.settings].forEach(function (p) { clear(p); });
+        [panels.history, panels.notes, panels.insights, panels.model, panels.summary, panels.settings].forEach(function (p) { clear(p); });
         if (S.loadError) {
           panels[S.tab].appendChild(emptyState("Couldn't load", S.loadError,
             h("button", { class: "btn", type: "button", text: "Try Again", onclick: refreshState })));
@@ -3170,6 +3399,7 @@
       }
       renderNotesList();
       renderModels();
+      renderSummaryTab();
       buildSettings();
       renderHistoryList();
     }
@@ -3201,6 +3431,43 @@
       }
       obDownloadDone(p);
       refreshState();
+    });
+
+    subscribe("summary-model-progress", function (p) {
+      if (!p || !p.id) return;
+      S.progress[p.id] = { downloaded: p.downloaded, total: p.total };
+      if (summaryRefs[p.id]) paintProgress(p.id);
+      else if (S.loaded) renderSummaryTab();
+    });
+
+    subscribe("summary-model-done", function (p) {
+      if (!p || !p.id) return;
+      delete S.progress[p.id];
+      if (p.ok === false) {
+        S.modelErrors[p.id] = p.error || "The download failed.";
+        toast(S.modelErrors[p.id]);
+      } else {
+        toast("Summary model ready.");
+      }
+      refreshState();
+    });
+
+    subscribe("note-summary-progress", function (p) {
+      if (!p || p.id !== S.summarizing) return;
+      S.summaryStep = { done: p.done, total: p.total };
+      var busy = noteView.querySelector(".sum-busy");
+      if (busy && S.openNote && S.openNote.id === p.id && typeof p.total === "number" && p.total > 0) {
+        busy.textContent = "Summarizing: step " + Math.min(p.done + 1, p.total) + " of " + p.total + "...";
+      }
+    });
+
+    subscribe("note-summary", function (p) {
+      if (!p || typeof p.id !== "string") return;
+      S.summarizing = null;
+      S.summaryStep = null;
+      if (p.ok === false) toast("Couldn't summarize: " + (p.error || "the model stopped."));
+      else announce("Summary ready.");
+      if (S.openNote && S.openNote.id === p.id) openNote(p.id);
     });
 
     subscribe("mic-check-level", function (p) {

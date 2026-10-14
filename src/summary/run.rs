@@ -91,6 +91,25 @@ pub fn start_summarize(app: AppHandle, note_id: String) -> Result<(), String> {
     Ok(())
 }
 
+// Re-checks the pinned checksum once per run, so a damaged or swapped file is never parsed.
+fn verify_once(model: SummaryModelId, path: &std::path::Path) -> Result<(), String> {
+    static VERIFIED: std::sync::Mutex<Vec<SummaryModelId>> = std::sync::Mutex::new(Vec::new());
+    let mut done = lock(&VERIFIED);
+    if done.contains(&model) {
+        return Ok(());
+    }
+    let sum =
+        crate::download::sha256_file(path).map_err(|e| format!("cannot read the model: {e}"))?;
+    if sum != super::info(model).sha256 {
+        return Err(format!(
+            "{} does not match its checksum. Delete it in the Summary tab and download it again.",
+            super::info(model).label
+        ));
+    }
+    done.push(model);
+    Ok(())
+}
+
 fn summarize(
     app: &AppHandle,
     note: &crate::notes::Note,
@@ -98,6 +117,7 @@ fn summarize(
     user_name: Option<&str>,
 ) -> Result<(), String> {
     let path = super::path(&paths::models_dir(), model);
+    verify_once(model, &path)?;
     let llm = crate::engine::Llm::load(&path)
         .ok_or_else(|| format!("{} could not be loaded.", super::info(model).label))?;
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get() as u32);

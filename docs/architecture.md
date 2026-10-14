@@ -62,7 +62,7 @@ becomes a paste.**
 | State machine | `src/state.rs` | Decides what a key press means right now (start, stop, cancel, hands-free) |
 | Hotkey hook | `src/hotkey/` | Listens to the keyboard; one file per operating system |
 | Recorder | `src/recorder.rs`, `src/audio.rs` | Opens the microphone and turns its sound into 16 kHz mono samples |
-| Engine | `src/engine.rs`, `shim.cpp` | Talks to whisper.cpp; the small C++ shim stops C++ errors crashing Rust |
+| Engine | `src/engine.rs`, `shim.cpp`, `llm_shim.cpp` | Talks to whisper.cpp and llama.cpp; the small C++ shims stop C++ errors crashing Rust |
 | Smart formatting | `src/format.rs` | Rules that tidy the text |
 | Paste | `src/output/`, `src/clipboard.rs` | The paste key press and the private clipboard write |
 | Pill placement | `src/overlay.rs`, `src/focus/` | Where the pill goes: the screen you are typing on, your saved spot |
@@ -96,6 +96,10 @@ Notes reuse the same engine for a whole call instead of one dictation:
 6. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
    lines from one speaker and cuts the other side's words out of your lines where the mic heard
    them from the speakers (runs of three or more words, or whole lines).
+7. **Summarized on request.** `src/summary/` picks the language models that fit this computer
+   (`mod.rs`), writes the summary in parts and joins them (`write.rs`), and runs downloads and
+   summaries off the UI thread (`run.rs`). llama.cpp runs through `llm_shim.cpp` and `Llm` in
+   `src/engine.rs`; a fixed grammar holds each reply to JSON, and the summary is saved into the note.
 
 ## Insights
 

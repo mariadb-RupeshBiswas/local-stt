@@ -460,6 +460,20 @@ body {
 .turn-others .turn-name { color: var(--label-2); }
 .turn-time { font-size: 11px; color: var(--label-2); font-variant-numeric: tabular-nums; }
 .turn-text { font-size: 14px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; -webkit-user-select: text; user-select: text; }
+/* the summary sits above the transcript; selectable like the transcript */
+.note-summary { padding: var(--s3) var(--s4); margin-bottom: var(--s4); -webkit-user-select: text; user-select: text; }
+.note-summary > * + * { border-top: 0; }
+.sum-head { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); }
+.sum-title { margin: 0; font-size: 15px; font-weight: 600; }
+.sum-overview { margin: var(--s2) 0 0; font-size: 14px; line-height: 1.5; }
+.sum-sub { margin: var(--s4) 0 var(--s1); font-size: 12px; font-weight: 600; color: var(--label-2); }
+.sum-people { display: grid; gap: var(--s3); }
+.sum-name { font-size: 13px; font-weight: 600; }
+.sum-list { margin: 2px 0 0; padding-left: 1.2em; font-size: 14px; line-height: 1.45; }
+.sum-list li { margin: 2px 0; overflow-wrap: anywhere; }
+.sum-owner { margin-left: var(--s2); font-size: 12px; color: var(--label-2); }
+.sum-empty, .sum-busy { margin: var(--s2) 0 0; font-size: 13px; color: var(--label-2); }
+.mrow-about { margin: 4px 0 0; font-size: 13px; color: var(--label-2); }
 .turn-empty { padding: 20px var(--s4); color: var(--label-2); font-size: 13px; }
 .consent-line { padding: 10px 12px; border-radius: var(--r-sm); background: var(--fill); font-style: italic; }
 

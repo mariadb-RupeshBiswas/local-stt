@@ -409,6 +409,17 @@
       hardware: winReasons
         ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: 8, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
         : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: 8, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: null },
+      // ?summary=granite puts Granite on disk; Gemma is recommended on the Mac, Granite on Windows
+      summaryModels: [
+        { id: "granite-micro", label: "Granite 4.0 Micro", maker: "IBM", about: "Fastest and smallest. Good summaries; may guess who owns a task.", size_mb: 2002,
+          supported: true, recommended: !!winReasons, downloaded: params.get("summary") === "granite", reasons: [], hint: null,
+          sha256: "97c417dcc0534b0737c74016fb2af083cb17c3b51eaac621192d23961b7024eb" },
+        { id: "gemma4-e4b", label: "Gemma 4 E4B", maker: "Google", about: "Best summaries: catches deadlines and says when a task has no owner. Slower and larger.", size_mb: 4916,
+          supported: true, recommended: !winReasons, downloaded: false, reasons: [], hint: winReasons ? "Runs on the CPU here: several minutes per call" : null,
+          sha256: "676c35070db6dbe52f93e9c864ee0fba4eddea94b9c875d9cb10daff453fbaee" }
+      ],
+      summaryDownloading: null,
+      summarizing: null,
       activeModel: params.get("active") === "none" || (onboarding && params.get("downloaded") !== "1") ? null : "small",
       demo: params.get("demo") === "1",
       downloading: params.get("downloading") || null,
@@ -665,6 +676,53 @@
           return Promise.reject("This model is in use. Switch to another model first.");
         }
         data.models.forEach(function (m) { if (m.id === a.id) m.downloaded = false; });
+      },
+      choose_summary_model: function (a) {
+        window.__calls.push("choose_summary_model:" + a.id);
+        var fit = data.summaryModels.filter(function (m) { return m.id === a.id; })[0];
+        if (fit.downloaded) { data.config.summary_model = fit.id; return; }
+        var total = fit.size_mb * 1048576;
+        var done = 0;
+        data.summaryDownloading = fit.id;
+        var timer = setInterval(function () {
+          done = Math.min(total, done + total / 10);
+          bus.emit("summary-model-progress", { id: fit.id, downloaded: done, total: total });
+          if (done >= total) {
+            clearInterval(timer);
+            data.summaryDownloading = null;
+            fit.downloaded = true;
+            data.config.summary_model = fit.id;
+            bus.emit("summary-model-done", { id: fit.id, ok: true, error: null });
+          }
+        }, dlMs);
+      },
+      open_summary_model_page: function (a) { window.__calls.push("open_summary_model_page:" + a.id); },
+      delete_summary_model: function (a) {
+        window.__calls.push("delete_summary_model:" + a.id);
+        data.summaryModels.forEach(function (m) { if (m.id === a.id) m.downloaded = false; });
+        if (data.config.summary_model === a.id) data.config.summary_model = null;
+      },
+      // like the app: steps, then the summary saved into the note and a note-summary event
+      summarize_note: function (a) {
+        window.__calls.push("summarize_note:" + a.id);
+        var found = data.noteFiles.filter(function (n) { return n.id === a.id; })[0];
+        data.summarizing = a.id;
+        var step = 0;
+        var timer = setInterval(function () {
+          bus.emit("note-summary-progress", { id: a.id, done: step, total: 3 });
+          step += 1;
+          if (step > 3) {
+            clearInterval(timer);
+            data.summarizing = null;
+            found.summary = {
+              model: data.config.summary_model || "granite-micro", made_ms: Date.now(),
+              overview: "The team reviewed the September numbers and agreed who sends the deck.",
+              by_speaker: [{ speaker: "me", points: ["Asked for the deck by Thursday"] }, { speaker: "others", points: ["Revenue is up eight percent"] }],
+              action_items: [{ owner: "others", task: "Send the updated deck to the team", at_ms: 12000 }, { owner: null, task: "Book a follow-up call", at_ms: 30000 }]
+            };
+            bus.emit("note-summary", { id: a.id, ok: true, error: null });
+          }
+        }, 150);
       },
       choose_model: function (a) {
         window.__calls.push("choose_model:" + a.id);

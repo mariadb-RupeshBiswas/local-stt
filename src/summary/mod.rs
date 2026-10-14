@@ -93,7 +93,6 @@ pub fn delete(models_dir: &Path, id: SummaryModelId) -> Result<(), String> {
 }
 
 #[derive(Serialize, Clone, Debug, PartialEq)]
-#[serde(rename_all = "camelCase")]
 pub struct Fit {
     pub id: SummaryModelId,
     pub label: String,
