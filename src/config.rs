@@ -65,6 +65,8 @@ pub struct Config {
     /// The version that last started, so the first start of a new one can say it was updated.
     pub last_version: Option<String>,
     pub model: ModelId,
+    /// The language model chosen for note summaries; None until one is downloaded.
+    pub summary_model: Option<crate::summary::SummaryModelId>,
 }
 
 impl Default for Config {
@@ -96,6 +98,7 @@ impl Default for Config {
             accessibility_prompted: None,
             last_version: None,
             model: ModelId::Small,
+            summary_model: None,
         }
     }
 }

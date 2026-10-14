@@ -88,6 +88,9 @@ pub struct Shared {
     pub ctrl: Mutex<Sender<Msg>>,
     pub downloading: Mutex<Option<ModelId>>,
     pub active_model: Mutex<Option<ModelId>>,
+    pub summary_downloading: Mutex<Option<crate::summary::SummaryModelId>>,
+    /// The note being summarized; one at a time, since a model takes several GB of memory.
+    pub summarizing: Mutex<Option<String>>,
     pub capture_slot: Mutex<Option<Slot>>,
     moving_by_code: AtomicBool,
     last_user_move_ms: AtomicU64,
@@ -189,6 +192,8 @@ pub fn run() -> Result<(), String> {
         ctrl: Mutex::new(ctrl_tx),
         downloading: Mutex::new(None),
         active_model: Mutex::new(None),
+        summary_downloading: Mutex::new(None),
+        summarizing: Mutex::new(None),
         capture_slot: Mutex::new(None),
         moving_by_code: AtomicBool::new(false),
         last_user_move_ms: AtomicU64::new(0),
@@ -215,6 +220,10 @@ pub fn run() -> Result<(), String> {
             crate::commands::choose_model,
             crate::commands::open_model_page,
             crate::commands::delete_model,
+            crate::commands::choose_summary_model,
+            crate::commands::open_summary_model_page,
+            crate::commands::delete_summary_model,
+            crate::commands::summarize_note,
             crate::commands::get_history,
             crate::commands::clear_history,
             crate::commands::delete_history,
@@ -285,6 +294,7 @@ pub fn run() -> Result<(), String> {
                 diag::log("quit during a note; it is saved at the next start");
             }
             diag::log("quit");
+            crate::engine::abort_llm(true);
             shutdown_engine(app);
             crate::instance::release(&lock);
             crate::demo::cleanup();
