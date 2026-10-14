@@ -40,7 +40,10 @@ pub fn start_download(app: AppHandle, id: SummaryModelId) -> Result<(), String> 
             Err(e) => format!("summary model {} download failed: {e}", info.label),
         });
         if result.is_ok() {
-            s.update_config(|c| c.summary_model = Some(id));
+            s.update_config(|c| {
+                c.summary_model = Some(id);
+                c.summaries = true;
+            });
         }
         let _ = app.emit(
             "summary-model-done",
@@ -53,6 +56,9 @@ pub fn start_download(app: AppHandle, id: SummaryModelId) -> Result<(), String> 
 pub fn start_summarize(app: AppHandle, note_id: String) -> Result<(), String> {
     let s = shared_of(&app);
     let cfg = s.config();
+    if !cfg.summaries {
+        return Err("Summaries are off. Turn them on in the Model tab.".into());
+    }
     let fits = super::evaluate(&s.hardware, &paths::models_dir());
     let Some(model) = super::pick(&fits, cfg.summary_model) else {
         return Err("Download a summary model in the Model tab first.".into());

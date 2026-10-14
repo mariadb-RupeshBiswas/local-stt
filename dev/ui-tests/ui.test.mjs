@@ -573,7 +573,7 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 {
-  const { page, ctx } = await open("?view=main&tab=notes&scheme=light");
+  const { page, ctx } = await open("?view=main&tab=notes&scheme=light&summaries=on");
   const panel = page.locator("#panel-notes");
   await panel.locator(".nrow-open").first().click();
   await page.waitForTimeout(300);
@@ -608,6 +608,47 @@ for (const dark of [false, true]) {
   await page.waitForTimeout(300);
   check("renaming a speaker renames them in the summary too", (await panel.locator(".sum-name").allTextContents()).join(",") === "Me,Priya");
   check("no page errors (note summary)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- main: the Summaries switch ----------
+{
+  const { page, ctx } = await open("?view=main&tab=model&scheme=light");
+  check("Summaries start off", (await page.getByRole("switch", { name: "Summaries" }).getAttribute("aria-checked")) === "false");
+  await page.locator("#tab-notes").click();
+  await page.waitForTimeout(200);
+  await page.locator("#panel-notes .nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("with Summaries off by default a note has no Summary card", (await page.locator("#panel-notes .note-summary").count()) === 0);
+  await page.locator("#tab-model").click();
+  await page.waitForTimeout(200);
+  await page.locator("#panel-model .summary-list .mrow", { hasText: "Granite" }).locator(".btn-action").click();
+  await page.waitForTimeout(250);
+  await page.locator("dialog.dlg .btn-action").click();
+  await page.waitForTimeout(3000);
+  check("downloading a summary model turns Summaries on", (await page.getByRole("switch", { name: "Summaries" }).getAttribute("aria-checked")) === "true");
+  await ctx.close();
+}
+{
+  const { page, ctx, errors } = await open("?view=main&tab=model&scheme=light&summary=granite");
+  const sw = page.getByRole("switch", { name: "Summaries" });
+  check("the Summary model section has a Summaries switch, on once a model is downloaded", (await sw.count()) === 1 && (await sw.getAttribute("aria-checked")) === "true");
+  await sw.click();
+  await page.waitForTimeout(300);
+  check("turning Summaries off saves summaries false and says nothing runs", (await page.evaluate(() => window.__cfg)).includes('set_config:{"summaries":false}') && (await page.locator("#panel-model .srow", { has: page.locator(".srow-title", { hasText: "Summaries" }) }).locator(".srow-desc").textContent()).includes("no summary model runs"));
+  await page.locator("#tab-notes").click();
+  await page.waitForTimeout(200);
+  await page.locator("#panel-notes .nrow-open").first().click();
+  await page.waitForTimeout(300);
+  check("with Summaries off a note has no Summary card", (await page.locator("#panel-notes .note-summary").count()) === 0);
+  await page.locator("#tab-model").click();
+  await page.waitForTimeout(200);
+  await page.getByRole("switch", { name: "Summaries" }).click();
+  await page.waitForTimeout(300);
+  await page.locator("#tab-notes").click();
+  await page.waitForTimeout(200);
+  check("turning it back on brings Summarize back", (await page.locator("#panel-notes .note-summary .btn-action").textContent()) === "Summarize");
+  check("no page errors (summaries switch)", errors.length === 0, errors);
   await ctx.close();
 }
 

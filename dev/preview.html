@@ -393,7 +393,8 @@
         translate: true, language: "auto", paste: true, restore_clipboard: false,
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", word_insights: true, learn_my_voice: true, autostart: false, model: "small",
-        setup_done: !onboarding, user_name: params.get("name") || null
+        setup_done: !onboarding, user_name: params.get("name") || null,
+        summaries: params.get("summaries") === "on" || params.get("summary") === "granite"
       },
       models: [
         // a fresh install has nothing on disk and Small recommended; ?downloaded=1 keeps it on disk
@@ -684,7 +685,7 @@
       choose_summary_model: function (a) {
         window.__calls.push("choose_summary_model:" + a.id);
         var fit = data.summaryModels.filter(function (m) { return m.id === a.id; })[0];
-        if (fit.downloaded) { data.config.summary_model = fit.id; return; }
+        if (fit.downloaded) { data.config.summary_model = fit.id; data.config.summaries = true; return; }
         var total = fit.size_mb * 1048576;
         var done = 0;
         data.summaryDownloading = fit.id;
@@ -696,6 +697,7 @@
             data.summaryDownloading = null;
             fit.downloaded = true;
             data.config.summary_model = fit.id;
+            data.config.summaries = true;
             bus.emit("summary-model-done", { id: fit.id, ok: true, error: null });
           }
         }, dlMs);

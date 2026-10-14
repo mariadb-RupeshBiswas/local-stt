@@ -243,7 +243,10 @@ pub fn choose_summary_model(
         return Err("unknown model".into());
     };
     if fit.downloaded {
-        state.update_config(|c| c.summary_model = Some(id));
+        state.update_config(|c| {
+            c.summary_model = Some(id);
+            c.summaries = true;
+        });
         return Ok(());
     }
     if !fit.supported {

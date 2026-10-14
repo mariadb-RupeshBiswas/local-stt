@@ -78,6 +78,8 @@ pub struct Config {
     /// The language model chosen for note summaries; None until one is downloaded.
     pub summary_model: Option<crate::summary::SummaryModelId>,
     pub appearance: Appearance,
+    /// Summarize on finished notes; off (the default) hides it and no summary model runs.
+    pub summaries: bool,
 }
 
 impl Default for Config {
@@ -111,6 +113,7 @@ impl Default for Config {
             model: ModelId::Small,
             summary_model: None,
             appearance: Appearance::System,
+            summaries: false,
         }
     }
 }
@@ -339,6 +342,19 @@ mod tests {
             load(&p).appearance,
             Appearance::System,
             "an older config follows the OS"
+        );
+    }
+
+    #[test]
+    fn summaries_are_off_until_turned_on() {
+        assert!(!Config::default().summaries);
+        let p = tmp("summaries");
+        std::fs::write(&p, r#"{"summaries":true}"#).unwrap();
+        assert!(load(&p).summaries);
+        std::fs::write(&p, r#"{"paste":false}"#).unwrap();
+        assert!(
+            !load(&p).summaries,
+            "an older config starts with summaries off"
         );
     }
 

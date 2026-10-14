@@ -1332,7 +1332,7 @@
           if (S.notes.active) timer.textContent = clock(Date.now() - S.notes.active.startedMs);
         }, 1000);
       }
-      if (S.openStatus === "done") noteView.appendChild(summaryCard(note));
+      if (S.openStatus === "done" && summariesOn()) noteView.appendChild(summaryCard(note));
       var card = h("div", { class: "card transcript", role: "log", "aria-live": recording ? "polite" : "off" });
       noteView.appendChild(card);
       renderTranscript(card);
@@ -1764,11 +1764,31 @@
     }
 
     // appended by renderModels, below the speech models
+    // off unless the user turned it on or picked a summary model
+    function summariesOn() {
+      return !!(S.config && S.config.summaries === true);
+    }
+
     function renderSummaryModels() {
       summaryRefs = {};
       modelPanel.appendChild(h("h3", { class: "group-title", id: "summary-models", text: "Summary model" }));
       modelPanel.appendChild(h("p", { class: "footnote", text: "Optional. A summary model writes an overview, what each person said and the action items for a note. Notes work without one." }));
-      var list = h("div", { class: "card summary-list", role: "list", "aria-label": "Summary models" });
+      var sw = toggle({
+        label: "Summaries",
+        value: summariesOn,
+        onChange: function (v) {
+          Promise.resolve(patchConfig({ summaries: v })).then(function () {
+            renderModels();
+            if (S.openNote && S.openStatus === "done") renderNoteView();
+          });
+        }
+      });
+      modelPanel.appendChild(card([settingRow("Summaries", function () {
+        return summariesOn()
+          ? "Shows Summarize on finished notes. A summary runs only when you click it."
+          : "Off: notes show no Summarize button and no summary model runs. Downloading a model below turns it on.";
+      }, sw.el)]));
+      var list = h("div", { class: "card summary-list" + (summariesOn() ? "" : " is-off"), role: "list", "aria-label": "Summary models" });
       S.summaryModels.forEach(function (fit) { list.appendChild(summaryRow(fit)); });
       modelPanel.appendChild(list);
       modelPanel.appendChild(h("p", { class: "footnote", text: "Recommended fits this computer's memory and graphics. Summaries are written on this computer; the note never leaves it." }));
