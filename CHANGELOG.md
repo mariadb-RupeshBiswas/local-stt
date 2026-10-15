@@ -6,6 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-15
+
+### Added
+
+- Notes also name a voice from the conversation: when someone says "Hello, Gaurav." or "What do
+  you think, Gaurav?" and the next voice answers, or a voice introduces itself ("this is Priya"),
+  that voice gets the name after two such cues. Only names the call app listed count, so someone
+  merely talked about is never assigned. This fills in names in Zoom's gallery view and full
+  screen, where Zoom shows no talker.
+
 ## [0.11.0] - 2026-10-15
 
 ### Added
