@@ -113,6 +113,17 @@ pub fn look(full: bool, web: bool) -> Option<Look> {
     }
 }
 
+/// Window titles of running apps with these process names; empty where this is not read.
+pub fn window_titles(processes: &[&str]) -> Vec<String> {
+    #[cfg(target_os = "macos")]
+    return macos::window_titles(processes);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = processes;
+        Vec::new()
+    }
+}
+
 /// The active speaker from one window's tiles (label, area): a mini window's only tile, or a Speaker view's big tile.
 /// Gallery tiles are all one size and show nobody.
 pub fn active_tile(tiles: &[(String, f64)], main_window: bool) -> Option<String> {

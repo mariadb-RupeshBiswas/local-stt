@@ -549,6 +549,18 @@ pub fn start_note(app: AppHandle) -> Result<String, String> {
     crate::notes::session::start(&app)
 }
 
+/// The call toast's Start note: starts the note and puts the toast away.
+#[tauri::command]
+pub fn toast_start_note(app: AppHandle) -> Result<String, String> {
+    crate::meeting::toast::hide(&app);
+    crate::notes::session::start(&app)
+}
+
+#[tauri::command]
+pub fn toast_dismiss(app: AppHandle) {
+    crate::meeting::toast::hide(&app);
+}
+
 #[tauri::command]
 pub fn stop_note(app: AppHandle) -> Result<(), String> {
     crate::notes::session::stop(&app)

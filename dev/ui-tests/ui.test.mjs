@@ -513,6 +513,56 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- main: Settings > Notes > Detect calls ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light");
+  const sw = page.getByRole("switch", { name: "Detect calls" });
+  check("Settings > Notes has Detect calls, on by default", (await sw.getAttribute("aria-checked")) === "true");
+  await sw.click();
+  await page.waitForTimeout(250);
+  check("turning Detect calls off saves it", (await page.evaluate(() => window.__cfg)).includes('set_config:{"detect_calls":false}'));
+  check("no page errors (detect calls)", errors.length === 0, errors);
+  await ctx.close();
+}
+
+// ---------- toast: call detected ----------
+{
+  const ctx = await browser.newContext({ viewport: { width: 360, height: 60 } });
+  const page = await ctx.newPage();
+  const errors = [];
+  page.on("pageerror", (e) => errors.push(e.message));
+  await page.goto("file://" + ROOT + "/ui/toast.html");
+  await page.evaluate(() => {
+    window.__calls = [];
+    const fake = { core: { invoke: (cmd) => { window.__calls.push(cmd); return Promise.resolve(); } } };
+    document.body.textContent = "";
+    window.__toast = window.mountToast(document.body, fake);
+    window.__toast.show({ call: "Zoom", showMs: 5000 });
+  });
+  check("the toast names the call", (await page.locator(".toast-title").textContent()) === "Zoom call detected");
+  await page.getByRole("button", { name: "Start note" }).click();
+  check("Start note starts a note and hides the toast", (await page.evaluate(() => window.__calls.join(","))) === "toast_start_note" && (await page.locator(".toast").isHidden()));
+  await page.evaluate(() => window.__toast.show({ call: "Slack", showMs: 300 }));
+  await page.waitForTimeout(500);
+  check("an ignored toast puts itself away", (await page.evaluate(() => window.__calls.join(","))) === "toast_start_note,toast_dismiss" && (await page.locator(".toast").isHidden()));
+  // the toast fills its window, so shrink it in the test to leave room outside it
+  await page.setViewportSize({ width: 360, height: 120 });
+  await page.evaluate(() => { document.querySelector(".toast").style.height = "60px"; });
+  await page.mouse.move(5, 110);
+  await page.evaluate(() => window.__toast.show({ call: "Zoom", showMs: 1500 }));
+  const box = await page.locator(".toast").boundingBox();
+  await page.mouse.move(box.x + box.width / 2, box.y + 2);
+  await page.waitForTimeout(2300);
+  check("the pointer on the toast holds it", await page.locator(".toast").isVisible());
+  await page.mouse.move(5, 110);
+  await page.waitForTimeout(700);
+  check("leaving gives it a moment before it goes", await page.locator(".toast").isVisible());
+  await page.waitForTimeout(1600);
+  check("then it puts itself away", await page.locator(".toast").isHidden());
+  check("no page errors (toast)", errors.length === 0, errors);
+  await ctx.close();
+}
+
 // ---------- main: Settings > Notes > Echo cancellation ----------
 {
   const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light");
@@ -2078,7 +2128,7 @@ for (const dark of [false, true]) {
 
 // ---------- static hygiene ----------
 {
-  const files = ["main.js", "overlay.js", "live.js", "main.css", "overlay.css", "live.css", "tokens.css", "main.html", "overlay.html", "live.html"].map((f) => [f, fs.readFileSync(ROOT + "/ui/" + f, "utf8")]);
+  const files = ["main.js", "overlay.js", "live.js", "toast.js", "main.css", "overlay.css", "live.css", "toast.css", "tokens.css", "main.html", "overlay.html", "live.html", "toast.html"].map((f) => [f, fs.readFileSync(ROOT + "/ui/" + f, "utf8")]);
   const preview = fs.readFileSync(ROOT + "/dev/preview.html", "utf8");
   const bad = [];
   for (const [name, text] of files) {

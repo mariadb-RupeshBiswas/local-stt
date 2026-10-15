@@ -109,7 +109,11 @@ fn text(element: CFTypeRef, name: &str) -> Option<String> {
 }
 
 fn children(element: CFTypeRef) -> Vec<Owned> {
-    let Some(array) = attribute(element, "AXChildren") else {
+    children_of(element, "AXChildren")
+}
+
+fn children_of(element: CFTypeRef, name: &str) -> Vec<Owned> {
+    let Some(array) = attribute(element, name) else {
         return Vec::new();
     };
     let mut out = Vec::new();
@@ -470,4 +474,28 @@ fn read_zoom(pid: i32, full: bool, look: &mut super::Look) {
     if full && !look.in_meeting {
         look.in_meeting = meeting_in_menu(app.0);
     }
+}
+
+/// Window titles of running apps with these process names; empty without Accessibility.
+pub fn window_titles(processes: &[&str]) -> Vec<String> {
+    // SAFETY: a read-only permission check with no arguments.
+    if !unsafe { AXIsProcessTrusted() } {
+        return Vec::new();
+    }
+    let mut titles = Vec::new();
+    for pid in pids_named(processes) {
+        // SAFETY: creates an owned AX element for a running process; released by Owned.
+        let app = Owned(unsafe { AXUIElementCreateApplication(pid) });
+        if app.0.is_null() {
+            continue;
+        }
+        // SAFETY: app is live; a short timeout keeps a busy browser from blocking the caller.
+        unsafe { AXUIElementSetMessagingTimeout(app.0, 0.5) };
+        for window in children_of(app.0, "AXWindows") {
+            if let Some(title) = text(window.0, "AXTitle") {
+                titles.push(title);
+            }
+        }
+    }
+    titles
 }

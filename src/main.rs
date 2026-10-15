@@ -12,6 +12,7 @@ USAGE:
   local-stt fetch-model <id>     download a model: small, medium or large-v3
   local-stt demo                 a short tour with sample data (nothing is recorded or pasted)
   local-stt call-names           show the names and the speaker Zoom shows right now (for checking)
+  local-stt calls                show which apps use the microphone and which count as a call
   local-stt check-update         see whether a newer release is available
   local-stt diagnostics          save a troubleshooting report to share (no audio or dictated text)
   local-stt reinstall [--clean]  repair the install: reset permissions, install again; --clean also
@@ -35,6 +36,7 @@ fn main() -> ExitCode {
         },
         Some("doctor") => doctor(),
         Some("call-names") => call_names(),
+        Some("calls") => calls(),
         Some("fetch-model") => fetch_model(args.get(1).map(String::as_str)),
         Some("--autostart") => set_autostart(args.get(1).map(String::as_str)),
         Some("install") => install(),
@@ -121,6 +123,29 @@ fn call_names() -> Result<(), String> {
             "-".to_string()
         } else {
             others.join(", ")
+        }
+    );
+    Ok(())
+}
+
+// Prints what Detect calls sees right now, for checking it on a real call.
+fn calls() -> Result<(), String> {
+    let users = local_stt::meeting::mic_users();
+    println!(
+        "Apps using the microphone: {}",
+        if users.is_empty() {
+            "-".to_string()
+        } else {
+            users.join(", ")
+        }
+    );
+    let live = local_stt::meeting::live_calls();
+    println!(
+        "Calls using the microphone now: {}",
+        if live.is_empty() {
+            "-".to_string()
+        } else {
+            live.join(", ")
         }
     );
     Ok(())

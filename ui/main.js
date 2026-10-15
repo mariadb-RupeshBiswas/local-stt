@@ -2585,7 +2585,11 @@
       ]);
 
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Notes" }));
-      settingsPanel.appendChild(card([settingRow("Echo cancellation", "Takes the call's sound out of your microphone when you use speakers. Turn off if your own words go missing from notes.", addSync(toggle({
+      settingsPanel.appendChild(card([settingRow("Detect calls", "When Zoom, Teams, Slack, Webex, FaceTime or a Google Meet tab starts using your microphone, a small prompt offers to take a note.", addSync(toggle({
+        label: "Detect calls",
+        value: function () { return cfg().detect_calls !== false; },
+        onChange: function (v) { patchConfig({ detect_calls: v }); }
+      }))), settingRow("Echo cancellation", "Takes the call's sound out of your microphone when you use speakers. Turn off if your own words go missing from notes.", addSync(toggle({
         label: "Echo cancellation",
         value: function () { return cfg().echo_cancellation !== false; },
         onChange: function (v) { patchConfig({ echo_cancellation: v }); }

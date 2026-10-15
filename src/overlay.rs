@@ -128,6 +128,13 @@ pub fn live_pos(
 }
 
 /// Critically damped spring (no overshoot), starting at rest, after `t` seconds.
+/// Bottom centre of a screen's work area, `gap` above its bottom edge.
+pub fn toast_pos(screen: &Screen, size: (f64, f64), gap: f64) -> (f64, f64) {
+    let x = screen.x + (screen.w - size.0) / 2.0;
+    let y = screen.y + screen.h - size.1 - gap;
+    (x, y)
+}
+
 pub fn spring(from: f64, to: f64, t: f64) -> f64 {
     let omega = 2.0 * std::f64::consts::PI / SPRING_RESPONSE_S;
     let decay = (1.0 + omega * t) * (-omega * t).exp();
@@ -292,6 +299,12 @@ mod tests {
         let ((_, y), below) = live_pos(&s, (600.0, 49.0), (220.0, 44.0), (380.0, 96.0));
         assert!(below);
         assert_eq!(y, 49.0 + 44.0 + 8.0);
+    }
+
+    #[test]
+    fn toast_sits_bottom_centre_of_its_screen() {
+        let s = mon("B", 1920.0, 0.0, 1440.0, 875.0);
+        assert_eq!(toast_pos(&s, (360.0, 60.0), 28.0), (2460.0, 787.0));
     }
 
     #[test]

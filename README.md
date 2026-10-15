@@ -138,7 +138,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 
 **Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
 
-Coming next: a prompt when a call starts.
+- **Detect calls** (Settings > Notes, on by default): when Zoom, Microsoft Teams, Slack, Webex or FaceTime starts using your microphone, or a browser window shows Google Meet or Microsoft Teams, a small prompt appears at the bottom centre of the screen you are using: "<App> call detected", "Take notes on this call?", with **Start note** and a close button. It hides after 20 seconds unless the pointer rests on it, and shows once per call (a call that drops for about 15 seconds is the same call). It does not appear while a note is recording. Nothing is recorded until you click Start note. Turn the switch off to stop the check.
 
 ## Insights
 
@@ -295,6 +295,8 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 ## License
 
 [MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope). Echo cancellation uses sonora (BSD-3-Clause), a Rust port of WebRTC's AEC3. Summaries use llama.cpp (MIT, ggml-org) with Granite 4.0 Micro (Apache-2.0, IBM) or Gemma 4 E4B (Apache-2.0, Google).
+
+Full third-party licence notices (Rust crates, bundled native code, downloadable models) are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Wispr Flow, Superwhisper and other product names mentioned here are trademarks of their owners. local-stt is an independent open-source project and is not affiliated with, endorsed by or sponsored by them; the names are used only to say what local-stt can be used instead of.
 

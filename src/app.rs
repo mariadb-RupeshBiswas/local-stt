@@ -234,6 +234,8 @@ pub fn run() -> Result<(), String> {
             crate::commands::list_notes,
             crate::commands::get_note,
             crate::commands::start_note,
+            crate::commands::toast_start_note,
+            crate::commands::toast_dismiss,
             crate::commands::stop_note,
             crate::commands::rename_note,
             crate::commands::rename_speaker,
@@ -266,6 +268,7 @@ pub fn run() -> Result<(), String> {
                 start_hotkey(&handle);
                 first_run_or_load(&handle);
                 spawn_update_checker(handle.clone());
+                crate::meeting::toast::watch(handle.clone());
             }
             // LOCAL_STT_EXIT_AFTER_MS lets CI and smoke tests exercise a full start and a clean quit.
             if let Some(ms) = std::env::var("LOCAL_STT_EXIT_AFTER_MS")
@@ -561,7 +564,7 @@ fn units_scale(scale: f64) -> f64 {
     }
 }
 
-fn screens(app: &AppHandle) -> Vec<(Screen, f64)> {
+pub(crate) fn screens(app: &AppHandle) -> Vec<(Screen, f64)> {
     let monitors = app.available_monitors().unwrap_or_default();
     let mut out = Vec::new();
     for (i, m) in monitors.iter().enumerate() {
@@ -623,7 +626,7 @@ fn set_overlay_pos(app: &AppHandle, win: &WebviewWindow, pos: (f64, f64)) {
 }
 
 // The pill shows on the screen being typed into; the pointer stands in when no window has focus.
-fn focus_point(app: &AppHandle, screens: &[Screen]) -> (f64, f64) {
+pub(crate) fn focus_point(app: &AppHandle, screens: &[Screen]) -> (f64, f64) {
     crate::focus::window_centre()
         .filter(|p| overlay::on_screen(screens, *p))
         .unwrap_or_else(|| pointer(app))

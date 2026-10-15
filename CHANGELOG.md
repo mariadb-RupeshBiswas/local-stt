@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-15
+
 ### Added
 
 - Notes name each speaker from Zoom: local-stt reads the names on Zoom's video tiles (no
@@ -16,6 +18,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - On a Mac the same naming works for Google Meet (Chrome, Edge, Brave, Arc), Microsoft Teams and
   Slack huddles, read from the page each app shows. They rely on the class names those apps ship
   today and are not yet tested in a real call; please open an issue if one stops naming speakers.
+- Call detection: when Zoom, Microsoft Teams, Slack, Webex or FaceTime (or a browser window
+  showing Google Meet or Microsoft Teams) starts using the microphone and no note is recording, a
+  small toast at the bottom of the screen offers **Start note**. One toast per call, hidden after
+  20 s unless the pointer rests on it. Only app names are read and logged; nothing is recorded
+  until you click Start note. Settings > Notes > Detect calls (on by default) turns it off.
+
+- THIRD_PARTY_NOTICES.md lists every bundled component's licence and ships in the wheel next to
+  LICENSE.
 
 ### Changed
 

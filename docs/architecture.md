@@ -111,6 +111,22 @@ Notes reuse the same engine for a whole call instead of one dictation:
    summaries off the UI thread (`run.rs`). llama.cpp runs through `llm_shim.cpp` and `Llm` in
    `src/engine.rs`; a fixed grammar holds each reply to JSON, and the summary is saved into the note.
 
+## Call detection
+
+When a call starts, a small toast offers to take a note. It reads which apps use the microphone, never the sound:
+
+1. Every 3 seconds (`src/meeting/toast.rs`), while Detect calls is on, the app asks who is recording
+   from a microphone: Core Audio's process list on a Mac (`macos.rs`), the privacy settings'
+   `ConsentStore` microphone records on Windows (`windows.rs`, an app with a start time and no stop time).
+2. `src/meeting/mod.rs` names each one: Zoom, Microsoft Teams, Slack, Webex and FaceTime are calls.
+   A browser counts only when a window title shows Google Meet or Microsoft Teams, and titles are
+   read only while a browser holds the microphone.
+3. A pure **Detector** offers each call once; a call missing for up to about 15 s is the same call.
+   A call that starts during a note is marked seen and never offered.
+4. The toast (`toast.rs`, `ui/toast.js`) is an unfocusable window at the bottom centre of the
+   screen in use. It hides after 20 s unless the pointer rests on it. **Start note** starts a note.
+   Only the app name is logged.
+
 ## Insights
 
 The Insights tab counts, it never keeps your sentences:
