@@ -46,7 +46,7 @@ pub struct Note {
     pub started_ms: u64,
     #[serde(default)]
     pub ended_ms: Option<u64>,
-    /// The call app, when one was detected ("Zoom").
+    /// The call app, when one was detected ("Zoom", "Google Meet").
     #[serde(default)]
     pub source: Option<String>,
     pub status: Status,
@@ -172,6 +172,7 @@ pub struct Call<'a> {
     pub others: &'a [String],
     pub talk: &'a [(u64, String)],
     pub user: &'a callnames::User,
+    pub source: Option<&'static str>,
 }
 
 static NOBODY: callnames::User = callnames::User::nobody();
@@ -183,6 +184,7 @@ impl Call<'static> {
             others: &[],
             talk: &[],
             user: &NOBODY,
+            source: None,
         }
     }
 }
@@ -217,7 +219,9 @@ fn finish_locked(
     callnames::apply(&note.segments, &mut note.speakers, others);
     if !others.is_empty() {
         note.participants = others.to_vec();
-        note.source.get_or_insert_with(|| "Zoom".to_string());
+        if let Some(source) = call.source {
+            note.source.get_or_insert_with(|| source.to_string());
+        }
     }
     note.segments = tidy::tidy(note.segments, smart_format, english);
     note.ended_ms = Some(ended_ms.max(note.started_ms));
@@ -548,6 +552,7 @@ mod tests {
                 others: &["Simon".to_string()],
                 talk: &[],
                 user: &NOBODY,
+                source: Some("Zoom"),
             },
         )
         .unwrap();
@@ -572,6 +577,7 @@ mod tests {
             others: &others,
             talk: &talk,
             user: &NOBODY,
+            source: Some("Zoom"),
         };
         let note = finish(id, 30_000, false, true, &HashMap::new(), &call).unwrap();
         assert_eq!(note.speakers.get("s1").map(String::as_str), Some("Priya"));

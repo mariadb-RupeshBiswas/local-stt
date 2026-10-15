@@ -98,7 +98,9 @@ Notes reuse the same engine for a whole call instead of one dictation:
 6. **Names from the call.** Every second while the note records, `src/notes/callnames/` notes who
    Zoom shows talking (Speaker view's big tile, or the minimized meeting's mini window), and every
    5 s it reads the names on the video tiles and the participants panel (`macos.rs` through
-   Accessibility, `windows.rs` through UI Automation, panel only). At Stop each other-side voice takes
+   Accessibility, `windows.rs` through UI Automation, panel only). On a Mac, Google Meet, Teams and
+   Slack huddles are read from the page's accessibility tree by the class each app puts on the
+   talking tile (`WEB_CALLS` in `mod.rs`). At Stop each other-side voice takes
    the name shown during most of its lines; a one-to-one call names its one other voice, and names
    left over are offered in the note.
 7. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back

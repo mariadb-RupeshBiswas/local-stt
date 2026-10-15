@@ -102,8 +102,8 @@ fn dash<T: ToString>(v: Option<T>) -> String {
 
 // Prints to this terminal only; notes keep only the other people's names, and only at Stop.
 fn call_names() -> Result<(), String> {
-    let Some(look) = local_stt::notes::callnames::look(true) else {
-        return Err("No Zoom meeting could be read. Start a meeting, and on a Mac allow Accessibility for this terminal.".into());
+    let Some(look) = local_stt::notes::callnames::look(true, true) else {
+        return Err("No call could be read. Start a Zoom, Google Meet, Teams or Slack call, and on a Mac allow Accessibility for this terminal.".into());
     };
     if look.rows.is_empty() {
         println!("Zoom is running, but no names were found. Keep the meeting in a window or minimized, not full screen.");

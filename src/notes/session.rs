@@ -117,6 +117,7 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
 fn sample_call_names(app: AppHandle, id: String) {
     let mut tick: u64 = 0;
     let mut unreadable: u32 = 0;
+    let mut web_live = false;
     loop {
         let Some((now_id, started_ms)) = active(&app) else {
             return;
@@ -125,7 +126,9 @@ fn sample_call_names(app: AppHandle, id: String) {
             return;
         }
         let full = tick % super::callnames::EVERY_SECS == 0;
-        if let Some(look) = super::callnames::look(full) {
+        let look = super::callnames::look(full, web_live);
+        web_live = look.as_ref().is_some_and(|l| l.web_live) || (web_live && !full);
+        if let Some(look) = look {
             if let Some(name) = look.speaking {
                 let at = app::now_ms().saturating_sub(started_ms);
                 super::callnames::heard_speaking(&id, at, name);
@@ -140,7 +143,7 @@ fn sample_call_names(app: AppHandle, id: String) {
                 if unreadable == HINT_AFTER_LOOKS {
                     let _ = app.emit("notice", json!({ "message": CALL_NAMES_HINT }));
                 }
-                super::callnames::remember(&id, look.rows);
+                super::callnames::remember(&id, look.rows, look.source);
             }
         }
         tick += 1;
@@ -540,6 +543,7 @@ pub fn finish(
         others: &others,
         talk: &seen.talk,
         user: &user,
+        source: seen.source,
     };
     match super::finish(id, ended_ms, cfg.smart_format, english, voices, &call) {
         Ok(note) => {

@@ -2193,8 +2193,8 @@
 
     function accessDescription() {
       return S.accessibility === true
-        ? "The shortcut, paste and Zoom names in notes work."
-        : "Needed for the shortcut, paste and Zoom names in notes. Already on? Remove local-stt with the minus button and add it again.";
+        ? "The shortcut, paste and call names in notes work."
+        : "Needed for the shortcut, paste and call names in notes. Already on? Remove local-stt with the minus button and add it again.";
     }
 
     // quits, installs again (the newest version when one is out), and reopens

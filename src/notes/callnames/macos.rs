@@ -14,6 +14,8 @@ const MAX_ROWS: usize = 300;
 // Zoom's meeting window; any other Zoom window holding one tile is its mini window.
 const MEETING_WINDOW: &str = "zm.meeting.window.main";
 const CG_SIZE: u32 = 2;
+// A call page is far bigger than Zoom's window; this bounds one read of it.
+const MAX_WEB_NODES: usize = 6_000;
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
@@ -26,6 +28,17 @@ extern "C" {
     ) -> i32;
     fn AXUIElementSetMessagingTimeout(element: CFTypeRef, seconds: f32) -> i32;
     fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
+    fn AXUIElementSetAttributeValue(
+        element: CFTypeRef,
+        attribute: CFTypeRef,
+        value: CFTypeRef,
+    ) -> i32;
+}
+
+#[link(name = "System")]
+extern "C" {
+    fn proc_listallpids(buffer: *mut c_void, size: i32) -> i32;
+    fn proc_name(pid: i32, buffer: *mut c_void, size: u32) -> i32;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -45,6 +58,7 @@ extern "C" {
     fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
     fn CFRetain(cf: CFTypeRef) -> CFTypeRef;
     fn CFRelease(cf: CFTypeRef);
+    static kCFBooleanTrue: CFTypeRef;
 }
 
 /// A retained Core Foundation value, released once.
@@ -167,17 +181,28 @@ fn walk(
     }
 }
 
+// Process ids by exact name, from the kernel's process list (no child process every second).
+fn pids_named(names: &[&str]) -> Vec<i32> {
+    let mut pids = vec![0i32; 4096];
+    let bytes = (pids.len() * std::mem::size_of::<i32>()) as i32;
+    // SAFETY: the buffer holds `bytes` bytes; the call returns how many pids it wrote.
+    let n = unsafe { proc_listallpids(pids.as_mut_ptr().cast(), bytes) };
+    pids.truncate(n.max(0) as usize);
+    let mut found = Vec::new();
+    for pid in pids {
+        let mut buf = [0u8; 64];
+        // SAFETY: the buffer is 64 bytes and the call writes at most `size` bytes, returning the length.
+        let len = unsafe { proc_name(pid, buf.as_mut_ptr().cast(), buf.len() as u32) };
+        let name = std::str::from_utf8(&buf[..len.max(0) as usize]).unwrap_or_default();
+        if names.contains(&name) {
+            found.push(pid);
+        }
+    }
+    found
+}
+
 fn zoom_pid() -> Option<i32> {
-    let out = crate::proc::command("/usr/bin/pgrep")
-        .args(["-x", "zoom.us"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&out.stdout)
-        .lines()
-        .next()?
-        .trim()
-        .parse()
-        .ok()
+    pids_named(&["zoom.us"]).first().copied()
 }
 
 // Width times height of an element on screen, 0 when it has none.
@@ -226,26 +251,204 @@ fn meeting_in_menu(app: CFTypeRef) -> bool {
     false
 }
 
-pub fn look(full: bool) -> Option<super::Look> {
+// Apps whose web accessibility tree was switched on; Chromium and Electron build it only when asked.
+static WOKEN: std::sync::Mutex<Vec<i32>> = std::sync::Mutex::new(Vec::new());
+
+fn wake(app: CFTypeRef, pid: i32) {
+    let mut woken = WOKEN.lock().unwrap_or_else(|e| e.into_inner());
+    if woken.contains(&pid) {
+        return;
+    }
+    woken.push(pid);
+    let manual = cfstr("AXManualAccessibility");
+    // SAFETY: app is a live AX element; kCFBooleanTrue is a static CFBoolean.
+    let rc = unsafe { AXUIElementSetAttributeValue(app, manual.0, kCFBooleanTrue) };
+    if rc != AX_OK {
+        let enhanced = cfstr("AXEnhancedUserInterface");
+        // SAFETY: as above; browsers that ignore the Electron switch take this one.
+        unsafe { AXUIElementSetAttributeValue(app, enhanced.0, kCFBooleanTrue) };
+    }
+}
+
+fn classes(element: CFTypeRef) -> Vec<String> {
+    let Some(list) = attribute(element, "AXDOMClassList") else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    // SAFETY: the type is checked before use as an array; items are only read while `list` is held.
+    unsafe {
+        if CFGetTypeID(list.0) != CFArrayGetTypeID() {
+            return out;
+        }
+        for i in 0..CFArrayGetCount(list.0) {
+            if let Some(c) = to_string(CFArrayGetValueAtIndex(list.0, i)) {
+                out.push(c);
+            }
+        }
+    }
+    out
+}
+
+fn has_class(element: CFTypeRef, class: &str) -> bool {
+    classes(element).iter().any(|c| c == class)
+}
+
+// A tile's person: its own label, else the first text inside it.
+fn tile_name(tile: CFTypeRef, budget: &mut usize) -> Option<String> {
+    let own = text(tile, "AXDescription").or_else(|| text(tile, "AXTitle"));
+    if let Some(name) = own.as_deref().and_then(super::web_name) {
+        return Some(name);
+    }
+    let mut stack = children(tile);
+    while let Some(node) = stack.pop() {
+        if *budget == 0 {
+            return None;
+        }
+        *budget -= 1;
+        if text(node.0, "AXRole").as_deref() == Some("AXStaticText") {
+            let value = text(node.0, "AXValue").or_else(|| text(node.0, "AXTitle"));
+            if let Some(name) = value.as_deref().and_then(super::web_name) {
+                return Some(name);
+            }
+        }
+        stack.extend(children(node.0));
+    }
+    None
+}
+
+fn subtree_has_class(root: CFTypeRef, class: &str, budget: &mut usize) -> bool {
+    let mut stack = vec![Owned(unsafe_retain(root))];
+    while let Some(node) = stack.pop() {
+        if *budget == 0 {
+            return false;
+        }
+        *budget -= 1;
+        if has_class(node.0, class) {
+            return true;
+        }
+        stack.extend(children(node.0));
+    }
+    false
+}
+
+fn unsafe_retain(element: CFTypeRef) -> CFTypeRef {
+    // SAFETY: element is live; the extra retain is released by the Owned that takes it.
+    unsafe { CFRetain(element) }
+}
+
+// The nearest ancestor label that reads as a name, for apps whose tiles carry no class of their own.
+fn ancestor_name(element: CFTypeRef) -> Option<String> {
+    let mut node = attribute(element, "AXParent")?;
+    for _ in 0..8 {
+        let own = text(node.0, "AXDescription").or_else(|| text(node.0, "AXTitle"));
+        if let Some(name) = own.as_deref().and_then(super::web_name) {
+            return Some(name);
+        }
+        node = attribute(node.0, "AXParent")?;
+    }
+    None
+}
+
+// One web call's page: tile names, and the tile holding the speaking marker.
+fn read_web(call: &super::WebCall, window: CFTypeRef, look: &mut super::Look, budget: &mut usize) {
+    let mut stack = vec![Owned(unsafe_retain(window))];
+    while let Some(node) = stack.pop() {
+        if *budget == 0 {
+            return;
+        }
+        *budget -= 1;
+        let cls = classes(node.0);
+        if !call.tile.is_empty() && cls.iter().any(|c| c == call.tile) {
+            look.web_live = true;
+            look.source = look.source.or(Some(call.source));
+            let name = tile_name(node.0, budget);
+            let talking = subtree_has_class(node.0, call.marker, budget);
+            if let Some(name) = name {
+                if talking && look.speaking.is_none() {
+                    look.speaking = Some(name.clone());
+                }
+                look.rows.push(name);
+            }
+            continue;
+        }
+        if call.tile.is_empty() && cls.iter().any(|c| c == call.marker) {
+            look.web_live = true;
+            look.source = look.source.or(Some(call.source));
+            if look.speaking.is_none() {
+                look.speaking = ancestor_name(node.0);
+            }
+        }
+        stack.extend(children(node.0));
+    }
+}
+
+fn read_web_calls(look: &mut super::Look) {
+    for call in &super::WEB_CALLS {
+        for pid in pids_named(call.processes) {
+            // SAFETY: creates an owned AX element for a running process; released by Owned.
+            let app = Owned(unsafe { AXUIElementCreateApplication(pid) });
+            if app.0.is_null() {
+                continue;
+            }
+            // SAFETY: app is live; a short timeout keeps a busy app from blocking the sampler.
+            unsafe { AXUIElementSetMessagingTimeout(app.0, 0.5) };
+            let Some(windows) = attribute(app.0, "AXWindows") else {
+                continue;
+            };
+            let mut budget = MAX_WEB_NODES;
+            // SAFETY: the type is checked before use as an array; items stay alive while `windows` is held.
+            unsafe {
+                if CFGetTypeID(windows.0) != CFArrayGetTypeID() {
+                    continue;
+                }
+                for i in 0..CFArrayGetCount(windows.0) {
+                    let window = CFArrayGetValueAtIndex(windows.0, i);
+                    let title = text(window, "AXTitle").unwrap_or_default();
+                    if !title.starts_with(call.title_prefix) {
+                        continue;
+                    }
+                    wake(app.0, pid);
+                    look.in_meeting |= !call.title_prefix.is_empty();
+                    read_web(call, window, look, &mut budget);
+                }
+            }
+        }
+    }
+}
+
+pub fn look(full: bool, web: bool) -> Option<super::Look> {
     // SAFETY: a read-only permission check with no arguments.
     if !unsafe { AXIsProcessTrusted() } {
         return None;
     }
-    let pid = zoom_pid()?;
+    let mut look = super::Look::default();
+    let zoom = zoom_pid();
+    if let Some(pid) = zoom {
+        read_zoom(pid, full, &mut look);
+    }
+    if full || web {
+        read_web_calls(&mut look);
+    }
+    let found = zoom.is_some() || look.web_live || look.in_meeting;
+    found.then_some(look)
+}
+
+fn read_zoom(pid: i32, full: bool, look: &mut super::Look) {
     // SAFETY: creates an owned AX element for a running process; released by Owned.
     let app = Owned(unsafe { AXUIElementCreateApplication(pid) });
     if app.0.is_null() {
-        return None;
+        return;
     }
     // SAFETY: app is live; a short timeout keeps a busy Zoom from blocking the sampler.
     unsafe { AXUIElementSetMessagingTimeout(app.0, 0.5) };
-    let windows = attribute(app.0, "AXWindows")?;
+    let Some(windows) = attribute(app.0, "AXWindows") else {
+        return;
+    };
     let mut budget = MAX_NODES;
-    let mut look = super::Look::default();
     // SAFETY: the type is checked before use as an array; items stay alive while `windows` is held.
     unsafe {
         if CFGetTypeID(windows.0) != CFArrayGetTypeID() {
-            return None;
+            return;
         }
         for i in 0..CFArrayGetCount(windows.0) {
             let window = CFArrayGetValueAtIndex(windows.0, i);
@@ -255,6 +458,9 @@ pub fn look(full: bool) -> Option<super::Look> {
                 look.speaking = super::active_tile(&shown, main);
             }
             look.in_meeting |= main || !shown.is_empty();
+            if !shown.is_empty() {
+                look.source = look.source.or(Some("Zoom"));
+            }
             look.rows.extend(shown.into_iter().map(|(label, _)| label));
             if full {
                 walk(window, 0, false, &mut budget, &mut look.rows);
@@ -264,5 +470,4 @@ pub fn look(full: bool) -> Option<super::Look> {
     if full && !look.in_meeting {
         look.in_meeting = meeting_in_menu(app.0);
     }
-    Some(look)
 }

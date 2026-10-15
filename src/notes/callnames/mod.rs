@@ -19,6 +19,69 @@ const MIN_VOTES: usize = 3;
 /// Share of those seconds the winning name needs; a voice Zoom showed as two people stays unnamed.
 const MIN_SHARE: f64 = 0.6;
 
+/// A call app whose page marks the talking tile with a class, read through its web accessibility tree.
+/// The class names are the ones the apps ship today; they change when the apps do.
+pub struct WebCall {
+    pub source: &'static str,
+    /// Process names that can host it.
+    pub processes: &'static [&'static str],
+    /// A window title start that shows the call is in this window; empty reads every window.
+    pub title_prefix: &'static str,
+    /// Class on each participant tile; empty when tiles have no class and the marker's ancestors carry the name.
+    pub tile: &'static str,
+    /// Class present inside the tile of whoever is talking.
+    pub marker: &'static str,
+}
+
+pub const WEB_CALLS: [WebCall; 3] = [
+    WebCall {
+        source: "Google Meet",
+        processes: &["Google Chrome", "Microsoft Edge", "Brave Browser", "Arc"],
+        title_prefix: "Meet - ",
+        tile: "oZRSLe",
+        marker: "kssMZb",
+    },
+    WebCall {
+        source: "Microsoft Teams",
+        processes: &["MSTeams", "Microsoft Teams"],
+        title_prefix: "",
+        tile: "",
+        marker: "vdi-frame-occlusion",
+    },
+    WebCall {
+        source: "Slack",
+        processes: &["Slack"],
+        title_prefix: "",
+        tile: "p-huddle_peer_tile",
+        marker: "p-huddle_peer_tile__overlay--active_speaker",
+    },
+];
+
+/// A tile or roster label as a person's name: Teams' role suffix goes, and "+3 more" or "You" are not names.
+pub fn web_name(label: &str) -> Option<String> {
+    let mut name = label.trim();
+    for role in [
+        "Organizer",
+        "Co-organizer",
+        "Meeting guest",
+        "Presenter",
+        "Attendee",
+    ] {
+        if let Some(at) = name.find(&format!(", {role}")) {
+            name = &name[..at];
+        }
+    }
+    let lower = name.to_lowercase();
+    let counted = lower.starts_with(|c: char| c == '+' || c.is_ascii_digit());
+    let last = lower.rsplit(' ').next().unwrap_or_default();
+    let overflow =
+        counted && ["more", "other", "others", "participant", "participants"].contains(&last);
+    if overflow || lower == "you" {
+        return None;
+    }
+    parse_row(name).map(|(n, _)| n)
+}
+
 /// What one look at the call app found.
 #[derive(Default, Debug)]
 pub struct Look {
@@ -28,23 +91,24 @@ pub struct Look {
     pub speaking: Option<String>,
     /// A meeting is open, whether or not anything in it was readable.
     pub in_meeting: bool,
+    /// A web call's tiles were found, so the next looks read its page every second too.
+    pub web_live: bool,
+    /// The call app that showed anything ("Zoom", "Google Meet").
+    pub source: Option<&'static str>,
 }
 /// A display name longer than this is not a name (a chat line, a banner).
 const MAX_NAME_CHARS: usize = 60;
 
-/// Looks at the call app now; `full` also reads the participant list, which costs more. None when no call app is readable.
-pub fn look(full: bool) -> Option<Look> {
+/// Looks at the call apps now; `full` also reads participant lists, `web` also reads web calls' pages, both costing more.
+/// None when no call app is readable.
+pub fn look(full: bool, web: bool) -> Option<Look> {
     #[cfg(target_os = "macos")]
-    return macos::look(full);
+    return macos::look(full, web);
     #[cfg(windows)]
-    return windows::rows().map(|rows| Look {
-        rows,
-        speaking: None,
-        in_meeting: true,
-    });
+    return windows::look(full, web);
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        let _ = full;
+        let _ = (full, web);
         None
     }
 }
@@ -74,23 +138,26 @@ pub fn active_tile(tiles: &[(String, f64)], main_window: bool) -> Option<String>
 pub struct Seen {
     pub rows: Vec<String>,
     pub talk: Vec<(u64, String)>,
+    pub source: Option<&'static str>,
 }
 
 #[derive(Default)]
 struct Heard {
     rows: BTreeSet<String>,
     talk: Vec<(u64, String)>,
+    source: Option<&'static str>,
 }
 
 // Per note while it records; names stay in memory until Stop puts them in the note.
 static SEEN: Mutex<BTreeMap<String, Heard>> = Mutex::new(BTreeMap::new());
 
-pub fn remember(note_id: &str, rows: Vec<String>) {
+pub fn remember(note_id: &str, rows: Vec<String>, source: Option<&'static str>) {
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
-    seen.entry(note_id.to_string())
-        .or_default()
-        .rows
-        .extend(rows);
+    let heard = seen.entry(note_id.to_string()).or_default();
+    if !rows.is_empty() {
+        heard.source = heard.source.or(source);
+    }
+    heard.rows.extend(rows);
 }
 
 /// Who the call app showed talking `at_ms` into the note.
@@ -111,6 +178,7 @@ pub fn take(note_id: &str) -> Seen {
     Seen {
         rows: heard.rows.into_iter().collect(),
         talk: heard.talk,
+        source: heard.source,
     }
 }
 
@@ -396,13 +464,27 @@ mod tests {
     }
 
     #[test]
+    fn web_labels_lose_role_suffixes_and_overflow_tiles_are_not_names() {
+        assert_eq!(web_name("Priya Shah, Organizer"), Some("Priya Shah".into()));
+        assert_eq!(
+            web_name("Simon, Meeting guest, external"),
+            Some("Simon".into())
+        );
+        assert_eq!(web_name("+3 more"), None);
+        assert_eq!(web_name("12 participants"), None);
+        assert_eq!(web_name("You"), None);
+        assert_eq!(web_name("Gaurav"), Some("Gaurav".into()));
+    }
+
+    #[test]
     fn rows_are_kept_per_note_until_taken() {
-        remember("n1", rows(&["Simon"]));
-        remember("n1", rows(&["Simon", "Priya"]));
+        remember("n1", rows(&["Simon"]), Some("Zoom"));
+        remember("n1", rows(&["Simon", "Priya"]), None);
         heard_speaking("n1", 2_000, "Priya".into());
         let seen = take("n1");
         assert_eq!(seen.rows, rows(&["Priya", "Simon"]));
         assert_eq!(seen.talk, vec![(2_000, "Priya".to_string())]);
+        assert_eq!(seen.source, Some("Zoom"));
         assert!(take("n1").rows.is_empty());
     }
 

@@ -13,6 +13,9 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mini window of a minimized meeting. At Stop each voice takes the name Zoom showed while it
   talked, when one name clearly wins. A full-screen meeting behind another app cannot be read, so
   a one-time hint asks for a window instead.
+- On a Mac the same naming works for Google Meet (Chrome, Edge, Brave, Arc), Microsoft Teams and
+  Slack huddles, read from the page each app shows. They rely on the class names those apps ship
+  today and are not yet tested in a real call; please open an issue if one stops naming speakers.
 
 ### Changed
 

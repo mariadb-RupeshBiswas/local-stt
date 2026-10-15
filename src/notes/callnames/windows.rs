@@ -56,3 +56,17 @@ pub fn rows() -> Option<Vec<String>> {
         Some(rows)
     }
 }
+
+pub fn look(full: bool, web: bool) -> Option<super::Look> {
+    let _ = web;
+    // The panel is the only Zoom source read on Windows; it changes slowly, so only full looks read it.
+    if !full {
+        return None;
+    }
+    rows().map(|rows| super::Look {
+        rows,
+        in_meeting: true,
+        source: Some("Zoom"),
+        ..Default::default()
+    })
+}
