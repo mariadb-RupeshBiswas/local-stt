@@ -10,7 +10,8 @@ const GAP: f64 = 28.0;
 /// How long an ignored toast stays; the page pauses this while the pointer is on it.
 const SHOW_MS: u64 = 20_000;
 
-fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
+/// Made hidden at start, so its page is already listening when the first call is offered.
+pub fn create(app: &AppHandle) -> tauri::Result<WebviewWindow> {
     let builder = WebviewWindowBuilder::new(app, TOAST, WebviewUrl::App("toast.html".into()))
         .title("local-stt call detected")
         .inner_size(SIZE.0, SIZE.1)

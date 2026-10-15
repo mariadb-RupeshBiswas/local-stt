@@ -268,6 +268,7 @@ pub fn run() -> Result<(), String> {
                 start_hotkey(&handle);
                 first_run_or_load(&handle);
                 spawn_update_checker(handle.clone());
+                crate::meeting::toast::create(&handle)?;
                 crate::meeting::toast::watch(handle.clone());
             }
             // LOCAL_STT_EXIT_AFTER_MS lets CI and smoke tests exercise a full start and a clean quit.
