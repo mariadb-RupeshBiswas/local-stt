@@ -800,6 +800,9 @@ for (const dark of [false, true]) {
   await page.evaluate(() => window.__emit("note-segment", { id: "someothernote000", segment: { start_ms: 0, end_ms: 1, speaker: "me", text: "stray" } }));
   await page.waitForTimeout(100);
   check("lines for another note are ignored", (await panel.locator(".turn").count()) === 2);
+  await page.evaluate(() => window.__emit("note-segment", { id: "feedfacecafe0001", heard: "Sam", segment: { start_ms: 6000, end_ms: 7000, speaker: "others", text: "Right, so let us say" } }));
+  await page.waitForTimeout(150);
+  check("a live call line shows who the call app had talking", (await panel.locator(".turn-name").last().textContent()) === "Sam");
   await panel.locator(".note-back").click();
   await page.waitForTimeout(200);
   const openRec = panel.locator(".history-bar .btn-action");

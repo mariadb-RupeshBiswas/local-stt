@@ -495,10 +495,17 @@ pub fn add_segment(
         diag::log(&format!("note: could not save a segment: {e}"));
         return false;
     }
+    // A call line shows who the call app had on screen as it was said; Stop settles the names for good.
+    let heard = if speaker == OTHERS {
+        let cfg = app::shared_of(app).config();
+        super::callnames::live_name(id, seg.start_ms, seg.end_ms, cfg.user_name.as_deref())
+    } else {
+        None
+    };
     let _ = app.emit_to(
         app::MAIN,
         "note-segment",
-        json!({ "id": id, "segment": seg }),
+        json!({ "id": id, "segment": seg, "heard": heard }),
     );
     true
 }

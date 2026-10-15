@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.3] - 2026-10-15
+
+### Added
+
+- Names appear while the call runs: each line from the call shows who the call app had on screen
+  talking as it was said (Zoom Speaker view, the minimized meeting, Meet, Teams, Slack). Stop
+  still settles the names for the whole note.
+
 ## [0.11.2] - 2026-10-15
 
 ### Added

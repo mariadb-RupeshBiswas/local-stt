@@ -1288,7 +1288,7 @@
     function turnRow(seg) {
       var row = h("div", { class: "turn turn-" + (seg.speaker === "me" ? "me" : "others"), "data-speaker": seg.speaker },
         h("div", { class: "turn-who" },
-          h("span", { class: "turn-name", text: speakerName(seg.speaker) }),
+          h("span", { class: "turn-name", text: seg.heard && !(S.openNote && (S.openNote.speakers || {})[seg.speaker]) ? seg.heard : speakerName(seg.speaker) }),
           h("span", { class: "turn-time", text: clock(seg.start_ms) })
         ),
         h("div", { class: "turn-text", text: seg.text })
@@ -1463,7 +1463,8 @@
       // one new row in time order, so a screen reader hears only the new line and a long call stays cheap
       var empty = card.querySelector(".turn-empty");
       if (empty) card.removeChild(empty);
-      var row = turnRow(p.segment);
+      // while recording, a call line carries the name the call app showed; it is display only, Stop decides
+      var row = turnRow(typeof p.heard === "string" && p.heard ? Object.assign({}, p.segment, { heard: p.heard }) : p.segment);
       var after = Array.prototype.find.call(card.children, function (el) { return el._start > p.segment.start_ms; });
       card.insertBefore(row, after || null);
       if (atEnd) scroller.scrollTop = scroller.scrollHeight; // follow the call unless the reader scrolled up
