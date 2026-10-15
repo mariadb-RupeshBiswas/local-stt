@@ -384,10 +384,18 @@ fn border_shares(hwnd: HWND, tiles: &Rects) -> Vec<(String, f64)> {
     shares
 }
 
-fn read_zoom(uia: &Uia, top: &Top, main: bool, full: bool, border: bool, look: &mut super::Look) {
+// Reads one Zoom window into `look`; returns its tiles, for telling a floated speaker-view strip apart.
+fn read_zoom(
+    uia: &Uia,
+    top: &Top,
+    main: bool,
+    full: bool,
+    border: bool,
+    look: &mut super::Look,
+) -> Vec<(String, f64)> {
     // SAFETY: the handle came from EnumWindows moments ago; a window that closed since gives an error.
     let Ok(root) = (unsafe { uia.auto.ElementFromHandle(top.hwnd) }) else {
-        return;
+        return Vec::new();
     };
     let (shown, rects, talking) = zoom_tiles(uia, &root);
     if look.speaking.is_none() && !main {
@@ -404,10 +412,12 @@ fn read_zoom(uia: &Uia, top: &Top, main: bool, full: bool, border: bool, look: &
     if main || !shown.is_empty() {
         look.source = look.source.or(Some("Zoom"));
     }
-    look.rows.extend(shown.into_iter().map(|(label, _)| label));
+    look.rows
+        .extend(shown.iter().map(|(label, _)| label.clone()));
     if full && main {
         look.rows.extend(panel_rows(uia, &root));
     }
+    shown
 }
 
 // A tile's person: its own label, else the first text inside it.
@@ -543,13 +553,23 @@ pub fn look(full: bool, web: bool, border: bool) -> Option<super::Look> {
     };
     let tops = top_windows();
     let mut look = super::Look::default();
+    let mut main_tiles = Vec::new();
+    let mut strip_tiles = Vec::new();
     for top in &tops {
         let main = top.class == MEETING_CLASS;
         let mini = ZOOM_EXES.contains(&top.exe.as_str())
             && (top.class.starts_with("Zoom") || top.class.starts_with("ZP"));
         if main || mini {
-            read_zoom(&uia, top, main, full, border, &mut look);
+            let shown = read_zoom(&uia, top, main, full, border, &mut look);
+            if main {
+                main_tiles.extend(shown);
+            } else {
+                strip_tiles.extend(shown);
+            }
         }
+    }
+    if look.speaking.is_none() {
+        look.speaking = super::strip_talker(&main_tiles, &strip_tiles);
     }
     if full || web {
         read_web_calls(&uia, &tops, &mut look);

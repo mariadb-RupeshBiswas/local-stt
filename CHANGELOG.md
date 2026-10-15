@@ -6,6 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.1] - 2026-10-15
+
+### Fixed
+
+- Speaker view with the thumbnails floated out of the meeting window (Zoom's strip, also the
+  layout used while someone shares) now names the talker from the big tile, without the speaking
+  border setting. On a live five-person call the big tile matched the border reading 24 of 24 times.
+- `local-stt call-names` says whether the talker came from the tiles or the speaking border, and
+  that a person can show twice (big tile plus strip).
+
 ## [0.12.0] - 2026-10-15
 
 ### Added

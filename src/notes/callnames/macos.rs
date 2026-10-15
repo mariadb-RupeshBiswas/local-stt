@@ -651,7 +651,10 @@ fn read_zoom(pid: i32, full: bool, border: bool, look: &mut super::Look) {
         if CFGetTypeID(windows.0) != CFArrayGetTypeID() {
             return;
         }
-        for i in 0..CFArrayGetCount(windows.0) {
+        let count = CFArrayGetCount(windows.0);
+        let mut main_tiles = Vec::new();
+        let mut strip_tiles = Vec::new();
+        for i in 0..count {
             let window = CFArrayGetValueAtIndex(windows.0, i);
             let shown = tiles(window);
             let main = text(window, "AXIdentifier").as_deref() == Some(MEETING_WINDOW);
@@ -661,9 +664,10 @@ fn read_zoom(pid: i32, full: bool, border: bool, look: &mut super::Look) {
             if look.speaking.is_none() {
                 look.speaking = super::active_tile(&shown, main);
             }
-            // Gallery and the share panel show the talker only as a green border, which only pixels reveal.
-            if look.speaking.is_none() && border && shown.len() >= 2 {
-                look.speaking = super::border_talker(&border_shares(window));
+            if main {
+                main_tiles.extend(shown.iter().cloned());
+            } else {
+                strip_tiles.extend(shown.iter().cloned());
             }
             look.in_meeting |= main || !shown.is_empty();
             if !shown.is_empty() {
@@ -672,6 +676,19 @@ fn read_zoom(pid: i32, full: bool, border: bool, look: &mut super::Look) {
             look.rows.extend(shown.into_iter().map(|(label, _)| label));
             if full {
                 walk(window, 0, false, &mut budget, &mut look.rows);
+            }
+        }
+        if look.speaking.is_none() {
+            look.speaking = super::strip_talker(&main_tiles, &strip_tiles);
+        }
+        // Gallery and the share panel show the talker only as a green border, which only pixels reveal.
+        for i in 0..count {
+            if look.speaking.is_some() || !border {
+                break;
+            }
+            let window = CFArrayGetValueAtIndex(windows.0, i);
+            if tiles(window).len() >= 2 {
+                look.speaking = super::border_talker(&border_shares(window));
             }
         }
     }

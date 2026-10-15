@@ -151,6 +151,19 @@ pub fn active_tile(tiles: &[(String, f64)], main_window: bool) -> Option<String>
     parse_row(label).map(|(name, _)| name)
 }
 
+/// Speaker view with its thumbnails floated out: the meeting window's one big tile is the talker,
+/// when the floating strip shows that person too (a lone tile with no strip is just you).
+pub fn strip_talker(main: &[(String, f64)], strip: &[(String, f64)]) -> Option<String> {
+    let [(label, big)] = main else {
+        return None;
+    };
+    let name = parse_row(label)?.0;
+    let in_strip = strip.iter().any(|(other, area)| {
+        *big >= area * 4.0 && parse_row(other).is_some_and(|(n, _)| n == name)
+    });
+    in_strip.then_some(name)
+}
+
 /// Zoom's speaking border: a bright green, far greener than skin, video or the dark tile background.
 pub fn border_green(r: u8, g: u8, b: u8) -> bool {
     let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
@@ -701,6 +714,29 @@ mod tests {
             0,
             "Priya already names another voice"
         );
+    }
+
+    #[test]
+    fn a_floated_strip_makes_the_lone_big_tile_the_talker() {
+        let tile = |name: &str, w: f64, h: f64| (format!("{name}, Computer audio unmuted"), w * h);
+        let big = vec![tile("Simon K", 1360.0, 765.0)];
+        let strip = vec![
+            tile("Naman S", 240.0, 135.0),
+            tile("Simon K", 240.0, 135.0),
+            tile("Adam L", 240.0, 135.0),
+        ];
+        assert_eq!(strip_talker(&big, &strip), Some("Simon K".into()));
+        assert_eq!(strip_talker(&big, &[]), None, "alone in the meeting");
+        let elsewhere = vec![tile("Naman S", 240.0, 135.0)];
+        assert_eq!(
+            strip_talker(&big, &elsewhere),
+            None,
+            "big tile not in the strip"
+        );
+        let two = vec![big[0].clone(), tile("Adam L", 1360.0, 765.0)];
+        assert_eq!(strip_talker(&two, &strip), None);
+        let same_size = vec![tile("Simon K", 240.0, 135.0)];
+        assert_eq!(strip_talker(&same_size, &strip), None);
     }
 
     #[test]
