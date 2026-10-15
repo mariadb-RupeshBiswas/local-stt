@@ -113,21 +113,46 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
     Ok(id)
 }
 
-// Looks at the call app's participant list every few seconds while this note records; names stay in memory.
+// Looks at the call app every second while this note records: who is talking each time, the full list every few seconds.
 fn sample_call_names(app: AppHandle, id: String) {
-    let recording = |app: &AppHandle| active(app).is_some_and(|(now, _)| now == id);
-    while recording(&app) {
-        if let Some(rows) = super::callnames::read_rows() {
-            super::callnames::remember(&id, rows);
+    let mut tick: u64 = 0;
+    let mut unreadable: u32 = 0;
+    let mut web_live = false;
+    loop {
+        let Some((now_id, started_ms)) = active(&app) else {
+            return;
+        };
+        if now_id != id {
+            return;
         }
-        for _ in 0..super::callnames::EVERY_SECS {
-            if !recording(&app) {
-                return;
+        let full = tick % super::callnames::EVERY_SECS == 0;
+        let look = super::callnames::look(full, web_live);
+        web_live = look.as_ref().is_some_and(|l| l.web_live) || (web_live && !full);
+        if let Some(look) = look {
+            if let Some(name) = look.speaking {
+                let at = app::now_ms().saturating_sub(started_ms);
+                super::callnames::heard_speaking(&id, at, name);
             }
-            std::thread::sleep(std::time::Duration::from_secs(1));
+            if full {
+                unreadable = if look.in_meeting && look.rows.is_empty() {
+                    unreadable + 1
+                } else {
+                    0
+                };
+                // Once per note, after about half a minute of a meeting nothing could be read from.
+                if unreadable == HINT_AFTER_LOOKS {
+                    let _ = app.emit("notice", json!({ "message": CALL_NAMES_HINT }));
+                }
+                super::callnames::remember(&id, look.rows, look.source);
+            }
         }
+        tick += 1;
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 }
+
+const HINT_AFTER_LOOKS: u32 = 6;
+const CALL_NAMES_HINT: &str = "To name who is talking, keep the Zoom meeting in a window or minimized, not full screen. Speaker view names every line.";
 
 /// Stops the running note; the worker tidies and saves it once its last segments are in.
 pub fn stop(app: &AppHandle) -> Result<(), String> {
@@ -511,18 +536,26 @@ pub fn finish(
 ) {
     let cfg = app::shared_of(app).config();
     let english = app::english_output(&cfg);
-    let rows = super::callnames::take(id);
-    let others = super::callnames::others(&rows, cfg.user_name.as_deref());
-    match super::finish(id, ended_ms, cfg.smart_format, english, voices, &others) {
+    let seen = super::callnames::take(id);
+    let user = super::callnames::User::new(&seen.rows, cfg.user_name.as_deref());
+    let others = super::callnames::others(&seen.rows, cfg.user_name.as_deref());
+    let call = super::Call {
+        others: &others,
+        talk: &seen.talk,
+        user: &user,
+        source: seen.source,
+    };
+    match super::finish(id, ended_ms, cfg.smart_format, english, voices, &call) {
         Ok(note) => {
             let speakers: std::collections::HashSet<&str> =
                 voices.values().map(String::as_str).collect();
             // Counts only; the names never reach the log.
             diag::log(&format!(
-                "note saved: {} lines, {} voices told apart, {} call participants read",
+                "note saved: {} lines, {} voices told apart, {} call participants read, {} speaker seconds seen",
                 note.segments.len(),
                 speakers.len(),
-                others.len()
+                others.len(),
+                seen.talk.len()
             ));
             let _ = app.emit_to(
                 app::MAIN,

@@ -95,9 +95,14 @@ Notes reuse the same engine for a whole call instead of one dictation:
    one exception is your own voice: with Learn my voice on, each dictation updates a running
    average in `voice.json` (`src/notes/myvoice.rs`). Once it has ten dictations, a Me line far
    from it is a person in the room and joins the grouping.
-6. **Names from the call.** Every 5 s while the note records, `src/notes/callnames/` reads Zoom's
-   participant list (`macos.rs` through Accessibility, `windows.rs` through UI Automation). At Stop a
-   one-to-one call names its one other voice; a group call's names are offered in the note.
+6. **Names from the call.** Every second while the note records, `src/notes/callnames/` notes who
+   Zoom shows talking (Speaker view's big tile, or the minimized meeting's mini window), and every
+   5 s it reads the names on the video tiles and the participants panel (`macos.rs` through
+   Accessibility, `windows.rs` through UI Automation, panel only). On a Mac, Google Meet, Teams and
+   Slack huddles are read from the page's accessibility tree by the class each app puts on the
+   talking tile (`WEB_CALLS` in `mod.rs`). At Stop each other-side voice takes
+   the name shown during most of its lines; a one-to-one call names its one other voice, and names
+   left over are offered in the note.
 7. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
    lines from one speaker and cuts the other side's words out of your lines where the mic heard
    them from the speakers (runs of three or more words, or whole lines).
@@ -105,6 +110,22 @@ Notes reuse the same engine for a whole call instead of one dictation:
    (`mod.rs`), writes the summary in parts and joins them (`write.rs`), and runs downloads and
    summaries off the UI thread (`run.rs`). llama.cpp runs through `llm_shim.cpp` and `Llm` in
    `src/engine.rs`; a fixed grammar holds each reply to JSON, and the summary is saved into the note.
+
+## Call detection
+
+When a call starts, a small toast offers to take a note. It reads which apps use the microphone, never the sound:
+
+1. Every 3 seconds (`src/meeting/toast.rs`), while Detect calls is on, the app asks who is recording
+   from a microphone: Core Audio's process list on a Mac (`macos.rs`), the privacy settings'
+   `ConsentStore` microphone records on Windows (`windows.rs`, an app with a start time and no stop time).
+2. `src/meeting/mod.rs` names each one: Zoom, Microsoft Teams, Slack, Webex and FaceTime are calls.
+   A browser counts only when a window title shows Google Meet or Microsoft Teams, and titles are
+   read only while a browser holds the microphone.
+3. A pure **Detector** offers each call once; a call missing for up to about 15 s is the same call.
+   A call that starts during a note is marked seen and never offered.
+4. The toast (`toast.rs`, `ui/toast.js`) is an unfocusable window at the bottom centre of the
+   screen in use. It hides after 20 s unless the pointer rests on it. **Start note** starts a note.
+   Only the app name is logged.
 
 ## Insights
 

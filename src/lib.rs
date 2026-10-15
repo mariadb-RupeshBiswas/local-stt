@@ -20,6 +20,7 @@ pub mod insights;
 pub mod install;
 pub mod instance;
 pub mod localtime;
+pub mod meeting;
 pub mod models;
 pub mod notes;
 pub mod output;

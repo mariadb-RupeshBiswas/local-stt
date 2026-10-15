@@ -82,6 +82,8 @@ pub struct Config {
     pub summaries: bool,
     /// Takes the call's sound out of the microphone in notes, for laptop speakers.
     pub echo_cancellation: bool,
+    /// Offers a note when a call app starts using the microphone.
+    pub detect_calls: bool,
 }
 
 impl Default for Config {
@@ -117,6 +119,7 @@ impl Default for Config {
             appearance: Appearance::System,
             summaries: false,
             echo_cancellation: true,
+            detect_calls: true,
         }
     }
 }

@@ -92,6 +92,8 @@ fn main() {
         "list_notes",
         "get_note",
         "start_note",
+        "toast_start_note",
+        "toast_dismiss",
         "stop_note",
         "rename_note",
         "rename_speaker",

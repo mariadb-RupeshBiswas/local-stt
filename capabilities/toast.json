@@ -1,0 +1,12 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "toast",
+  "description": "Call detected toast: listen to its own event, start a note or put itself away. Nothing else.",
+  "windows": ["toast"],
+  "permissions": [
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+    "allow-toast-start-note",
+    "allow-toast-dismiss"
+  ]
+}

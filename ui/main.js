@@ -1259,7 +1259,7 @@
         row.appendChild(h("label", { class: "speaker-field" }, h("span", { class: "speaker-key", text: defaultSpeaker(key) }), input));
       });
       if (!people.length) return row;
-      // Zoom lists who was there, not who spoke: the user matches names to voices, one click each
+      // names Zoom never showed talking during a voice's lines: the user matches them, one click each
       var hint = h("div", { class: "call-people" },
         h("span", { class: "call-people-label", text: (note.source || "The call") + " showed:" }),
         people.map(function (p) {
@@ -2193,8 +2193,8 @@
 
     function accessDescription() {
       return S.accessibility === true
-        ? "The shortcut, paste and Zoom names in notes work."
-        : "Needed for the shortcut, paste and Zoom names in notes. Already on? Remove local-stt with the minus button and add it again.";
+        ? "The shortcut, paste and call names in notes work."
+        : "Needed for the shortcut, paste and call names in notes. Already on? Remove local-stt with the minus button and add it again.";
     }
 
     // quits, installs again (the newest version when one is out), and reopens
@@ -2585,7 +2585,11 @@
       ]);
 
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Notes" }));
-      settingsPanel.appendChild(card([settingRow("Echo cancellation", "Takes the call's sound out of your microphone when you use speakers. Turn off if your own words go missing from notes.", addSync(toggle({
+      settingsPanel.appendChild(card([settingRow("Detect calls", "When Zoom, Teams, Slack, Webex, FaceTime or a Google Meet tab starts using your microphone, a small prompt offers to take a note.", addSync(toggle({
+        label: "Detect calls",
+        value: function () { return cfg().detect_calls !== false; },
+        onChange: function (v) { patchConfig({ detect_calls: v }); }
+      }))), settingRow("Echo cancellation", "Takes the call's sound out of your microphone when you use speakers. Turn off if your own words go missing from notes.", addSync(toggle({
         label: "Echo cancellation",
         value: function () { return cfg().echo_cancellation !== false; },
         onChange: function (v) { patchConfig({ echo_cancellation: v }); }

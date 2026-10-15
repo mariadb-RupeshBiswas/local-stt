@@ -129,7 +129,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 - The call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
 - **Learn my voice** (Settings, on by default): your own voice fingerprint is built from your dictations and kept on your computer in `voice.json`, readable only by you. Notes use it to tell you from a person sitting in the room, who then gets a Speaker label instead of Me. It is numbers, never audio, and other people's voices are never stored. Turn it off and the file is deleted.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
-- Names from Zoom: while a note records, local-stt reads who is in the call from Zoom's Participants panel (keep it open). Zoom does not tell other apps who is speaking, so a one-to-one call gets the other person's name on its own, and in a group call the names show as one-click choices for each speaker.
+- Names from Zoom: while a note records, local-stt reads the names on Zoom's video tiles, and who Zoom shows talking (Speaker view, or the mini window when the meeting is minimized). At Stop each voice gets the name Zoom showed while it talked, when one name clearly wins; a one-to-one call names the other person on its own, and any voice left unnamed gets the names as one-click choices. Keep the meeting in a window or minimized: a full-screen meeting behind another app cannot be read. On a Mac the same works for Google Meet (Chrome, Edge, Brave, Arc), Microsoft Teams and Slack huddles, read from the page the app shows; these use the class names the apps ship today, so tell us in an issue when one stops working.
 - Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
 - **Summarize** a finished note on your computer: an overview, what each person said, and the action items with who owns them and when they were said. Pick a summary model in the **Model** tab (Summary model section), which recommends one for your computer: Granite 4.0 Micro (IBM, 2.1 GB, fastest) or Gemma 4 E4B (Google, 5.2 GB, best summaries). Both are optional downloads and Summaries are off until you turn them on (the Summaries switch, or downloading a model); the note never leaves your computer.
 - Laptop speakers work: echo cancellation takes the call's sound out of your microphone before it is transcribed (Settings > Notes > Echo cancellation, on by default). Headphones still give the cleanest split, and any echo words left are cut from your lines. Bluetooth headphones that switch to call mode mid-note are picked up again within a second.
@@ -138,7 +138,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 
 **Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
 
-Coming next: a prompt when a call starts, echo cancellation for laptop speakers, and names read from Zoom.
+- **Detect calls** (Settings > Notes, on by default): when Zoom, Microsoft Teams, Slack, Webex or FaceTime starts using your microphone, or a browser window shows Google Meet or Microsoft Teams, a small prompt appears at the bottom centre of the screen you are using: "<App> call detected", "Take notes on this call?", with **Start note** and a close button. It hides after 20 seconds unless the pointer rests on it, and shows once per call (a call that drops for about 15 seconds is the same call). It does not appear while a note is recording. Nothing is recorded until you click Start note. Turn the switch off to stop the check.
 
 ## Insights
 
@@ -295,6 +295,8 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 ## License
 
 [MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope). Echo cancellation uses sonora (BSD-3-Clause), a Rust port of WebRTC's AEC3. Summaries use llama.cpp (MIT, ggml-org) with Granite 4.0 Micro (Apache-2.0, IBM) or Gemma 4 E4B (Apache-2.0, Google).
+
+Full third-party licence notices (Rust crates, bundled native code, downloadable models) are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
 
 Wispr Flow, Superwhisper and other product names mentioned here are trademarks of their owners. local-stt is an independent open-source project and is not affiliated with, endorsed by or sponsored by them; the names are used only to say what local-stt can be used instead of.
 

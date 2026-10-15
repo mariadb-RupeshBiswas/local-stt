@@ -126,7 +126,8 @@ fn summarize(
     verify_once(model, &path)?;
     let llm = crate::engine::Llm::load(&path)
         .ok_or_else(|| format!("{} could not be loaded.", super::info(model).label))?;
-    let threads = std::thread::available_parallelism().map_or(4, |n| n.get() as u32);
+    // The model runs on the GPU; more CPU threads only spin and heat the computer.
+    let threads = std::thread::available_parallelism().map_or(4, |n| n.get().min(4) as u32);
     let mut generate = |prompt: &str, root: &str, max: u32| {
         llm.generate(
             prompt,
