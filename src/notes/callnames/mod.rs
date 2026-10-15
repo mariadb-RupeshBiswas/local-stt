@@ -259,6 +259,16 @@ pub fn live_name(
     (n as f64 >= total as f64 * MIN_SHARE).then(|| who.to_string())
 }
 
+/// How many other people the call app has shown during this note so far; 0 when none were read.
+pub fn head_count(note_id: &str, user_name: Option<&str>) -> usize {
+    let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let Some(heard) = seen.get(note_id) else {
+        return 0;
+    };
+    let rows: Vec<String> = heard.rows.iter().cloned().collect();
+    others(&rows, user_name).len()
+}
+
 /// Everything seen during this note, forgotten here.
 pub fn take(note_id: &str) -> Seen {
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());

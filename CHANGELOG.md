@@ -6,6 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.3] - 2026-10-15
+
+### Fixed
+
+- Long calls no longer split one person into many speakers. Single lines from one person on a
+  call often sound less alike than the 0.55 cut, so a 65-minute call made 15 groups for 3 people.
+  Groups now also join when their averaged voices agree (0.70), and when the call app showed how
+  many people were there, groups past that count plus one are merged down. On a simulated drifting
+  call, groups fell from 13 to 24 to at most 4, with no two people ever merged.
+
 ## [0.12.2] - 2026-10-15
 
 ### Fixed
