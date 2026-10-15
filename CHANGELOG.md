@@ -6,6 +6,16 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.2] - 2026-10-15
+
+### Fixed
+
+- A person whose voice split into several groups (a long call through Zoom's audio does this)
+  now shows as one speaker once the groups are named the same; a live call had Simon and Naman
+  each split in two.
+- During a note, a minute of Zoom tiles with nobody marked talking (gallery view or someone
+  sharing) shows a one-time hint to turn on Read Zoom's speaking border.
+
 ## [0.12.1] - 2026-10-15
 
 ### Fixed

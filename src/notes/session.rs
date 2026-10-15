@@ -117,6 +117,8 @@ pub fn start(app: &AppHandle) -> Result<String, String> {
 fn sample_call_names(app: AppHandle, id: String) {
     let mut tick: u64 = 0;
     let mut unreadable: u32 = 0;
+    let mut no_talker: u32 = 0;
+    let mut border_hinted = false;
     let mut web_live = false;
     loop {
         let Some((now_id, started_ms)) = active(&app) else {
@@ -130,6 +132,16 @@ fn sample_call_names(app: AppHandle, id: String) {
         let look = super::callnames::look(full, web_live, border);
         web_live = look.as_ref().is_some_and(|l| l.web_live) || (web_live && !full);
         if let Some(look) = look {
+            no_talker = if !border && look.speaking.is_none() && !look.rows.is_empty() {
+                no_talker + 1
+            } else {
+                0
+            };
+            // Once per note: a minute of tiles with nobody marked means gallery or a share, which only the border shows.
+            if no_talker == BORDER_HINT_SECS && !border_hinted {
+                border_hinted = true;
+                let _ = app.emit("notice", json!({ "message": BORDER_HINT }));
+            }
             if let Some(name) = look.speaking {
                 let at = app::now_ms().saturating_sub(started_ms);
                 super::callnames::heard_speaking(&id, at, name);
@@ -153,6 +165,8 @@ fn sample_call_names(app: AppHandle, id: String) {
 }
 
 const HINT_AFTER_LOOKS: u32 = 6;
+const BORDER_HINT_SECS: u32 = 60;
+const BORDER_HINT: &str = "To name who is talking in gallery view or while someone shares, turn on Read Zoom's speaking border in Settings > Notes.";
 const CALL_NAMES_HINT: &str = "To name who is talking, keep the Zoom meeting in a window or minimized, not full screen. Speaker view names every line.";
 
 /// Stops the running note; the worker tidies and saves it once its last segments are in.

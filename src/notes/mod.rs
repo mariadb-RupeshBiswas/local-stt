@@ -218,6 +218,7 @@ fn finish_locked(
     callnames::name_voices(&note.segments, &mut note.speakers, call.talk, call.user);
     callnames::name_by_mentions(&note.segments, &mut note.speakers, call.others);
     callnames::apply(&note.segments, &mut note.speakers, others);
+    merge_named(&mut note.segments, &mut note.speakers);
     if !others.is_empty() {
         note.participants = others.to_vec();
         if let Some(source) = call.source {
@@ -255,6 +256,31 @@ fn assign_speakers(segments: &mut [Segment], voices: &HashMap<u64, String>) {
         if let Some((_, key)) = nearest {
             seg.speaker = key.clone();
         }
+    }
+}
+
+// One person whose voice split into several groups ends up as one speaker once the groups share a name.
+fn merge_named(segments: &mut [Segment], names: &mut BTreeMap<String, String>) {
+    let mut first: HashMap<String, String> = HashMap::new();
+    let mut moved: HashMap<String, String> = HashMap::new();
+    for seg in segments.iter() {
+        let Some(name) = names.get(&seg.speaker) else {
+            continue;
+        };
+        let owner = first
+            .entry(name.trim().to_lowercase())
+            .or_insert_with(|| seg.speaker.clone());
+        if *owner != seg.speaker {
+            moved.insert(seg.speaker.clone(), owner.clone());
+        }
+    }
+    for seg in segments.iter_mut() {
+        if let Some(owner) = moved.get(&seg.speaker) {
+            seg.speaker = owner.clone();
+        }
+    }
+    for key in moved.keys() {
+        names.remove(key);
     }
 }
 
@@ -467,6 +493,31 @@ pub fn count() -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn voice_groups_that_share_a_name_become_one_speaker() {
+        let line = |who: &str| Segment {
+            start_ms: 0,
+            end_ms: 1,
+            speaker: who.into(),
+            text: "hi".into(),
+        };
+        let mut segs = vec![line("s1"), line("s2"), line("s7"), line("s3"), line("me")];
+        let mut names: BTreeMap<String, String> = [
+            ("s1", "Simon K"),
+            ("s2", "Naman S"),
+            ("s7", "simon k"),
+            ("me", "Rupesh"),
+        ]
+        .into_iter()
+        .map(|(k, v)| (k.to_string(), v.to_string()))
+        .collect();
+        merge_named(&mut segs, &mut names);
+        let who: Vec<&str> = segs.iter().map(|s| s.speaker.as_str()).collect();
+        assert_eq!(who, ["s1", "s2", "s1", "s3", "me"]);
+        assert!(!names.contains_key("s7"));
+        assert_eq!(names.len(), 3);
+    }
 
     // Notes live under LOCAL_STT_DATA_DIR, which is process-wide, so these tests share one folder and one lock.
     fn sandbox() -> MutexGuard<'static, ()> {
