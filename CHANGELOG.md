@@ -6,6 +6,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-15
+
+### Added
+
+- Read Zoom's speaking border (Settings > Notes, off by default): in gallery, multi-speaker and
+  the screen-share panel Zoom marks the talker only with a green border. With this on, local-stt
+  checks a thin strip around each video tile once a second and names the one tile that is lit,
+  so lines get names live in those views too. On a Mac it needs Screen Recording, asked when the
+  switch is turned on; on Windows it needs nothing extra. The pixels are read in memory and never
+  saved. Windows support is not yet tried in a real call.
+
 ## [0.11.3] - 2026-10-15
 
 ### Added
