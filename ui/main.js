@@ -2594,6 +2594,15 @@
         label: "Echo cancellation",
         value: function () { return cfg().echo_cancellation !== false; },
         onChange: function (v) { patchConfig({ echo_cancellation: v }); }
+      }))), settingRow("Read Zoom's speaking border", "In gallery view Zoom marks whoever is talking only with a green border. With this on, local-stt checks a thin strip around each video tile once a second to name the talker. It needs Screen Recording; the pixels are checked in memory and never saved.", addSync(toggle({
+        label: "Read Zoom's speaking border",
+        value: function () { return cfg().speaking_border === true; },
+        onChange: function (v) {
+          patchConfig({ speaking_border: v });
+          if (v) Promise.resolve(invoke("request_screen_access")).then(function (ok) {
+            if (ok === false) toast("Allow local-stt under Screen & System Audio Recording, then start the next note.");
+          }).catch(function () {});
+        }
       })))]));
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "General" }));
       settingsPanel.appendChild(general);

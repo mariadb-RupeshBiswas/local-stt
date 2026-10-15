@@ -14,6 +14,11 @@ const MAX_ROWS: usize = 300;
 // Zoom's meeting window; any other Zoom window holding one tile is its mini window.
 const MEETING_WINDOW: &str = "zm.meeting.window.main";
 const CG_SIZE: u32 = 2;
+const CG_POINT: u32 = 1;
+// dlsym's "search every loaded image" handle on macOS.
+const RTLD_DEFAULT: *mut c_void = -2isize as *mut c_void;
+// The band around a tile, in points, where Zoom draws its speaking border.
+const BORDER_BAND: f64 = 6.0;
 // A call page is far bigger than Zoom's window; this bounds one read of it.
 const MAX_WEB_NODES: usize = 6_000;
 
@@ -35,8 +40,30 @@ extern "C" {
     ) -> i32;
 }
 
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+struct Rect {
+    x: f64,
+    y: f64,
+    w: f64,
+    h: f64,
+}
+
+#[link(name = "CoreGraphics", kind = "framework")]
+extern "C" {
+    fn CGPreflightScreenCaptureAccess() -> bool;
+    fn CGRequestScreenCaptureAccess() -> bool;
+    fn CGImageGetWidth(image: CFTypeRef) -> usize;
+    fn CGImageGetHeight(image: CFTypeRef) -> usize;
+    fn CGImageGetBytesPerRow(image: CFTypeRef) -> usize;
+    fn CGImageGetBitsPerPixel(image: CFTypeRef) -> usize;
+    fn CGImageGetDataProvider(image: CFTypeRef) -> CFTypeRef;
+    fn CGDataProviderCopyData(provider: CFTypeRef) -> CFTypeRef;
+}
+
 #[link(name = "System")]
 extern "C" {
+    fn dlsym(handle: *mut c_void, symbol: *const c_char) -> *mut c_void;
     fn proc_listallpids(buffer: *mut c_void, size: i32) -> i32;
     fn proc_name(pid: i32, buffer: *mut c_void, size: u32) -> i32;
 }
@@ -58,6 +85,8 @@ extern "C" {
     fn CFArrayGetValueAtIndex(array: CFTypeRef, index: isize) -> CFTypeRef;
     fn CFRetain(cf: CFTypeRef) -> CFTypeRef;
     fn CFRelease(cf: CFTypeRef);
+    fn CFDataGetBytePtr(data: CFTypeRef) -> *const u8;
+    fn CFDataGetLength(data: CFTypeRef) -> isize;
     static kCFBooleanTrue: CFTypeRef;
 }
 
@@ -436,7 +465,159 @@ fn read_web_calls(look: &mut super::Look) {
     }
 }
 
-pub fn look(full: bool, web: bool) -> Option<super::Look> {
+/// Asks macOS once for Screen Recording, which the speaking border needs; true when already allowed.
+pub fn ask_screen_access() -> bool {
+    // SAFETY: plain permission calls with no arguments; the request shows the system prompt at most once.
+    unsafe { CGPreflightScreenCaptureAccess() || CGRequestScreenCaptureAccess() }
+}
+
+// An element's frame on screen, in points.
+fn frame(element: CFTypeRef) -> Option<Rect> {
+    let pos = attribute(element, "AXPosition")?;
+    let size = attribute(element, "AXSize")?;
+    let mut xy = [0f64; 2];
+    let mut wh = [0f64; 2];
+    // SAFETY: AXPosition holds a CGPoint and AXSize a CGSize (two f64 each); the type tags make the calls refuse anything else.
+    let ok = unsafe {
+        AXValueGetValue(pos.0, CG_POINT, xy.as_mut_ptr().cast())
+            && AXValueGetValue(size.0, CG_SIZE, wh.as_mut_ptr().cast())
+    };
+    ok.then_some(Rect {
+        x: xy[0],
+        y: xy[1],
+        w: wh[0],
+        h: wh[1],
+    })
+}
+
+// A function looked up by name at run time; None when this macOS does not have it.
+fn lookup(name: &str) -> Option<*mut c_void> {
+    let name = std::ffi::CString::new(name).ok()?;
+    // SAFETY: the name is NUL-terminated and RTLD_DEFAULT searches the images already loaded.
+    let f = unsafe { dlsym(RTLD_DEFAULT, name.as_ptr()) };
+    (!f.is_null()).then_some(f)
+}
+
+// The window server's id for an AX window, through the same private call screen readers' helpers use.
+fn window_id(window: CFTypeRef) -> Option<u32> {
+    type GetWindow = unsafe extern "C" fn(CFTypeRef, *mut u32) -> i32;
+    let f = lookup("_AXUIElementGetWindow")?;
+    let mut id = 0u32;
+    // SAFETY: the symbol has this signature; window is a live AX element and id receives the number.
+    let rc = unsafe { std::mem::transmute::<*mut c_void, GetWindow>(f)(window, &mut id) };
+    (rc == AX_OK && id != 0).then_some(id)
+}
+
+/// One window's pixels in memory (BGRA, one point per pixel), dropped right after use.
+struct Pixels {
+    data: Owned,
+    width: usize,
+    height: usize,
+    row: usize,
+}
+
+impl Pixels {
+    fn bgr(&self, x: usize, y: usize) -> Option<(u8, u8, u8)> {
+        if x >= self.width || y >= self.height {
+            return None;
+        }
+        // SAFETY: data is a live CFData of at least row * height bytes (checked when captured).
+        let bytes = unsafe {
+            std::slice::from_raw_parts(CFDataGetBytePtr(self.data.0), self.row * self.height)
+        };
+        let at = y * self.row + x * 4;
+        Some((bytes[at], bytes[at + 1], bytes[at + 2]))
+    }
+}
+
+// Captures one window even while other windows cover it; needs Screen Recording.
+fn capture(id: u32) -> Option<Pixels> {
+    type CreateImage = unsafe extern "C" fn(Rect, u32, u32, u32) -> CFTypeRef;
+    // SAFETY: a read-only permission check; never prompts.
+    if !unsafe { CGPreflightScreenCaptureAccess() } {
+        return None;
+    }
+    let f = lookup("CGWindowListCreateImage")?;
+    let null = Rect {
+        x: f64::INFINITY,
+        y: f64::INFINITY,
+        w: 0.0,
+        h: 0.0,
+    };
+    // Including just this window; bounds without the shadow, at one pixel per point.
+    let (only_window, plain_nominal) = (8u32, 1u32 | 16u32);
+    // SAFETY: the symbol has this signature; the result is a retained CGImage released by Owned.
+    let image = Owned(unsafe {
+        std::mem::transmute::<*mut c_void, CreateImage>(f)(null, only_window, id, plain_nominal)
+    });
+    if image.0.is_null() {
+        return None;
+    }
+    // SAFETY: image is a live CGImage; its data is copied into a retained CFData released by Owned.
+    unsafe {
+        if CGImageGetBitsPerPixel(image.0) != 32 {
+            return None;
+        }
+        let pixels = Pixels {
+            data: Owned(CGDataProviderCopyData(CGImageGetDataProvider(image.0))),
+            width: CGImageGetWidth(image.0),
+            height: CGImageGetHeight(image.0),
+            row: CGImageGetBytesPerRow(image.0),
+        };
+        let enough = !pixels.data.0.is_null()
+            && CFDataGetLength(pixels.data.0) as usize >= pixels.row * pixels.height;
+        enough.then_some(pixels)
+    }
+}
+
+// Each tile's share of border-green pixels in a thin band just around it, from one capture of the window.
+fn border_shares(window: CFTypeRef) -> Vec<(String, f64)> {
+    let tiles: Vec<Owned> = children(window)
+        .into_iter()
+        .filter(|c| text(c.0, "AXRole").as_deref() == Some("AXTabGroup"))
+        .collect();
+    let (Some(win), Some(id)) = (frame(window), window_id(window)) else {
+        return Vec::new();
+    };
+    let Some(pixels) = capture(id) else {
+        return Vec::new();
+    };
+    let scale = pixels.width as f64 / win.w.max(1.0);
+    let mut shares = Vec::new();
+    for tile in &tiles {
+        let (Some(label), Some(r)) = (text(tile.0, "AXDescription"), frame(tile.0)) else {
+            continue;
+        };
+        let left = ((r.x - win.x - 3.0) * scale).max(0.0) as usize;
+        let top = ((r.y - win.y - 3.0) * scale).max(0.0) as usize;
+        let right = ((r.x - win.x + r.w + 3.0) * scale) as usize;
+        let bottom = ((r.y - win.y + r.h + 3.0) * scale) as usize;
+        let band = (BORDER_BAND * scale) as usize;
+        let mut green = 0usize;
+        let mut total = 0usize;
+        for y in (top..bottom).step_by(2) {
+            for x in (left..right).step_by(2) {
+                let edge =
+                    x < left + band || x + band >= right || y < top + band || y + band >= bottom;
+                if !edge {
+                    continue;
+                }
+                if let Some((b, g, r)) = pixels.bgr(x, y) {
+                    total += 1;
+                    if super::border_green(r, g, b) {
+                        green += 1;
+                    }
+                }
+            }
+        }
+        if total > 0 {
+            shares.push((label, green as f64 / total as f64));
+        }
+    }
+    shares
+}
+
+pub fn look(full: bool, web: bool, border: bool) -> Option<super::Look> {
     // SAFETY: a read-only permission check with no arguments.
     if !unsafe { AXIsProcessTrusted() } {
         return None;
@@ -444,7 +625,7 @@ pub fn look(full: bool, web: bool) -> Option<super::Look> {
     let mut look = super::Look::default();
     let zoom = zoom_pid();
     if let Some(pid) = zoom {
-        read_zoom(pid, full, &mut look);
+        read_zoom(pid, full, border, &mut look);
     }
     if full || web {
         read_web_calls(&mut look);
@@ -453,7 +634,7 @@ pub fn look(full: bool, web: bool) -> Option<super::Look> {
     found.then_some(look)
 }
 
-fn read_zoom(pid: i32, full: bool, look: &mut super::Look) {
+fn read_zoom(pid: i32, full: bool, border: bool, look: &mut super::Look) {
     // SAFETY: creates an owned AX element for a running process; released by Owned.
     let app = Owned(unsafe { AXUIElementCreateApplication(pid) });
     if app.0.is_null() {
@@ -479,6 +660,10 @@ fn read_zoom(pid: i32, full: bool, look: &mut super::Look) {
             }
             if look.speaking.is_none() {
                 look.speaking = super::active_tile(&shown, main);
+            }
+            // Gallery and the share panel show the talker only as a green border, which only pixels reveal.
+            if look.speaking.is_none() && border && shown.len() >= 2 {
+                look.speaking = super::border_talker(&border_shares(window));
             }
             look.in_meeting |= main || !shown.is_empty();
             if !shown.is_empty() {

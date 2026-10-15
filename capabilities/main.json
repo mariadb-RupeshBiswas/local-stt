@@ -28,6 +28,7 @@
     "allow-list-notes",
     "allow-get-note",
     "allow-start-note",
+    "allow-request-screen-access",
     "allow-stop-note",
     "allow-rename-note",
     "allow-rename-speaker",

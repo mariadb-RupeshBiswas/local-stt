@@ -101,14 +101,14 @@ const MAX_NAME_CHARS: usize = 60;
 
 /// Looks at the call apps now; `full` also reads participant lists, `web` also reads web calls' pages, both costing more.
 /// None when no call app is readable.
-pub fn look(full: bool, web: bool) -> Option<Look> {
+pub fn look(full: bool, web: bool, border: bool) -> Option<Look> {
     #[cfg(target_os = "macos")]
-    return macos::look(full, web);
+    return macos::look(full, web, border);
     #[cfg(windows)]
-    return windows::look(full, web);
+    return windows::look(full, web, border);
     #[cfg(not(any(target_os = "macos", windows)))]
     {
-        let _ = (full, web);
+        let _ = (full, web, border);
         None
     }
 }
@@ -149,6 +149,34 @@ pub fn active_tile(tiles: &[(String, f64)], main_window: bool) -> Option<String>
         return None;
     }
     parse_row(label).map(|(name, _)| name)
+}
+
+/// Zoom's speaking border: a bright green, far greener than skin, video or the dark tile background.
+pub fn border_green(r: u8, g: u8, b: u8) -> bool {
+    let (r, g, b) = (i32::from(r), i32::from(g), i32::from(b));
+    g > 128 && g - r > 64 && g - b > 50
+}
+
+/// The talker from each tile's share of border-green pixels in a thin band around it:
+/// exactly one tile clearly lit while every other tile stays dark, else nobody.
+pub fn border_talker(shares: &[(String, f64)]) -> Option<String> {
+    let lit: Vec<&(String, f64)> = shares.iter().filter(|(_, s)| *s >= 0.15).collect();
+    let [(label, _)] = lit.as_slice() else {
+        return None;
+    };
+    let dark = shares.iter().all(|(other, s)| other == label || *s < 0.03);
+    if !dark {
+        return None;
+    }
+    parse_row(label).map(|(name, _)| name)
+}
+
+/// Asks the OS to allow reading the call app's pixels, for the speaking border; true when already allowed.
+pub fn ask_screen_access() -> bool {
+    #[cfg(target_os = "macos")]
+    return macos::ask_screen_access();
+    #[cfg(not(target_os = "macos"))]
+    true
 }
 
 /// The name in a mini window's "Talking: Priya" line.
@@ -672,6 +700,38 @@ mod tests {
             name_by_mentions(&twice, &mut names, &others),
             0,
             "Priya already names another voice"
+        );
+    }
+
+    #[test]
+    fn the_one_green_bordered_tile_is_the_talker() {
+        assert!(border_green(72, 205, 70), "Zoom's border green");
+        assert!(!border_green(230, 190, 160), "skin");
+        assert!(!border_green(28, 28, 30), "tile background");
+        let tile =
+            |name: &str, share: f64| (format!("{name}, Computer audio unmuted, Video off"), share);
+        assert_eq!(
+            border_talker(&[
+                tile("R2", 0.0),
+                tile("Rupesh Biswas", 0.0),
+                tile("R3", 0.39)
+            ]),
+            Some("R3".into())
+        );
+        assert_eq!(
+            border_talker(&[tile("R2", 0.0), tile("R3", 0.01)]),
+            None,
+            "nobody lit"
+        );
+        assert_eq!(
+            border_talker(&[tile("R2", 0.30), tile("R3", 0.25)]),
+            None,
+            "two lit tiles are a green background, not a border"
+        );
+        assert_eq!(
+            border_talker(&[tile("R2", 0.30), tile("R3", 0.08)]),
+            None,
+            "green spilling into another tile is not trusted"
         );
     }
 

@@ -394,7 +394,7 @@
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", word_insights: true, learn_my_voice: true, autostart: false, model: "small",
         setup_done: !onboarding, user_name: params.get("name") || null,
-        summaries: params.get("summaries") === "on" || params.get("summary") === "granite", echo_cancellation: true, detect_calls: true
+        summaries: params.get("summaries") === "on" || params.get("summary") === "granite", echo_cancellation: true, detect_calls: true, speaking_border: false
       },
       models: [
         // a fresh install has nothing on disk and Small recommended; ?downloaded=1 keeps it on disk
@@ -515,6 +515,10 @@
         if (a.patch.hotkey) data.hotkeyDisplay = comboText(a.patch.hotkey);
         if (a.patch.toggle_hotkey !== undefined) data.toggleDisplay = a.patch.toggle_hotkey ? comboText(a.patch.toggle_hotkey) : null;
         return data.config;
+      },
+      request_screen_access: function () {
+        window.__cfg.push("request_screen_access");
+        return false;
       },
       check_for_updates: function () {
         window.__cfg.push("check_for_updates");

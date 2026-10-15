@@ -126,7 +126,8 @@ fn sample_call_names(app: AppHandle, id: String) {
             return;
         }
         let full = tick % super::callnames::EVERY_SECS == 0;
-        let look = super::callnames::look(full, web_live);
+        let border = app::shared_of(&app).config().speaking_border;
+        let look = super::callnames::look(full, web_live, border);
         web_live = look.as_ref().is_some_and(|l| l.web_live) || (web_live && !full);
         if let Some(look) = look {
             if let Some(name) = look.speaking {
