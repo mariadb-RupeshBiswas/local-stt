@@ -238,6 +238,22 @@ fn tiles(window: CFTypeRef) -> Vec<(String, f64)> {
     out
 }
 
+// The mini window's "Talking: Name" line, among its few direct children.
+fn talking(window: CFTypeRef) -> Option<String> {
+    for child in children(window).iter().take(32) {
+        if text(child.0, "AXRole").as_deref() != Some("AXStaticText") {
+            continue;
+        }
+        if let Some(name) = text(child.0, "AXValue")
+            .as_deref()
+            .and_then(super::talking_label)
+        {
+            return Some(name);
+        }
+    }
+    None
+}
+
 // Zoom lists "Zoom Meeting" in its Window menu while a meeting is open, even full screen in another Space.
 fn meeting_in_menu(app: CFTypeRef) -> bool {
     let Some(bar) = attribute(app, "AXMenuBar") else {
@@ -458,6 +474,9 @@ fn read_zoom(pid: i32, full: bool, look: &mut super::Look) {
             let window = CFArrayGetValueAtIndex(windows.0, i);
             let shown = tiles(window);
             let main = text(window, "AXIdentifier").as_deref() == Some(MEETING_WINDOW);
+            if look.speaking.is_none() && !main {
+                look.speaking = talking(window);
+            }
             if look.speaking.is_none() {
                 look.speaking = super::active_tile(&shown, main);
             }

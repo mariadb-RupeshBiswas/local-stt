@@ -6,6 +6,20 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.11.2] - 2026-10-15
+
+### Added
+
+- Notes read Zoom's own talker labels: a tile marked "active speaker" (in any view, including
+  gallery) and the "Talking: Name" line of the minimized meeting's mini window.
+- Windows now reads Zoom tile names and the talker, and the Meet, Teams and Slack huddle tiles,
+  through UI Automation, like the Mac. Untested in a real call.
+
+### Fixed
+
+- The first "call detected" toast after starting the app could open empty: its window is now
+  made at start, so it is ready when a call begins.
+
 ## [0.11.1] - 2026-10-15
 
 ### Added

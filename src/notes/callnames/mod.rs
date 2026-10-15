@@ -127,6 +127,13 @@ pub fn window_titles(processes: &[&str]) -> Vec<String> {
 /// The active speaker from one window's tiles (label, area): a mini window's only tile, or a Speaker view's big tile.
 /// Gallery tiles are all one size and show nobody.
 pub fn active_tile(tiles: &[(String, f64)], main_window: bool) -> Option<String> {
+    // Zoom can name the talker in the tile's own label ("Priya, active speaker, ..."), in any view.
+    let marked = tiles
+        .iter()
+        .find(|(label, _)| label.to_lowercase().contains("active speaker"));
+    if let Some((label, _)) = marked {
+        return parse_row(label).map(|(name, _)| name);
+    }
     if !main_window {
         let [(label, _)] = tiles else {
             return None;
@@ -142,6 +149,12 @@ pub fn active_tile(tiles: &[(String, f64)], main_window: bool) -> Option<String>
         return None;
     }
     parse_row(label).map(|(name, _)| name)
+}
+
+/// The name in a mini window's "Talking: Priya" line.
+pub fn talking_label(text: &str) -> Option<String> {
+    let rest = text.trim().strip_prefix("Talking:")?;
+    parse_row(rest).map(|(name, _)| name)
 }
 
 /// What one note saw of the call: rows, and who was shown talking at which millisecond of the note.
@@ -708,6 +721,26 @@ mod tests {
             None,
             "one tile in the meeting window is just you"
         );
+        let marked = vec![
+            (
+                "Rupesh Biswas, Computer audio muted".to_string(),
+                656.0 * 369.0,
+            ),
+            (
+                "Priya, active speaker, Computer audio unmuted".to_string(),
+                656.0 * 369.0,
+            ),
+        ];
+        assert_eq!(
+            active_tile(&marked, true),
+            Some("Priya".into()),
+            "a gallery tile Zoom marks"
+        );
+        assert_eq!(
+            talking_label("Talking: Gaurav Kumar"),
+            Some("Gaurav Kumar".into())
+        );
+        assert_eq!(talking_label("Recording"), None);
     }
 
     #[test]
