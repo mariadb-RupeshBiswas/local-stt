@@ -1,5 +1,5 @@
-//! Zoom's participant list through macOS Accessibility, which local-stt already holds for its shortcut.
-//! No public code documents Zoom's tree, so this looks for rows under anything labelled as participants.
+//! Zoom's meeting through macOS Accessibility, which local-stt already holds for its shortcut.
+//! Video tiles (AXTabGroup, labelled "Name, audio state, video state") give names and the active speaker; the panel adds rows.
 
 use std::ffi::{c_char, c_void, CStr};
 
@@ -11,6 +11,9 @@ const AX_OK: i32 = 0;
 const MAX_NODES: usize = 4_000;
 const MAX_DEPTH: usize = 30;
 const MAX_ROWS: usize = 300;
+// Zoom's meeting window; any other Zoom window holding one tile is its mini window.
+const MEETING_WINDOW: &str = "zm.meeting.window.main";
+const CG_SIZE: u32 = 2;
 
 #[link(name = "ApplicationServices", kind = "framework")]
 extern "C" {
@@ -22,6 +25,7 @@ extern "C" {
         value: *mut CFTypeRef,
     ) -> i32;
     fn AXUIElementSetMessagingTimeout(element: CFTypeRef, seconds: f32) -> i32;
+    fn AXValueGetValue(value: CFTypeRef, kind: u32, out: *mut c_void) -> bool;
 }
 
 #[link(name = "CoreFoundation", kind = "framework")]
@@ -176,7 +180,53 @@ fn zoom_pid() -> Option<i32> {
         .ok()
 }
 
-pub fn rows() -> Option<Vec<String>> {
+// Width times height of an element on screen, 0 when it has none.
+fn area(element: CFTypeRef) -> f64 {
+    let Some(size) = attribute(element, "AXSize") else {
+        return 0.0;
+    };
+    let mut wh = [0f64; 2];
+    // SAFETY: AXSize holds a CGSize (two f64); the type tag makes the call refuse anything else.
+    let ok = unsafe { AXValueGetValue(size.0, CG_SIZE, wh.as_mut_ptr().cast()) };
+    if ok {
+        wh[0] * wh[1]
+    } else {
+        0.0
+    }
+}
+
+// A window's video tiles as (label, area); tiles sit right under the window, so this reads one level only.
+fn tiles(window: CFTypeRef) -> Vec<(String, f64)> {
+    let mut out = Vec::new();
+    for child in children(window) {
+        if text(child.0, "AXRole").as_deref() != Some("AXTabGroup") {
+            continue;
+        }
+        if let Some(label) = text(child.0, "AXDescription") {
+            out.push((label, area(child.0)));
+        }
+    }
+    out
+}
+
+// Zoom lists "Zoom Meeting" in its Window menu while a meeting is open, even full screen in another Space.
+fn meeting_in_menu(app: CFTypeRef) -> bool {
+    let Some(bar) = attribute(app, "AXMenuBar") else {
+        return false;
+    };
+    for item in children(bar.0) {
+        for menu in children(item.0) {
+            for entry in children(menu.0) {
+                if text(entry.0, "AXTitle").as_deref() == Some("Zoom Meeting") {
+                    return true;
+                }
+            }
+        }
+    }
+    false
+}
+
+pub fn look(full: bool) -> Option<super::Look> {
     // SAFETY: a read-only permission check with no arguments.
     if !unsafe { AXIsProcessTrusted() } {
         return None;
@@ -191,21 +241,28 @@ pub fn rows() -> Option<Vec<String>> {
     unsafe { AXUIElementSetMessagingTimeout(app.0, 0.5) };
     let windows = attribute(app.0, "AXWindows")?;
     let mut budget = MAX_NODES;
-    let mut rows = Vec::new();
+    let mut look = super::Look::default();
     // SAFETY: the type is checked before use as an array; items stay alive while `windows` is held.
     unsafe {
         if CFGetTypeID(windows.0) != CFArrayGetTypeID() {
             return None;
         }
         for i in 0..CFArrayGetCount(windows.0) {
-            walk(
-                CFArrayGetValueAtIndex(windows.0, i),
-                0,
-                false,
-                &mut budget,
-                &mut rows,
-            );
+            let window = CFArrayGetValueAtIndex(windows.0, i);
+            let shown = tiles(window);
+            let main = text(window, "AXIdentifier").as_deref() == Some(MEETING_WINDOW);
+            if look.speaking.is_none() {
+                look.speaking = super::active_tile(&shown, main);
+            }
+            look.in_meeting |= main || !shown.is_empty();
+            look.rows.extend(shown.into_iter().map(|(label, _)| label));
+            if full {
+                walk(window, 0, false, &mut budget, &mut look.rows);
+            }
         }
     }
-    Some(rows)
+    if full && !look.in_meeting {
+        look.in_meeting = meeting_in_menu(app.0);
+    }
+    Some(look)
 }

@@ -167,16 +167,36 @@ fn read_live(id: &str) -> std::io::Result<Note> {
 }
 
 /// Tidies the live note into its saved file and removes the live one; `voices` names the other side's speakers by line start.
+/// What the call app showed during a note: the other people, and who was shown talking when.
+pub struct Call<'a> {
+    pub others: &'a [String],
+    pub talk: &'a [(u64, String)],
+    pub user: &'a callnames::User,
+}
+
+static NOBODY: callnames::User = callnames::User::nobody();
+
+impl Call<'static> {
+    /// A note with no call app seen.
+    pub fn none() -> Self {
+        Call {
+            others: &[],
+            talk: &[],
+            user: &NOBODY,
+        }
+    }
+}
+
 pub fn finish(
     id: &str,
     ended_ms: u64,
     smart_format: bool,
     english: bool,
     voices: &HashMap<u64, String>,
-    others: &[String],
+    call: &Call,
 ) -> std::io::Result<Note> {
     let _guard = files();
-    finish_locked(id, ended_ms, smart_format, english, voices, others)
+    finish_locked(id, ended_ms, smart_format, english, voices, call)
 }
 
 fn finish_locked(
@@ -185,13 +205,15 @@ fn finish_locked(
     smart_format: bool,
     english: bool,
     voices: &HashMap<u64, String>,
-    others: &[String],
+    call: &Call,
 ) -> std::io::Result<Note> {
+    let others = call.others;
     let mut note = read_live(id)?;
     // Before relabelling: only a microphone line can be the speakers' echo.
     note.segments = tidy::drop_echo(note.segments);
     assign_speakers(&mut note.segments, voices);
     keep_others_name(&mut note);
+    callnames::name_voices(&note.segments, &mut note.speakers, call.talk, call.user);
     callnames::apply(&note.segments, &mut note.speakers, others);
     if !others.is_empty() {
         note.participants = others.to_vec();
@@ -265,7 +287,16 @@ pub fn recover(smart_format: bool, english: bool) -> usize {
         let ended = read_live(&id)
             .map(|n| n.segments.iter().map(|s| s.end_ms).max().unwrap_or(0) + n.started_ms)
             .unwrap_or(0);
-        if finish_locked(&id, ended, smart_format, english, &HashMap::new(), &[]).is_ok() {
+        if finish_locked(
+            &id,
+            ended,
+            smart_format,
+            english,
+            &HashMap::new(),
+            &Call::none(),
+        )
+        .is_ok()
+        {
             recovered += 1;
         }
     }
@@ -492,7 +523,7 @@ mod tests {
         append(id, &seg(OTHERS, 5_000, "Agreed.")).unwrap();
         assert_eq!(get(id).unwrap().status, Status::Recording);
         assert_eq!(list()[0].status, Status::Recording);
-        let note = finish(id, 9_000, false, true, &HashMap::new(), &[]).unwrap();
+        let note = finish(id, 9_000, false, true, &HashMap::new(), &Call::none()).unwrap();
         assert_eq!(note.status, Status::Done);
         assert_eq!(note.segments.len(), 2);
         assert_eq!(note.segments[0].text, "First point. Second point.");
@@ -513,12 +544,38 @@ mod tests {
             false,
             true,
             &HashMap::new(),
-            &["Simon".to_string()],
+            &Call {
+                others: &["Simon".to_string()],
+                talk: &[],
+                user: &NOBODY,
+            },
         )
         .unwrap();
         assert_eq!(note.speakers.get(OTHERS).map(String::as_str), Some("Simon"));
         assert_eq!(note.participants, vec!["Simon".to_string()]);
         assert_eq!(get(id).unwrap().participants, vec!["Simon".to_string()]);
+    }
+
+    #[test]
+    fn a_group_call_names_each_voice_from_who_zoom_showed_talking() {
+        let _g = sandbox();
+        let id = "00000000000000c2";
+        begin(&header(id, 1_000)).unwrap();
+        append(id, &seg("s1", 0, "Morning all.")).unwrap();
+        append(id, &seg("s2", 10_000, "Hi, quick update from me.")).unwrap();
+        append(id, &seg(ME, 20_000, "Thanks.")).unwrap();
+        let mut talk: Vec<(u64, String)> =
+            (0..3).map(|s| (s * 1_000, "Priya".to_string())).collect();
+        talk.extend((10..13).map(|s| (s * 1_000, "Simon".to_string())));
+        let others = vec!["Priya".to_string(), "Simon".to_string()];
+        let call = Call {
+            others: &others,
+            talk: &talk,
+            user: &NOBODY,
+        };
+        let note = finish(id, 30_000, false, true, &HashMap::new(), &call).unwrap();
+        assert_eq!(note.speakers.get("s1").map(String::as_str), Some("Priya"));
+        assert_eq!(note.speakers.get("s2").map(String::as_str), Some("Simon"));
     }
 
     #[cfg(unix)]
@@ -531,7 +588,7 @@ mod tests {
         let mode = |p: PathBuf| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(live_path(id)), 0o600);
         assert_eq!(mode(dir()), 0o700);
-        finish(id, 2, false, true, &HashMap::new(), &[]).unwrap();
+        finish(id, 2, false, true, &HashMap::new(), &Call::none()).unwrap();
         assert_eq!(mode(saved_path(id)), 0o600);
     }
 
@@ -564,7 +621,7 @@ mod tests {
         let live = get(id).unwrap();
         assert_eq!(live.title, "Weekly sync");
         assert_eq!(live.segments.len(), 1);
-        finish(id, 5, false, true, &HashMap::new(), &[]).unwrap();
+        finish(id, 5, false, true, &HashMap::new(), &Call::none()).unwrap();
         rename(id, &"x".repeat(500)).unwrap();
         assert_eq!(get(id).unwrap().title.chars().count(), MAX_TITLE_CHARS);
     }
@@ -578,7 +635,7 @@ mod tests {
         rename_speaker(id, OTHERS, "  Priya\u{7} ").unwrap();
         assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
         assert_eq!(get(id).unwrap().segments.len(), 1);
-        finish(id, 5, false, true, &HashMap::new(), &[]).unwrap();
+        finish(id, 5, false, true, &HashMap::new(), &Call::none()).unwrap();
         assert_eq!(get(id).unwrap().speakers[OTHERS], "Priya");
         rename_speaker(id, ME, &"x".repeat(100)).unwrap();
         assert_eq!(
@@ -602,7 +659,7 @@ mod tests {
         let voices: HashMap<u64, String> =
             [(0, "s1".to_string()), (30_000, "s2".to_string())].into();
         rename_speaker(id, OTHERS, "Priya").unwrap();
-        let note = finish(id, 40_000, false, true, &voices, &[]).unwrap();
+        let note = finish(id, 40_000, false, true, &voices, &Call::none()).unwrap();
         let who: Vec<&str> = note.segments.iter().map(|s| s.speaker.as_str()).collect();
         assert_eq!(who, vec!["s1", ME, "s2"]);
         assert_eq!(note.segments[0].text, "Hello, I'm Priya. Hi.");
@@ -631,7 +688,7 @@ mod tests {
             (10_000 | voices::ROOM, "s2".to_string()),
         ]
         .into();
-        let note = finish(id, 30_000, false, true, &voices, &[]).unwrap();
+        let note = finish(id, 30_000, false, true, &voices, &Call::none()).unwrap();
         let lines: Vec<(&str, u64)> = note
             .segments
             .iter()
@@ -645,7 +702,7 @@ mod tests {
         let _g = sandbox();
         let (a, b) = ("00000000000000e5", "00000000000000e6");
         begin(&header(a, 1)).unwrap();
-        finish(a, 2, false, true, &HashMap::new(), &[]).unwrap();
+        finish(a, 2, false, true, &HashMap::new(), &Call::none()).unwrap();
         begin(&header(b, 3)).unwrap();
         let ids: HashSet<String> = [a, b, "../config"].iter().map(|s| s.to_string()).collect();
         assert_eq!(delete(&ids, Some(b)).unwrap(), 1);
@@ -660,7 +717,7 @@ mod tests {
         for (id, at) in [("00000000000000f1", 100), ("00000000000000f2", 300)] {
             begin(&header(id, at)).unwrap();
             append(id, &seg(ME, 0, "Opening line.")).unwrap();
-            finish(id, at + 10, false, true, &HashMap::new(), &[]).unwrap();
+            finish(id, at + 10, false, true, &HashMap::new(), &Call::none()).unwrap();
         }
         let rows = list();
         assert_eq!(rows[0].id, "00000000000000f2");

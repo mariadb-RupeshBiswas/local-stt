@@ -11,7 +11,7 @@ USAGE:
   local-stt doctor               show your hardware and which models fit
   local-stt fetch-model <id>     download a model: small, medium or large-v3
   local-stt demo                 a short tour with sample data (nothing is recorded or pasted)
-  local-stt call-names           show who Zoom's open participants panel lists right now (for checking)
+  local-stt call-names           show the names and the speaker Zoom shows right now (for checking)
   local-stt check-update         see whether a newer release is available
   local-stt diagnostics          save a troubleshooting report to share (no audio or dictated text)
   local-stt reinstall [--clean]  repair the install: reset permissions, install again; --clean also
@@ -102,18 +102,19 @@ fn dash<T: ToString>(v: Option<T>) -> String {
 
 // Prints to this terminal only; notes keep only the other people's names, and only at Stop.
 fn call_names() -> Result<(), String> {
-    let Some(rows) = local_stt::notes::callnames::read_rows() else {
-        return Err("No Zoom meeting window could be read. Start a meeting, open its participants panel, and on a Mac allow Accessibility for this terminal.".into());
+    let Some(look) = local_stt::notes::callnames::look(true) else {
+        return Err("No Zoom meeting could be read. Start a meeting, and on a Mac allow Accessibility for this terminal.".into());
     };
-    if rows.is_empty() {
-        println!("Zoom is running, but no participant list was found. Open the Participants panel in the meeting.");
+    if look.rows.is_empty() {
+        println!("Zoom is running, but no names were found. Keep the meeting in a window or minimized, not full screen.");
         return Ok(());
     }
-    println!("Rows Zoom shows ({}):", rows.len());
-    for row in &rows {
+    println!("Names Zoom shows ({}):", look.rows.len());
+    for row in &look.rows {
         println!("  {row}");
     }
-    let others = local_stt::notes::callnames::others(&rows, None);
+    println!("Talking now: {}", look.speaking.as_deref().unwrap_or("-"));
+    let others = local_stt::notes::callnames::others(&look.rows, None);
     println!(
         "Other people a note would offer as names: {}",
         if others.is_empty() {
