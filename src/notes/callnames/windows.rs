@@ -366,7 +366,8 @@ fn read_web_calls(uia: &Uia, tops: &[Top], look: &mut super::Look) {
     }
 }
 
-pub fn look(full: bool, web: bool) -> Option<super::Look> {
+pub fn look(full: bool, web: bool, border: bool) -> Option<super::Look> {
+    let _ = border;
     // SAFETY: COM is set up for this thread before any call; S_FALSE (already set up) is fine, a different apartment model is not.
     let uia = unsafe {
         if CoInitializeEx(None, COINIT_MULTITHREADED).is_err() {

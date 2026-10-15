@@ -94,6 +94,7 @@ fn main() {
         "start_note",
         "toast_start_note",
         "toast_dismiss",
+        "request_screen_access",
         "stop_note",
         "rename_note",
         "rename_speaker",

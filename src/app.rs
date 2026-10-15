@@ -236,6 +236,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::start_note,
             crate::commands::toast_start_note,
             crate::commands::toast_dismiss,
+            crate::commands::request_screen_access,
             crate::commands::stop_note,
             crate::commands::rename_note,
             crate::commands::rename_speaker,

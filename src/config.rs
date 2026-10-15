@@ -84,6 +84,8 @@ pub struct Config {
     pub echo_cancellation: bool,
     /// Offers a note when a call app starts using the microphone.
     pub detect_calls: bool,
+    /// Reads Zoom's green speaking border from its window's pixels (needs Screen Recording); off by default.
+    pub speaking_border: bool,
 }
 
 impl Default for Config {
@@ -120,6 +122,7 @@ impl Default for Config {
             summaries: false,
             echo_cancellation: true,
             detect_calls: true,
+            speaking_border: false,
         }
     }
 }

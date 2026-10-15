@@ -556,6 +556,12 @@ pub fn toast_start_note(app: AppHandle) -> Result<String, String> {
     crate::notes::session::start(&app)
 }
 
+/// Turning on the speaking border asks for Screen Recording; false means it is not allowed yet.
+#[tauri::command]
+pub fn request_screen_access() -> bool {
+    crate::notes::callnames::ask_screen_access()
+}
+
 #[tauri::command]
 pub fn toast_dismiss(app: AppHandle) {
     crate::meeting::toast::hide(&app);
