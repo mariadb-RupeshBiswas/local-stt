@@ -216,6 +216,7 @@ fn finish_locked(
     assign_speakers(&mut note.segments, voices);
     keep_others_name(&mut note);
     callnames::name_voices(&note.segments, &mut note.speakers, call.talk, call.user);
+    callnames::name_by_mentions(&note.segments, &mut note.speakers, call.others);
     callnames::apply(&note.segments, &mut note.speakers, others);
     if !others.is_empty() {
         note.participants = others.to_vec();

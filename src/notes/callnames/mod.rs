@@ -347,6 +347,109 @@ pub fn name_voices(
     named
 }
 
+// Words that put the next name in the vocative: "Hi Priya", "Thanks, Priya", "over to you Priya".
+const CUE_WORDS: [&str; 6] = ["hi", "hello", "hey", "thanks", "you", "morning"];
+// A reply this long after the line that named someone still counts as theirs.
+const REPLY_WITHIN_MS: u64 = 20_000;
+// Votes a voice needs from the conversation before it takes a name.
+const MIN_MENTIONS: usize = 2;
+
+// Where `name` is spoken to in `line` ("Hello, Gaurav." / "Gaurav, can you" / "what about you, Gaurav?").
+fn addressed(line: &str, name: &str) -> bool {
+    let line = line.to_lowercase();
+    let name = name.to_lowercase();
+    let mut from = 0;
+    while let Some(at) = line[from..].find(&name) {
+        let start = from + at;
+        let end = start + name.len();
+        from = end;
+        let before = line[..start].trim_end();
+        let after = line[end..].chars().next();
+        let whole_word = !line[..start].ends_with(char::is_alphanumeric)
+            && !after.is_some_and(char::is_alphanumeric);
+        if !whole_word {
+            continue;
+        }
+        let asked = after == Some('?');
+        let set_off = before.is_empty()
+            || before.ends_with(',')
+            || CUE_WORDS.iter().any(|w| before.ends_with(w));
+        let closes = matches!(after, None | Some(',' | '.' | '!' | '?'));
+        if asked || (set_off && closes) {
+            return true;
+        }
+    }
+    false
+}
+
+// Where a voice names itself: "this is Priya", "I'm Priya", "my name is Priya".
+fn introduces(line: &str, name: &str) -> bool {
+    let line = line.to_lowercase();
+    let name = name.to_lowercase();
+    ["this is ", "i'm ", "i am ", "my name is "]
+        .iter()
+        .any(|lead| line.contains(&format!("{lead}{name}")))
+}
+
+/// Names voices from the conversation: the voice that answers right after someone is spoken to by name,
+/// or that introduces itself, takes that name once it has two such cues and most of its cues agree.
+/// Only names the call app listed count, so a person merely talked about is never assigned.
+pub fn name_by_mentions(
+    segments: &[Segment],
+    names: &mut BTreeMap<String, String>,
+    others: &[String],
+) -> usize {
+    let mut votes: BTreeMap<&str, BTreeMap<&str, usize>> = BTreeMap::new();
+    for (i, seg) in segments.iter().enumerate() {
+        for person in others {
+            let first = person.split_whitespace().next().unwrap_or(person);
+            if seg.speaker != ME && (introduces(&seg.text, first) || introduces(&seg.text, person))
+            {
+                *votes
+                    .entry(&seg.speaker)
+                    .or_default()
+                    .entry(person)
+                    .or_default() += 2;
+            }
+            if !(addressed(&seg.text, first) || addressed(&seg.text, person)) {
+                continue;
+            }
+            let reply = segments[i + 1..]
+                .iter()
+                .find(|next| next.speaker != seg.speaker && next.speaker != ME);
+            let Some(reply) = reply else {
+                continue;
+            };
+            if reply.start_ms <= seg.end_ms + REPLY_WITHIN_MS {
+                *votes
+                    .entry(&reply.speaker)
+                    .or_default()
+                    .entry(person)
+                    .or_default() += 1;
+            }
+        }
+    }
+    let mut named = 0;
+    for (key, counts) in votes {
+        if names.contains_key(key) {
+            continue;
+        }
+        let total: usize = counts.values().sum();
+        let Some((who, n)) = counts
+            .into_iter()
+            .max_by_key(|(who, n)| (*n, std::cmp::Reverse(*who)))
+        else {
+            continue;
+        };
+        let fresh = !names.values().any(|t| t == who);
+        if fresh && n >= MIN_MENTIONS && n as f64 >= total as f64 * MIN_SHARE {
+            names.insert(key.to_string(), who.to_string());
+            named += 1;
+        }
+    }
+    named
+}
+
 /// In a call with one other person, their voice takes their name; returns how many speakers were named.
 /// A name the user already gave is kept.
 pub fn apply(
@@ -472,6 +575,66 @@ mod tests {
             .collect();
         assert_eq!(apply(&segs, &mut names, &["Simon".to_string()]), 0);
         assert_eq!(names.get("others").map(String::as_str), Some("Simon K."));
+    }
+
+    fn said(who: &str, start_s: u64, text: &str) -> Segment {
+        Segment {
+            start_ms: start_s * 1_000,
+            end_ms: start_s * 1_000 + 2_000,
+            speaker: who.into(),
+            text: text.into(),
+        }
+    }
+
+    #[test]
+    fn spoken_to_by_name_means_the_next_voice_is_that_person() {
+        assert!(addressed("Hello, Gaurav. Is everything alright?", "Gaurav"));
+        assert!(addressed("Are you watching Gaurav?", "gaurav"));
+        assert!(addressed("Gaurav, can you share?", "Gaurav"));
+        assert!(addressed("Thanks Priya", "Priya"));
+        assert!(!addressed("Simon said the deck is late.", "Simon"));
+        assert!(!addressed("I asked Rupesh ji to check", "Rupesh"));
+        assert!(!addressed("Priyanka will join later.", "Priya"));
+        assert!(introduces("Hi all, this is Priya from finance", "Priya"));
+    }
+
+    #[test]
+    fn two_cues_name_a_voice_and_a_talked_about_person_is_never_assigned() {
+        let others = vec!["Gaurav Kumar".to_string(), "Deepshikha".to_string()];
+        let segs = vec![
+            said("s2", 0, "Hello, Gaurav. Is everything alright at home?"),
+            said("s3", 3, "Yes, all good."),
+            said("s2", 10, "Simon said we need five filters."),
+            said("s1", 13, "That makes no sense."),
+            said("me", 20, "What do you think, Gaurav?"),
+            said("s3", 23, "I think four is enough."),
+        ];
+        let mut names = BTreeMap::new();
+        assert_eq!(name_by_mentions(&segs, &mut names, &others), 1);
+        assert_eq!(names.get("s3").map(String::as_str), Some("Gaurav Kumar"));
+        assert!(!names.contains_key("s1"), "Simon is not in the call");
+    }
+
+    #[test]
+    fn one_cue_or_a_name_already_given_is_not_enough() {
+        let others = vec!["Priya".to_string()];
+        let segs = vec![said("me", 0, "Thanks, Priya."), said("s1", 3, "Sure.")];
+        let mut names = BTreeMap::new();
+        assert_eq!(name_by_mentions(&segs, &mut names, &others), 0);
+        let twice = vec![
+            said("me", 0, "Thanks, Priya."),
+            said("s1", 3, "Sure."),
+            said("me", 10, "Priya, your turn."),
+            said("s1", 12, "Okay."),
+        ];
+        let mut names: BTreeMap<String, String> = [("s2".to_string(), "Priya".to_string())]
+            .into_iter()
+            .collect();
+        assert_eq!(
+            name_by_mentions(&twice, &mut names, &others),
+            0,
+            "Priya already names another voice"
+        );
     }
 
     #[test]
