@@ -104,18 +104,31 @@ fn dash<T: ToString>(v: Option<T>) -> String {
 
 // Prints to this terminal only; notes keep only the other people's names, and only at Stop.
 fn call_names() -> Result<(), String> {
-    let Some(look) = local_stt::notes::callnames::look(true, true, true) else {
+    let Some(mut look) = local_stt::notes::callnames::look(true, true, false) else {
         return Err("No call could be read. Start a Zoom, Google Meet, Teams or Slack call, and on a Mac allow Accessibility for this terminal.".into());
     };
     if look.rows.is_empty() {
         println!("Zoom is running, but no names were found. Keep the meeting in a window or minimized, not full screen.");
         return Ok(());
     }
-    println!("Names Zoom shows ({}):", look.rows.len());
+    // Pixels only when the tiles name nobody, the same order the app follows.
+    let mut from = "tiles";
+    if look.speaking.is_none() {
+        from = "speaking border";
+        look.speaking =
+            local_stt::notes::callnames::look(false, false, true).and_then(|l| l.speaking);
+    }
+    println!(
+        "Tiles and rows Zoom shows ({}, a person can show twice):",
+        look.rows.len()
+    );
     for row in &look.rows {
         println!("  {row}");
     }
-    println!("Talking now: {}", look.speaking.as_deref().unwrap_or("-"));
+    match look.speaking.as_deref() {
+        Some(name) => println!("Talking now: {name} (from the {from})"),
+        None => println!("Talking now: -"),
+    }
     let others = local_stt::notes::callnames::others(&look.rows, None);
     println!(
         "Other people a note would offer as names: {}",
