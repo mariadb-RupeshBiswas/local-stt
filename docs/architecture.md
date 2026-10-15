@@ -95,9 +95,12 @@ Notes reuse the same engine for a whole call instead of one dictation:
    one exception is your own voice: with Learn my voice on, each dictation updates a running
    average in `voice.json` (`src/notes/myvoice.rs`). Once it has ten dictations, a Me line far
    from it is a person in the room and joins the grouping.
-6. **Names from the call.** Every 5 s while the note records, `src/notes/callnames/` reads Zoom's
-   participant list (`macos.rs` through Accessibility, `windows.rs` through UI Automation). At Stop a
-   one-to-one call names its one other voice; a group call's names are offered in the note.
+6. **Names from the call.** Every second while the note records, `src/notes/callnames/` notes who
+   Zoom shows talking (Speaker view's big tile, or the minimized meeting's mini window), and every
+   5 s it reads the names on the video tiles and the participants panel (`macos.rs` through
+   Accessibility, `windows.rs` through UI Automation, panel only). At Stop each other-side voice takes
+   the name shown during most of its lines; a one-to-one call names its one other voice, and names
+   left over are offered in the note.
 7. **Tidied on Stop.** `src/notes/tidy.rs` removes fillers, numbers spoken lists, joins back-to-back
    lines from one speaker and cuts the other side's words out of your lines where the mic heard
    them from the speakers (runs of three or more words, or whole lines).

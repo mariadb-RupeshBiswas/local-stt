@@ -6,6 +6,19 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Notes name each speaker from Zoom: local-stt reads the names on Zoom's video tiles (no
+  Participants panel needed) and, every second, who Zoom shows talking in Speaker view or in the
+  mini window of a minimized meeting. At Stop each voice takes the name Zoom showed while it
+  talked, when one name clearly wins. A full-screen meeting behind another app cannot be read, so
+  a one-time hint asks for a window instead.
+
+### Changed
+
+- Summaries use at most 4 CPU threads: the model runs on the GPU, and more threads only heated the
+  computer without finishing sooner.
+
 ## [0.10.0] - 2026-10-14
 
 ### Added

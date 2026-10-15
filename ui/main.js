@@ -1259,7 +1259,7 @@
         row.appendChild(h("label", { class: "speaker-field" }, h("span", { class: "speaker-key", text: defaultSpeaker(key) }), input));
       });
       if (!people.length) return row;
-      // Zoom lists who was there, not who spoke: the user matches names to voices, one click each
+      // names Zoom never showed talking during a voice's lines: the user matches them, one click each
       var hint = h("div", { class: "call-people" },
         h("span", { class: "call-people-label", text: (note.source || "The call") + " showed:" }),
         people.map(function (p) {

@@ -129,7 +129,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 - The call's voices are told apart: when you click Stop, Others becomes **Speaker 1**, **Speaker 2** and so on. Each line from the call leaves a voice fingerprint (numbers, not audio) in memory until Stop; it is never saved. The 28 MB voice model downloads once, the first time you take a note.
 - **Learn my voice** (Settings, on by default): your own voice fingerprint is built from your dictations and kept on your computer in `voice.json`, readable only by you. Notes use it to tell you from a person sitting in the room, who then gets a Speaker label instead of Me. It is numbers, never audio, and other people's voices are never stored. Turn it off and the file is deleted.
 - Notes stay on your computer. Rename, copy or delete them; Select deletes several at once.
-- Names from Zoom: while a note records, local-stt reads who is in the call from Zoom's Participants panel (keep it open). Zoom does not tell other apps who is speaking, so a one-to-one call gets the other person's name on its own, and in a group call the names show as one-click choices for each speaker.
+- Names from Zoom: while a note records, local-stt reads the names on Zoom's video tiles, and who Zoom shows talking (Speaker view, or the mini window when the meeting is minimized). At Stop each voice gets the name Zoom showed while it talked, when one name clearly wins; a one-to-one call names the other person on its own, and any voice left unnamed gets the names as one-click choices. Keep the meeting in a window or minimized: a full-screen meeting behind another app cannot be read.
 - Name the speakers: type "Priya" next to **Speaker 2** (or **Others**) above the transcript and every one of their lines, and the copied note, says Priya. Clear it to go back.
 - **Summarize** a finished note on your computer: an overview, what each person said, and the action items with who owns them and when they were said. Pick a summary model in the **Model** tab (Summary model section), which recommends one for your computer: Granite 4.0 Micro (IBM, 2.1 GB, fastest) or Gemma 4 E4B (Google, 5.2 GB, best summaries). Both are optional downloads and Summaries are off until you turn them on (the Summaries switch, or downloading a model); the note never leaves your computer.
 - Laptop speakers work: echo cancellation takes the call's sound out of your microphone before it is transcribed (Settings > Notes > Echo cancellation, on by default). Headphones still give the cleanest split, and any echo words left are cut from your lines. Bluetooth headphones that switch to call mode mid-note are picked up again within a second.
@@ -138,7 +138,7 @@ Open the **Notes** tab (or **New Note** in the menu bar or tray) when a call sta
 
 **Consent.** Recording other people is regulated: several US states and many countries need everyone's consent. local-stt shows a reminder the first time and gives you a line to paste in the meeting chat. This is not legal advice.
 
-Coming next: a prompt when a call starts, echo cancellation for laptop speakers, and names read from Zoom.
+Coming next: a prompt when a call starts, and speaker names from Google Meet and Teams.
 
 ## Insights
 
