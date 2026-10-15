@@ -193,6 +193,31 @@ pub fn heard_speaking(note_id: &str, at_ms: u64, name: String) {
         .push((at_ms, name));
 }
 
+/// Who the call app showed talking during most of a line, while the note still records; None without a clear winner.
+pub fn live_name(
+    note_id: &str,
+    start_ms: u64,
+    end_ms: u64,
+    user_name: Option<&str>,
+) -> Option<String> {
+    let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let heard = seen.get(note_id)?;
+    let rows: Vec<String> = heard.rows.iter().cloned().collect();
+    let user = User::new(&rows, user_name);
+    let window = start_ms..=end_ms + LAG_MS;
+    let mut counts: BTreeMap<&str, usize> = BTreeMap::new();
+    for (at, who) in &heard.talk {
+        if window.contains(at) && !user.is(who) {
+            *counts.entry(who.as_str()).or_default() += 1;
+        }
+    }
+    let total: usize = counts.values().sum();
+    let (who, n) = counts
+        .into_iter()
+        .max_by_key(|(who, n)| (*n, std::cmp::Reverse(*who)))?;
+    (n as f64 >= total as f64 * MIN_SHARE).then(|| who.to_string())
+}
+
 /// Everything seen during this note, forgotten here.
 pub fn take(note_id: &str) -> Seen {
     let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
@@ -673,6 +698,38 @@ mod tests {
         assert_eq!(seen.talk, vec![(2_000, "Priya".to_string())]);
         assert_eq!(seen.source, Some("Zoom"));
         assert!(take("n1").rows.is_empty());
+    }
+
+    #[test]
+    fn a_live_line_takes_the_name_shown_while_it_was_said() {
+        remember(
+            "n2",
+            rows(&[
+                "Rupesh Biswas, Computer audio unmuted",
+                "Sam, Computer audio unmuted",
+            ]),
+            Some("Zoom"),
+        );
+        for s in 0..4 {
+            heard_speaking("n2", s * 1_000, "Sam".into());
+        }
+        heard_speaking("n2", 9_000, "Rupesh Biswas".into());
+        assert_eq!(
+            live_name("n2", 0, 3_000, Some("Rupesh")),
+            Some("Sam".into())
+        );
+        assert_eq!(
+            live_name("n2", 8_500, 9_500, Some("Rupesh")),
+            None,
+            "the user is never another voice"
+        );
+        assert_eq!(
+            live_name("n2", 20_000, 22_000, Some("Rupesh")),
+            None,
+            "nobody shown then"
+        );
+        assert_eq!(live_name("missing", 0, 1_000, None), None);
+        take("n2");
     }
 
     fn line(who: &str, start_ms: u64, end_ms: u64) -> Segment {
