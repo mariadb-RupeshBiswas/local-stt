@@ -10,6 +10,12 @@ pub const MODEL_SHA256: &str = "aa3cfc16963a10586a9393f5035d6d6b57e98d358b347f80
 
 /// Average voice similarity at which two groups of lines are one speaker.
 pub const SAME_SPEAKER: f32 = 0.55;
+/// Group centres this alike are one speaker; two different people's centres measured at most 0.63 on the fixtures.
+pub const SAME_CENTRE: f32 = 0.70;
+/// Past the call's head count, groups still need this much in common to be merged.
+const MERGE_FLOOR: f32 = 0.30;
+/// A group holding under this share of the clear lines (and at least 2) is a stray.
+const STRAY_PERCENT: usize = 3;
 /// Under a second of speech says too little about a voice; such a line takes its neighbour's speaker.
 pub const MIN_SAMPLES: usize = 16_000;
 /// Lines this long found the speakers; a shorter line (a "yeah", an "okay") only joins the closest one.
@@ -133,7 +139,8 @@ pub fn cluster(voices: &[Vec<f32>], threshold: f32) -> Vec<usize> {
 }
 
 /// Speaker keys by line start (start ms, samples, fingerprint): "s1".."sN" by first speaking; empty when one voice and no room voice.
-pub fn speakers(voiced: &[(u64, usize, Vec<f32>)]) -> HashMap<u64, String> {
+/// `heads` is how many other people the call app showed (0 when unknown): more groups than that plus one get merged down.
+pub fn speakers(voiced: &[(u64, usize, Vec<f32>)], heads: usize) -> HashMap<u64, String> {
     if voiced.len() > MAX_LINES {
         return HashMap::new();
     }
@@ -150,21 +157,30 @@ pub fn speakers(voiced: &[(u64, usize, Vec<f32>)]) -> HashMap<u64, String> {
     for &g in &group {
         size[g] += 1;
     }
-    // ponytail: a voice in one clear line is a stray once two real speakers exist; a lone remark joins the closest, a head count from the call app would fix that.
-    let mut kept: Vec<usize> = (0..count).filter(|&g| size[g] >= 2).collect();
+    // A group this small is a stray (a cough, two people at once) once real speakers exist; its lines join the closest.
+    let stray = (clear.len() * STRAY_PERCENT).div_ceil(100).max(2);
+    let mut kept: Vec<usize> = (0..count).filter(|&g| size[g] >= stray).collect();
+    if kept.len() < 2 {
+        kept = (0..count).filter(|&g| size[g] >= 2).collect();
+    }
     if kept.len() < 2 {
         kept = (0..count).collect();
     }
+    let mut parts: Vec<Vec<usize>> = Vec::new();
+    for &g in &kept {
+        parts.push((0..clear.len()).filter(|&k| group[k] == g).collect());
+    }
+    merge_parts(&mut parts, &vectors, heads);
     let room = voiced.iter().any(|(k, _, _)| k & ROOM != 0);
-    if kept.is_empty() || (kept.len() < 2 && !room) {
+    if parts.is_empty() || (parts.len() < 2 && !room) {
         return HashMap::new();
     }
-    let mut centre = vec![Vec::new(); kept.len()];
+    let mut centre = vec![Vec::new(); parts.len()];
     let mut place: HashMap<usize, usize> = HashMap::new();
-    for (k, &line) in clear.iter().enumerate() {
-        if let Some(slot) = kept.iter().position(|&g| g == group[k]) {
-            add_unit(&mut centre[slot], &voiced[line].2);
-            place.insert(line, slot);
+    for (slot, part) in parts.iter().enumerate() {
+        for &k in part {
+            add_unit(&mut centre[slot], &voiced[clear[k]].2);
+            place.insert(clear[k], slot);
         }
     }
     let mut order: Vec<usize> = (0..voiced.len()).collect();
@@ -181,6 +197,38 @@ pub fn speakers(voiced: &[(u64, usize, Vec<f32>)]) -> HashMap<u64, String> {
         labels.insert(voiced[i].0, format!("s{n}"));
     }
     labels
+}
+
+// Pairs of lines from one person on a call often score under SAME_SPEAKER while their groups' centres agree:
+// joins groups whose centres are SAME_CENTRE alike, and past the call's head count (plus one for a room voice) the closest pair above MERGE_FLOOR.
+fn merge_parts(parts: &mut Vec<Vec<usize>>, vectors: &[Vec<f32>], heads: usize) {
+    let cap = if heads > 0 { heads + 1 } else { usize::MAX };
+    while parts.len() > 1 {
+        let mut centres = Vec::new();
+        for part in parts.iter() {
+            let mut c = Vec::new();
+            for &k in part {
+                add_unit(&mut c, &vectors[k]);
+            }
+            centres.push(c);
+        }
+        let mut best = (f32::MIN, 0, 0);
+        for a in 0..parts.len() {
+            for b in (a + 1)..parts.len() {
+                let s = cosine(&centres[a], &centres[b]);
+                if s > best.0 {
+                    best = (s, a, b);
+                }
+            }
+        }
+        let (score, a, b) = best;
+        let over = parts.len() > cap;
+        if score < SAME_CENTRE && !(over && score >= MERGE_FLOOR) {
+            return;
+        }
+        let gone = parts.remove(b);
+        parts[a].extend(gone);
+    }
 }
 
 // Sums unit-length fingerprints, so every line counts the same in its speaker's centre.
@@ -259,13 +307,126 @@ mod tests {
         serde_json::from_str(include_str!("../../tests/fixtures/voices-call.json")).unwrap()
     }
 
+    type Voiced = (u64, usize, Vec<f32>);
+
+    // Deterministic noise for the drifting call (xorshift), so the test needs no crate.
+    struct Noise(u64);
+
+    impl Noise {
+        fn next(&mut self) -> f64 {
+            self.0 ^= self.0 << 13;
+            self.0 ^= self.0 >> 7;
+            self.0 ^= self.0 << 17;
+            (self.0 >> 11) as f64 / (1u64 << 53) as f64
+        }
+
+        fn pick(&mut self, n: usize) -> usize {
+            (self.next() * n as f64) as usize % n
+        }
+
+        // A random unit-length direction.
+        fn direction(&mut self) -> Vec<f32> {
+            let mut v = Vec::with_capacity(192);
+            for _ in 0..192 {
+                let (u1, u2) = (self.next().max(1e-12), self.next());
+                v.push(((-2.0 * u1.ln()).sqrt() * (std::f64::consts::TAU * u2).cos()) as f32);
+            }
+            unit(&v)
+        }
+    }
+
+    fn unit(v: &[f32]) -> Vec<f32> {
+        let n = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+        v.iter().map(|x| x / n).collect()
+    }
+
+    // A long call as Zoom delivers it: each person's device and codec drift between three stretches of the call,
+    // and some lines hold two people (a turn change inside one line). Built from the call fixture.
+    fn drifting_call(seed: u64) -> (Vec<Voiced>, Vec<String>) {
+        let c = call();
+        let mut rng = Noise(seed);
+        let names = ["aup", "eey", "ljm"];
+        let mut pools: Vec<Vec<usize>> = Vec::new();
+        for who in names {
+            let lines = (0..c.labels.len())
+                .filter(|&i| c.labels[i] == who && c.samples[i] >= MIN_SAMPLES)
+                .collect();
+            pools.push(lines);
+        }
+        let mut drift = Vec::new();
+        for _ in 0..names.len() * 3 {
+            drift.push(rng.direction());
+        }
+        let (mut voiced, mut truth) = (Vec::new(), Vec::new());
+        for line in 0..180u64 {
+            let who = rng.pick(3);
+            let stretch = line as usize * 3 / 180;
+            let mut base = unit(&c.vectors[pools[who][rng.pick(pools[who].len())]]);
+            let mut label = names[who].to_string();
+            if rng.next() < 0.15 {
+                let other = (who + 1 + rng.pick(2)) % 3;
+                let more = unit(&c.vectors[pools[other][rng.pick(pools[other].len())]]);
+                let both: Vec<f32> = base.iter().zip(&more).map(|(a, b)| a + b).collect();
+                base = unit(&both);
+                label = format!("{label}+{}", names[other]);
+            }
+            let noise = rng.direction();
+            let d = &drift[who * 3 + stretch];
+            let mut v = Vec::with_capacity(192);
+            for k in 0..192 {
+                v.push(base[k] + 0.6 * d[k] + 0.5 * noise[k]);
+            }
+            let samples = [20_000, 60_000, 120_000][rng.pick(3)];
+            voiced.push((line * 10_000, samples, v));
+            truth.push(label);
+        }
+        (voiced, truth)
+    }
+
+    #[test]
+    fn a_drifting_call_keeps_one_group_per_person_given_the_head_count() {
+        let mut shares = Vec::new();
+        for seed in [1, 2, 3, 4] {
+            let (voiced, truth) = drifting_call(seed);
+            let known = speakers(&voiced, 3);
+            let unknown = speakers(&voiced, 0);
+            let count = |l: &HashMap<u64, String>| {
+                l.values().collect::<std::collections::HashSet<_>>().len()
+            };
+            assert!(count(&known) <= 4, "seed {seed}: {} groups", count(&known));
+            assert!(
+                count(&unknown) <= 12,
+                "seed {seed}: {} groups",
+                count(&unknown)
+            );
+            // No two people share their main group: the merge never joins different voices.
+            let mut mains = std::collections::HashSet::new();
+            for who in ["aup", "eey", "ljm"] {
+                let mine: Vec<usize> = (0..truth.len()).filter(|&i| truth[i] == who).collect();
+                let mut count: HashMap<&String, usize> = HashMap::new();
+                for &i in &mine {
+                    *count.entry(&known[&voiced[i].0]).or_default() += 1;
+                }
+                let (group, n) = count.into_iter().max_by_key(|(_, n)| *n).unwrap();
+                assert!(
+                    mains.insert(group.clone()),
+                    "seed {seed}: two people in {group}"
+                );
+                shares.push(n as f32 / mine.len() as f32);
+            }
+        }
+        let average = shares.iter().sum::<f32>() / shares.len() as f32;
+        eprintln!("main-group share per person: {shares:.2?}, average {average:.2}");
+        assert!(average >= 0.6, "average {average:.2}");
+    }
+
     #[test]
     fn short_call_lines_join_the_speakers_instead_of_making_their_own() {
         let c = call();
         let voiced: Vec<(u64, usize, Vec<f32>)> = (0..c.labels.len())
             .map(|i| (i as u64, c.samples[i], c.vectors[i].clone()))
             .collect();
-        let labels = speakers(&voiced);
+        let labels = speakers(&voiced, 0);
         let found: std::collections::HashSet<&String> = labels.values().collect();
         assert_eq!(found.len(), 3, "{labels:?}");
         let mut right = 0;
@@ -299,7 +460,7 @@ mod tests {
         let ljm = f.labels.iter().position(|l| l == "ljm").unwrap();
         voiced.push((900, CLEAR_SAMPLES, f.vectors[ljm].clone()));
         assert_eq!(
-            speakers(&voiced)
+            speakers(&voiced, 0)
                 .values()
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
@@ -310,7 +471,7 @@ mod tests {
             (900, CLEAR_SAMPLES, f.vectors[ljm].clone()),
         ];
         assert_eq!(
-            speakers(&pair)
+            speakers(&pair, 0)
                 .values()
                 .collect::<std::collections::HashSet<_>>()
                 .len(),
@@ -332,7 +493,7 @@ mod tests {
             };
             voiced.push((start, CLEAR_SAMPLES, v.clone()));
         }
-        let labels = speakers(&voiced);
+        let labels = speakers(&voiced, 0);
         let first_ljm = voiced.iter().find(|(s, _, _)| *s < 1_000).unwrap().0;
         let first_aup = voiced
             .iter()
@@ -361,9 +522,9 @@ mod tests {
             .enumerate()
             .map(|(i, (_, v))| (i as u64, CLEAR_SAMPLES, v.clone()))
             .collect();
-        assert!(speakers(&one).is_empty());
-        assert!(speakers(&[]).is_empty());
-        assert!(speakers(&[(0, CLEAR_SAMPLES, vec![0.0; 192])]).is_empty());
+        assert!(speakers(&one, 0).is_empty());
+        assert!(speakers(&[], 0).is_empty());
+        assert!(speakers(&[(0, CLEAR_SAMPLES, vec![0.0; 192])], 0).is_empty());
     }
 
     #[test]
@@ -377,13 +538,13 @@ mod tests {
             (1_000 | ROOM, CLEAR_SAMPLES, f.vectors[b].clone()),
             (5_000 | ROOM, CLEAR_SAMPLES, f.vectors[b].clone()),
         ];
-        let labels = speakers(&voiced);
+        let labels = speakers(&voiced, 0);
         assert_eq!(labels[&(1_000 | ROOM)], "s1");
         assert_eq!(labels[&(5_000 | ROOM)], "s1");
         assert_eq!(labels[&5_000], "s2");
         // One voice and nothing from the microphone keeps Others; a lone room voice is named.
-        assert!(speakers(&voiced[..1]).is_empty());
-        assert_eq!(speakers(&voiced[1..2])[&(1_000 | ROOM)], "s1");
+        assert!(speakers(&voiced[..1], 0).is_empty());
+        assert_eq!(speakers(&voiced[1..2], 0)[&(1_000 | ROOM)], "s1");
     }
 
     #[test]
@@ -398,6 +559,6 @@ mod tests {
                 )
             })
             .collect();
-        assert!(speakers(&many).is_empty());
+        assert!(speakers(&many, 0).is_empty());
     }
 }

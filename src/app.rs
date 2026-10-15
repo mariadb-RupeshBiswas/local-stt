@@ -1512,7 +1512,9 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                 }
                 Job::NoteFinish { id, ended_ms } => {
                     let lines = voiced.remove(&id).unwrap_or_default();
-                    let speakers = crate::notes::voices::speakers(&lines);
+                    let user = crate::app::shared_of(&app).config().user_name;
+                    let heads = crate::notes::callnames::head_count(&id, user.as_deref());
+                    let speakers = crate::notes::voices::speakers(&lines, heads);
                     crate::notes::session::finish(&app, &id, ended_ms, &speakers);
                 }
             }
