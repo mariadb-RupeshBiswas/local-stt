@@ -3,7 +3,12 @@
 
 use std::collections::HashMap;
 use windows::core::{BOOL, PWSTR};
-use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM};
+use windows::Win32::Foundation::{CloseHandle, HWND, LPARAM, RECT};
+use windows::Win32::Graphics::Gdi::{
+    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
+    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ,
+};
+use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
 use windows::Win32::System::Com::{
     CoCreateInstance, CoInitializeEx, CLSCTX_INPROC_SERVER, COINIT_MULTITHREADED,
 };
@@ -16,8 +21,10 @@ use windows::Win32::UI::Accessibility::{
     TreeScope_Descendants, UIA_ControlTypePropertyId, UIA_ListControlTypeId,
     UIA_ListItemControlTypeId, UIA_TextControlTypeId,
 };
+use windows::Win32::UI::HiDpi::GetDpiForWindow;
 use windows::Win32::UI::WindowsAndMessaging::{
-    EnumWindows, GetClassNameW, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible,
+    EnumWindows, GetClassNameW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
+    IsWindowVisible,
 };
 
 // Each walk stops here so a large window never stalls the note.
@@ -28,6 +35,12 @@ const MEETING_CLASS: &str = "ConfMultiTabContentWndClass";
 const ZOOM_EXES: [&str; 2] = ["zoom.exe", "cpthost.exe"];
 // The label Zoom puts on a video tile, after the name.
 const TILE_MARK: &str = ", computer audio";
+// The band around a tile, in pixels at 96 dpi, where Zoom draws its speaking border.
+const BORDER_BAND: i32 = 6;
+// PrintWindow flag that also captures DirectX-rendered content, which Zoom uses.
+const PW_RENDERFULLCONTENT: PRINT_WINDOW_FLAGS = PRINT_WINDOW_FLAGS(2);
+// A window larger than this is not a call window; bounds the capture's memory.
+const MAX_CAPTURE_SIDE: i32 = 8_192;
 
 struct Top {
     hwnd: HWND,
@@ -198,10 +211,16 @@ fn panel_rows(uia: &Uia, root: &IUIAutomationElement) -> Vec<String> {
     rows
 }
 
-// A Zoom window's video tiles as (label, area), and the mini window's "Talking: Name" line if any.
-fn zoom_tiles(uia: &Uia, root: &IUIAutomationElement) -> (Vec<(String, f64)>, Option<String>) {
+type Rects = Vec<(String, RECT)>;
+
+// A Zoom window's video tiles as (label, area) and (label, rectangle), and the mini window's "Talking: Name" line if any.
+fn zoom_tiles(
+    uia: &Uia,
+    root: &IUIAutomationElement,
+) -> (Vec<(String, f64)>, Rects, Option<String>) {
     let mut budget = MAX_NODES;
     let mut tiles = Vec::new();
+    let mut rects = Vec::new();
     let mut talking = None;
     let mut stack = vec![root.clone()];
     while let Some(node) = stack.pop() {
@@ -216,25 +235,170 @@ fn zoom_tiles(uia: &Uia, root: &IUIAutomationElement) -> (Vec<(String, f64)>, Op
         let label =
             own.filter(|l| l.to_lowercase().contains(TILE_MARK) && super::parse_row(l).is_some());
         if let Some(label) = label {
+            // SAFETY: a read-only property call on a live UIA element.
+            if let Ok(r) = unsafe { node.CurrentBoundingRectangle() } {
+                rects.push((label.clone(), r));
+            }
             tiles.push((label, area(&node)));
             continue;
         }
         stack.extend(uia.children(&node));
     }
-    (tiles, talking)
+    (tiles, rects, talking)
 }
 
-fn read_zoom(uia: &Uia, top: &Top, main: bool, full: bool, look: &mut super::Look) {
+// A captured window: a top-down 32-bit DIB that frees its GDI objects when dropped.
+struct Shot {
+    dc: HDC,
+    bitmap: HBITMAP,
+    old: HGDIOBJ,
+    bits: *const u8,
+    width: usize,
+    height: usize,
+    left: i32,
+    top: i32,
+}
+
+impl Shot {
+    fn pixels(&self) -> &[u8] {
+        // SAFETY: bits points at the DIB's width * height * 4 bytes, which live until the bitmap is deleted in drop.
+        unsafe { std::slice::from_raw_parts(self.bits, self.width * self.height * 4) }
+    }
+}
+
+impl Drop for Shot {
+    fn drop(&mut self) {
+        // SAFETY: the DC and bitmap were created by capture and are released exactly once, the old object selected back first.
+        unsafe {
+            SelectObject(self.dc, self.old);
+            let _ = DeleteObject(self.bitmap.into());
+            let _ = DeleteDC(self.dc);
+        }
+    }
+}
+
+// One PrintWindow capture of a window's pixels; None when the window is gone, huge or refuses to paint.
+fn capture(hwnd: HWND) -> Option<Shot> {
+    let mut r = RECT::default();
+    // SAFETY: r is a valid out pointer; a closed window gives an error.
+    unsafe { GetWindowRect(hwnd, &mut r) }.ok()?;
+    let (w, h) = (r.right - r.left, r.bottom - r.top);
+    if w <= 0 || h <= 0 || w > MAX_CAPTURE_SIDE || h > MAX_CAPTURE_SIDE {
+        return None;
+    }
+    let info = BITMAPINFO {
+        bmiHeader: BITMAPINFOHEADER {
+            biSize: std::mem::size_of::<BITMAPINFOHEADER>() as u32,
+            biWidth: w,
+            biHeight: -h,
+            biPlanes: 1,
+            biBitCount: 32,
+            biCompression: BI_RGB.0,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    // SAFETY: every GDI object made here is released on each path: the screen DC right after the bitmap, the rest by Shot::drop.
+    unsafe {
+        let screen = GetDC(None);
+        if screen.is_invalid() {
+            return None;
+        }
+        let dc = CreateCompatibleDC(Some(screen));
+        let mut bits = std::ptr::null_mut();
+        let bitmap = CreateDIBSection(Some(screen), &info, DIB_RGB_COLORS, &mut bits, None, 0);
+        ReleaseDC(None, screen);
+        let bitmap = match bitmap {
+            Ok(b) if !dc.is_invalid() && !bits.is_null() => b,
+            Ok(b) => {
+                let _ = DeleteObject(b.into());
+                let _ = DeleteDC(dc);
+                return None;
+            }
+            Err(_) => {
+                let _ = DeleteDC(dc);
+                return None;
+            }
+        };
+        let old = SelectObject(dc, bitmap.into());
+        let shot = Shot {
+            dc,
+            bitmap,
+            old,
+            bits: bits as *const u8,
+            width: w as usize,
+            height: h as usize,
+            left: r.left,
+            top: r.top,
+        };
+        PrintWindow(hwnd, dc, PW_RENDERFULLCONTENT)
+            .as_bool()
+            .then_some(shot)
+    }
+}
+
+// Share of border-green pixels in the outer `band` of a rectangle (window coordinates), sampling every 2nd pixel.
+fn band_share(px: &[u8], width: usize, height: usize, r: RECT, band: i32) -> Option<f64> {
+    let (mut green, mut total) = (0usize, 0usize);
+    for y in (r.top.max(0)..r.bottom.min(height as i32)).step_by(2) {
+        for x in (r.left.max(0)..r.right.min(width as i32)).step_by(2) {
+            let edge = x < r.left + band
+                || x + band >= r.right
+                || y < r.top + band
+                || y + band >= r.bottom;
+            if !edge {
+                continue;
+            }
+            let i = (y as usize * width + x as usize) * 4;
+            total += 1;
+            if super::border_green(px[i + 2], px[i + 1], px[i]) {
+                green += 1;
+            }
+        }
+    }
+    (total > 0).then(|| green as f64 / total as f64)
+}
+
+// Each tile's share of border-green pixels in a thin band just around it, from one capture of the window.
+fn border_shares(hwnd: HWND, tiles: &Rects) -> Vec<(String, f64)> {
+    let Some(shot) = capture(hwnd) else {
+        return Vec::new();
+    };
+    // SAFETY: a read-only call on the window handle; 0 means it is gone and falls back to 96 dpi.
+    let dpi = unsafe { GetDpiForWindow(hwnd) }.max(96) as i32;
+    let scale = |px: i32| px * dpi / 96;
+    let (band, pad) = (scale(BORDER_BAND), scale(3));
+    let px = shot.pixels();
+    let mut shares = Vec::new();
+    for (label, r) in tiles {
+        let around = RECT {
+            left: r.left - shot.left - pad,
+            top: r.top - shot.top - pad,
+            right: r.right - shot.left + pad,
+            bottom: r.bottom - shot.top + pad,
+        };
+        if let Some(share) = band_share(px, shot.width, shot.height, around, band) {
+            shares.push((label.clone(), share));
+        }
+    }
+    shares
+}
+
+fn read_zoom(uia: &Uia, top: &Top, main: bool, full: bool, border: bool, look: &mut super::Look) {
     // SAFETY: the handle came from EnumWindows moments ago; a window that closed since gives an error.
     let Ok(root) = (unsafe { uia.auto.ElementFromHandle(top.hwnd) }) else {
         return;
     };
-    let (shown, talking) = zoom_tiles(uia, &root);
+    let (shown, rects, talking) = zoom_tiles(uia, &root);
     if look.speaking.is_none() && !main {
         look.speaking = talking;
     }
     if look.speaking.is_none() {
         look.speaking = super::active_tile(&shown, main);
+    }
+    // Gallery and the share panel show the talker only as a green border, which only pixels reveal.
+    if look.speaking.is_none() && border && rects.len() >= 2 {
+        look.speaking = super::border_talker(&border_shares(top.hwnd, &rects));
     }
     look.in_meeting |= main || !shown.is_empty();
     if main || !shown.is_empty() {
@@ -367,7 +531,6 @@ fn read_web_calls(uia: &Uia, tops: &[Top], look: &mut super::Look) {
 }
 
 pub fn look(full: bool, web: bool, border: bool) -> Option<super::Look> {
-    let _ = border;
     // SAFETY: COM is set up for this thread before any call; S_FALSE (already set up) is fine, a different apartment model is not.
     let uia = unsafe {
         if CoInitializeEx(None, COINIT_MULTITHREADED).is_err() {
@@ -385,11 +548,48 @@ pub fn look(full: bool, web: bool, border: bool) -> Option<super::Look> {
         let mini = ZOOM_EXES.contains(&top.exe.as_str())
             && (top.class.starts_with("Zoom") || top.class.starts_with("ZP"));
         if main || mini {
-            read_zoom(&uia, top, main, full, &mut look);
+            read_zoom(&uia, top, main, full, border, &mut look);
         }
     }
     if full || web {
         read_web_calls(&uia, &tops, &mut look);
     }
     (look.in_meeting || look.web_live).then_some(look)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn frame(w: usize, h: usize, lit: bool) -> Vec<u8> {
+        let mut px = vec![28u8; w * h * 4];
+        if lit {
+            for i in 0..w * h {
+                let (x, y) = (i % w, i / w);
+                if x < 6 || y < 6 || x >= w - 6 || y >= h - 6 {
+                    px[i * 4..i * 4 + 3].copy_from_slice(&[70, 205, 72]);
+                }
+            }
+        }
+        px
+    }
+
+    #[test]
+    fn a_green_frame_fills_the_band_and_a_dark_one_does_not() {
+        let r = RECT {
+            left: 0,
+            top: 0,
+            right: 100,
+            bottom: 80,
+        };
+        assert!(band_share(&frame(100, 80, true), 100, 80, r, 6).unwrap() > 0.9);
+        assert_eq!(band_share(&frame(100, 80, false), 100, 80, r, 6), Some(0.0));
+        let outside = RECT {
+            left: 200,
+            top: 200,
+            right: 300,
+            bottom: 300,
+        };
+        assert_eq!(band_share(&frame(100, 80, true), 100, 80, outside, 6), None);
+    }
 }
