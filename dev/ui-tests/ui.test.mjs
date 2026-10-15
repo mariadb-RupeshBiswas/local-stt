@@ -521,6 +521,12 @@ for (const dark of [false, true]) {
   await sw.click();
   await page.waitForTimeout(250);
   check("turning Detect calls off saves it", (await page.evaluate(() => window.__cfg)).includes('set_config:{"detect_calls":false}'));
+  const border = page.getByRole("switch", { name: "Read Zoom's speaking border" });
+  check("the speaking border is off by default", (await border.getAttribute("aria-checked")) === "false");
+  await border.click();
+  await page.waitForTimeout(300);
+  const traffic = await page.evaluate(() => window.__cfg);
+  check("turning the speaking border on saves it and asks for Screen Recording", traffic.includes('set_config:{"speaking_border":true}') && traffic.includes("request_screen_access"));
   check("no page errors (detect calls)", errors.length === 0, errors);
   await ctx.close();
 }

@@ -516,6 +516,10 @@
         if (a.patch.toggle_hotkey !== undefined) data.toggleDisplay = a.patch.toggle_hotkey ? comboText(a.patch.toggle_hotkey) : null;
         return data.config;
       },
+      request_screen_access: function () {
+        window.__cfg.push("request_screen_access");
+        return false;
+      },
       check_for_updates: function () {
         window.__cfg.push("check_for_updates");
         // the app answers in the background: a new version, or a notice that nothing is new
