@@ -3,6 +3,8 @@ name: CI
 on:
   push:
     branches: [main]
+    # the PR already ran the suite; a docs-only merge has nothing new to test
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
   # release.yml runs the whole suite on the exact commit it is about to publish.
   workflow_call:

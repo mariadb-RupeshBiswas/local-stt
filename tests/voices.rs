@@ -6,6 +6,14 @@ use local_stt::engine::VoiceEmbedder;
 use local_stt::notes::voices;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, MutexGuard};
+
+// sherpa-onnx aborts on a foreign exception when two extractors load or drop at once.
+static ONE_AT_A_TIME: Mutex<()> = Mutex::new(());
+
+fn one_at_a_time() -> MutexGuard<'static, ()> {
+    ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner())
+}
 
 fn embedder() -> Option<VoiceEmbedder> {
     let path = PathBuf::from(std::env::var("LOCAL_STT_TEST_VOICE_MODEL").ok()?);
@@ -82,6 +90,7 @@ fn say(voice: &str, text: &str) -> Vec<f32> {
 #[cfg(target_os = "macos")]
 #[test]
 fn two_voices_taking_turns_become_two_speakers() {
+    let _turn = one_at_a_time();
     let Some(ex) = embedder() else {
         eprintln!("skipped: LOCAL_STT_TEST_VOICE_MODEL is not set");
         return;
@@ -101,6 +110,7 @@ fn two_voices_taking_turns_become_two_speakers() {
 
 #[test]
 fn recorded_speakers_fall_into_their_own_groups() {
+    let _turn = one_at_a_time();
     let (Some(ex), Ok(dir)) = (embedder(), std::env::var("LOCAL_STT_TEST_VOICE_CLIPS")) else {
         eprintln!("skipped: LOCAL_STT_TEST_VOICE_MODEL or LOCAL_STT_TEST_VOICE_CLIPS is not set");
         return;

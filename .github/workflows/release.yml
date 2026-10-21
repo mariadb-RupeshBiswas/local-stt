@@ -163,9 +163,18 @@ jobs:
           pattern: wheel-*
           path: dist
           merge-multiple: true
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          path: src
       - name: Tag the merge commit and create the release with wheels attached
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           VERSION: ${{ needs.check.outputs.version }}
-        run: gh release create "v$VERSION" dist/*.whl --target "$GITHUB_SHA" --title "v$VERSION" --notes "See CHANGELOG.md for details."
+        run: |
+          subject=$(git -C src log -1 --format=%s "$GITHUB_SHA" | sed -E 's/ \(#[0-9]+\)$//; s/^Release //')
+          title="v$VERSION"
+          case "$subject" in "$VERSION: "*) title="v$subject" ;; esac
+          sh src/dev/release-notes.sh "$VERSION" src/CHANGELOG.md > notes.md
+          gh release create "v$VERSION" dist/*.whl --target "$GITHUB_SHA" --title "$title" --notes-file notes.md

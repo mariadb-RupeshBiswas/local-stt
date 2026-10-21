@@ -3,6 +3,8 @@ name: CodeQL
 on:
   push:
     branches: [main]
+    # the PR already ran the scan; a docs-only merge has no code to scan
+    paths-ignore: ["**.md", "docs/**"]
   pull_request:
   schedule:
     - cron: "17 3 * * 1"

@@ -6,6 +6,24 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- README and package description now mention meeting notes, so people searching for local
+  meeting transcription find local-stt. The README no longer says local-stt is missing from PyPI.
+- A one-page website at https://mariadb-rupeshbiswas.github.io/local-stt/ (GitHub Pages from `docs/`), linked from the README, with the social preview image and a sitemap.
+- README links and images use full GitHub URLs, so they work on the PyPI page too; a PyPI
+  version badge sits beside the others.
+- GitHub releases are titled from the merge commit and carry that version's CHANGELOG section
+  (`dev/release-notes.sh`), instead of "See CHANGELOG.md".
+- A merge to main that only touches Markdown or `docs/` no longer re-runs CI and CodeQL; pull
+  requests still run everything, and a release still runs the full suite first.
+
+### Fixed
+
+- The voice integration tests take turns loading the voice model. Run side by side, two loads
+  aborted the test run about one time in five (sherpa-onnx threw across the C boundary). The
+  app loads the model once, on one thread.
+
 ## [0.12.3] - 2026-10-15
 
 ### Fixed
