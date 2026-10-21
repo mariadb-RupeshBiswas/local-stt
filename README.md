@@ -8,6 +8,8 @@ Take meeting notes too: Zoom, Meet, Teams and Slack calls become a transcript wi
 A small Whisper model runs on your own laptop. No cloud, no account, no subscription. Free forever.
 A free, local, open-source alternative to Wispr Flow and Superwhisper.
 
+**[Website](https://mariadb-rupeshbiswas.github.io/local-stt/)** | **[PyPI](https://pypi.org/project/local-stt/)**
+
 [![CI](https://github.com/mariadb-RupeshBiswas/local-stt/actions/workflows/ci.yml/badge.svg)](https://github.com/mariadb-RupeshBiswas/local-stt/actions/workflows/ci.yml)
 [![PyPI](https://img.shields.io/pypi/v/local-stt)](https://pypi.org/project/local-stt/)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/LICENSE)
