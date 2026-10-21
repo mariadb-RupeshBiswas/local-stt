@@ -22,8 +22,27 @@ env:
   CARGO_INCREMENTAL: "0"
 
 jobs:
+  changes:
+    name: Code or docs only
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      code: ${{ steps.diff.outputs.code }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 2
+      # A docs-only PR skips the heavy jobs; a skipped required check counts as passed.
+      - id: diff
+        env:
+          EVENT: ${{ github.event_name }}
+        run: sh dev/code-changed.sh | tee -a "$GITHUB_OUTPUT"
+
   macos:
     name: macOS (lint, test, engine)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
@@ -98,6 +117,8 @@ jobs:
 
   windows:
     name: Windows (lint, test)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
@@ -145,6 +166,8 @@ jobs:
 
   ui:
     name: UI checks (headless Chrome)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -160,6 +183,8 @@ jobs:
 
   windows-e2e:
     name: Windows end-to-end (install, hotkey, pill)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
     timeout-minutes: 60
     steps:
@@ -201,31 +226,37 @@ jobs:
             target: aarch64-apple-darwin
           - os: windows-latest
             target: x86_64-pc-windows-msvc
+    # step-level skips: a skipped matrix job would report its name unexpanded
+    needs: changes
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        if: needs.changes.outputs.code == 'true'
         with:
           persist-credentials: false
           submodules: recursive
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
+        if: needs.changes.outputs.code == 'true'
         with:
           command: build
           target: ${{ matrix.target }}
           maturin-version: v1.15.0
           args: --release --locked --out dist
       - uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        if: needs.changes.outputs.code == 'true'
         with:
           version: "0.12.22"
           enable-cache: false
       - name: Run the wheel through uvx
+        if: needs.changes.outputs.code == 'true'
         shell: bash
         run: |
           wheel="$(ls dist/*.whl | head -n 1)"
           uvx --from "$wheel" local-stt --version
       # Same script as the release, with a certificate made here, so no secret is needed.
       - name: Signed wheel installs with its signature intact (throwaway certificate)
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && needs.changes.outputs.code == 'true'
         run: |
           work="$RUNNER_TEMP/signing"
           mkdir -p "$work"
@@ -240,6 +271,7 @@ jobs:
             -out "$work/ci.p12" -passout env:P12_PASSWORD
           dev/sign-macos-wheel.sh "$(ls "$work"/*.whl | head -n 1)" "$work/ci.p12"
       - name: Keep the wheel for manual testing
+        if: needs.changes.outputs.code == 'true'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           # Not wheel-*: inside a release run that name would compete with the signed wheel.
