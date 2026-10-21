@@ -4,6 +4,7 @@
 
 **Free, private, offline speech-to-text for macOS and Windows.**
 Hold a shortcut, talk, let go: your words are typed into any app.
+Take meeting notes too: Zoom, Meet, Teams and Slack calls become a transcript with speaker names and a summary.
 A small Whisper model runs on your own laptop. No cloud, no account, no subscription. Free forever.
 A free, local, open-source alternative to Wispr Flow and Superwhisper.
 
@@ -28,6 +29,7 @@ uvx local-stt
 - **Push-to-talk voice typing everywhere.** Mail, Slack, docs, your code editor, the browser: if it has a text cursor, local-stt can type into it.
 - **Speaks your language.** Dictate in English or Hindi (and the other languages Whisper knows). By default everything comes out as English text.
 - **Small and fast.** The default model is 181 MB. On an Apple M4 Pro a short sentence comes back in about half a second.
+- **Private meeting notes.** No bot joins the call. Each voice is told apart and named from the call app, and an optional local model writes the summary and action items. See [Meeting notes](#meeting-notes).
 - **Hands-free when you want it.** Hold to talk, or press a second shortcut to keep listening while you think out loud.
 - **Live preview, tidy result.** See your words as you speak; Smart formatting turns "point one, point two" (or "number one", "first, second") into a numbered list.
 - **No telemetry.** No analytics, no crash reporting, no account. The only optional ping is a once-a-day version check you can switch off.
@@ -84,9 +86,6 @@ uvx local-stt                          # installs local-stt in the Start menu an
 
 > [!WARNING]
 > **Linux is not supported yet.** The shortcut and the paste need code for each desktop system, and that code exists only for macOS and Windows today.
-
-> [!NOTE]
-> **Before the first release:** local-stt is not on PyPI yet, so `uvx local-stt` does not find it. If someone gave you a wheel file, run `uvx --from <path to the .whl file> local-stt` instead (the same on macOS and Windows), or build it yourself in a few minutes with [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ### More commands
 

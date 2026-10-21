@@ -5,7 +5,7 @@ build-backend = "maturin"
 [project]
 name = "local-stt"
 version = "0.12.3"
-description = "Free, local, private push-to-talk speech-to-text (voice typing) for macOS and Windows. Runs a small Whisper model on your laptop: no cloud, no account, no subscription."
+description = "Free, local, private push-to-talk speech-to-text (voice typing) and meeting notes for macOS and Windows. Runs a small Whisper model on your laptop: no cloud, no account, no subscription."
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
@@ -15,6 +15,7 @@ keywords = [
   "offline", "local", "privacy", "transcription", "push-to-talk", "free",
   "macos", "windows", "hindi", "voice-to-text", "speech-recognition",
   "voice-dictation", "meeting-notes", "wispr-flow-alternative", "superwhisper-alternative",
+  "meeting-transcription", "speaker-diarization", "zoom", "dictation-app", "offline-speech-recognition",
 ]
 classifiers = [
   "Development Status :: 4 - Beta",

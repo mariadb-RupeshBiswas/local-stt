@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>local-stt: free offline speech-to-text for Mac and Windows</title>
+<meta name="description" content="Free, private push-to-talk dictation and meeting notes for macOS and Windows. A local Whisper model types your words into any app. No cloud, no account, open source (MIT).">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="color-scheme" content="light dark">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="local-stt">
+<meta property="og:title" content="local-stt: free offline speech-to-text for Mac and Windows">
+<meta property="og:description" content="Hold a shortcut, talk, let go: your words are typed into any app. Private meeting notes with speaker names. Whisper runs on your own laptop.">
+<meta property="og:image" content="https://raw.githubusercontent.com/mariadb-RupeshBiswas/local-stt/main/docs/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta property="og:image:alt" content="local-stt: free, private, offline speech-to-text for macOS and Windows">
+<meta name="twitter:card" content="summary_large_image">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "local-stt",
+  "description": "Free, private push-to-talk speech-to-text and meeting notes for macOS and Windows. A local Whisper model types your words into any app.",
+  "applicationCategory": "UtilitiesApplication",
+  "operatingSystem": "macOS 11 or later, Windows 10, Windows 11",
+  "downloadUrl": "https://pypi.org/project/local-stt/",
+  "image": "https://raw.githubusercontent.com/mariadb-RupeshBiswas/local-stt/main/docs/social-preview.png",
+  "license": "https://opensource.org/licenses/MIT",
+  "isAccessibleForFree": true,
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "sameAs": [
+    "https://github.com/mariadb-RupeshBiswas/local-stt",
+    "https://pypi.org/project/local-stt/"
+  ]
+}
+</script>
+<style>
+  :root {
+    --bg: #ffffff; --fg: #1d1d1f; --muted: #6e6e73; --card: #f5f5f7;
+    --line: rgba(0, 0, 0, 0.1); --accent: #007aff; --code-bg: #1d1d1f; --code-fg: #f5f5f7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #161618; --fg: #f5f5f7; --muted: #a1a1a6; --card: #232326;
+      --line: rgba(255, 255, 255, 0.12); --accent: #0a84ff; --code-bg: #0b0b0c; --code-fg: #e8e8ed;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); line-height: 1.55;
+    font: 17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  main, header, footer { max-width: 960px; margin: 0 auto; padding: 0 16px; }
+  header { display: flex; align-items: center; justify-content: space-between; padding-top: 20px; }
+  .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; color: var(--fg); text-decoration: none; }
+  .brand img { width: 32px; height: 32px; }
+  nav a { color: var(--muted); text-decoration: none; margin-left: 18px; }
+  nav a:hover { color: var(--accent); }
+  .hero { padding: 56px 0 24px; }
+  h1 { font-size: clamp(2rem, 5vw, 3.2rem); line-height: 1.1; margin: 0 0 16px; letter-spacing: -0.02em; }
+  h1 em { font-style: normal; color: var(--accent); }
+  .lead { font-size: 1.2rem; color: var(--muted); max-width: 680px; margin: 0 0 28px; }
+  h2 { font-size: 1.6rem; margin: 56px 0 16px; letter-spacing: -0.01em; }
+  h3 { font-size: 1.05rem; margin: 0 0 6px; }
+  pre {
+    background: var(--code-bg); color: var(--code-fg); padding: 14px 16px; border-radius: 10px;
+    overflow-x: auto; font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; margin: 8px 0 16px;
+  }
+  .install { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px; }
+  .install h3 { margin-top: 4px; }
+  .shot { width: 100%; height: auto; border-radius: 12px; border: 1px solid var(--line); margin-top: 32px; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 16px; }
+  .card { background: var(--card); border-radius: 12px; padding: 18px; }
+  .card p { margin: 0; color: var(--muted); }
+  dt { font-weight: 600; margin-top: 18px; }
+  dd { margin: 4px 0 0; color: var(--muted); }
+  a { color: var(--accent); }
+  footer { color: var(--muted); font-size: 0.9rem; padding-top: 48px; padding-bottom: 40px; border-top: 1px solid var(--line); margin-top: 64px; }
+  footer a { color: var(--muted); }
+  @media (max-width: 560px) { nav a.optional { display: none; } }
+</style>
+</head>
+<body>
+<header>
+  <a class="brand" href="./"><img src="icon.svg" alt="" width="32" height="32">local-stt</a>
+  <nav>
+    <a class="optional" href="#notes">Meeting notes</a>
+    <a class="optional" href="#faq">FAQ</a>
+    <a href="https://github.com/mariadb-RupeshBiswas/local-stt">GitHub</a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <h1><em>Free, private, offline</em> speech-to-text for Mac and Windows</h1>
+    <p class="lead">Hold a shortcut, talk, let go: your words are typed into any app. Take meeting notes too, with speaker names and a summary. A small Whisper model runs on your own laptop. No cloud, no account, no subscription.</p>
+
+    <div class="install">
+      <div>
+        <h3>macOS (Apple silicon)</h3>
+        <pre><code>brew install uv
+uvx local-stt</code></pre>
+      </div>
+      <div>
+        <h3>Windows 10 and 11</h3>
+        <pre><code>winget install --id=astral-sh.uv -e
+uvx local-stt</code></pre>
+      </div>
+    </div>
+    <p>uv is the only thing you install yourself. local-stt then installs itself in Applications or the Start menu and opens. On Windows, open a new PowerShell after installing uv.</p>
+
+    <picture>
+      <source srcset="site/pill-dark.png" media="(prefers-color-scheme: dark)">
+      <img class="shot" src="site/pill-light.png" width="1430" height="190" alt="The local-stt recording pill: recording with a live microphone level, transcribing, and pasted">
+    </picture>
+  </section>
+
+  <h2>Voice typing in any app</h2>
+  <div class="grid">
+    <div class="card"><h3>Push to talk</h3><p>Hold Fn + Shift on a Mac or Ctrl + Alt on Windows, speak, and let go. The text is pasted where your cursor is: mail, Slack, docs, your code editor, the browser.</p></div>
+    <div class="card"><h3>Hands-free</h3><p>Press Fn + Shift + Space (Windows: Ctrl + Alt + Space) to keep listening while you think out loud. Esc cancels.</p></div>
+    <div class="card"><h3>Works offline</h3><p>After a one-time model download, dictation never needs the internet. The default model is 181 MB.</p></div>
+    <div class="card"><h3>99 languages</h3><p>Speak Hindi, Bengali, Tamil, Spanish, Chinese and more. Get English text, or keep the language you spoke.</p></div>
+    <div class="card"><h3>Smart formatting</h3><p>Fillers go, spacing is fixed, and "point one, point two" becomes a numbered list. Rules in the app, the same every time.</p></div>
+    <div class="card"><h3>No telemetry</h3><p>No analytics, no crash reporting, no account. Audio is never written to disk.</p></div>
+  </div>
+  <picture>
+    <source srcset="site/history-dark.png" media="(prefers-color-scheme: dark)">
+    <img class="shot" src="site/history-light.png" width="1444" height="900" loading="lazy" alt="The local-stt window: a searchable history of past dictations">
+  </picture>
+
+  <h2 id="notes">Private meeting notes</h2>
+  <div class="grid">
+    <div class="card"><h3>No bot joins the call</h3><p>Works with Zoom, Google Meet, Microsoft Teams and Slack. local-stt transcribes your microphone and what your computer plays, on your computer.</p></div>
+    <div class="card"><h3>Speaker names</h3><p>Each voice in the call is told apart and named from the call app's video tiles, so the transcript says who said what.</p></div>
+    <div class="card"><h3>Local summaries</h3><p>An optional local model writes an overview, what each person said, and the action items with their owners. The note never leaves your computer.</p></div>
+  </div>
+
+  <h2>An open-source alternative to Wispr Flow and Superwhisper</h2>
+  <p>local-stt does the same job, push-to-talk dictation into any app, with a speech model that runs entirely on your device. It is MIT licensed, free with no paid tier or usage limits, and works the same way on macOS and Windows. Built with Rust, Tauri and <a href="https://github.com/ggml-org/whisper.cpp">whisper.cpp</a>.</p>
+
+  <h2 id="faq">FAQ</h2>
+  <dl>
+    <dt>Is it really free?</dt>
+    <dd>Yes. MIT licensed, no paid features, no limits, no account.</dd>
+    <dt>Does it work without internet?</dt>
+    <dd>Yes, after the first model download.</dd>
+    <dt>Is my voice stored or sent anywhere?</dt>
+    <dd>No. Audio stays in memory and is dropped after each dictation. The app only goes online to download a model, for an optional daily version check, and for updates you start.</dd>
+    <dt>What do I need?</dt>
+    <dd>A Mac with Apple silicon (M1 or later) on macOS 11 or later, or a 64-bit PC with Windows 10 or 11. About 4 GB of memory and 200 MB of disk for the default model. Meeting notes need macOS 14.6 or later on a Mac.</dd>
+    <dt>Does it work on Linux?</dt>
+    <dd>Not yet. The shortcut and the paste need code for each desktop system.</dd>
+    <dt>How is this different from built-in dictation?</dt>
+    <dd>It runs a model you choose, entirely on your device, translates to English if you want, keeps a searchable history, and works the same way on Mac and Windows.</dd>
+  </dl>
+</main>
+
+<footer>
+  <p><a href="https://github.com/mariadb-RupeshBiswas/local-stt">Source on GitHub</a> | <a href="https://pypi.org/project/local-stt/">PyPI</a> | <a href="https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/CHANGELOG.md">Changelog</a> | <a href="https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/SECURITY.md">Security</a> | MIT License</p>
+</footer>
+</body>
+</html>
