@@ -11,6 +11,10 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - README and package description now mention meeting notes, so people searching for local
   meeting transcription find local-stt. The README no longer says local-stt is missing from PyPI.
 - A one-page website in `docs/` (`index.html`) for GitHub Pages, with the social preview image.
+- README links and images use full GitHub URLs, so they work on the PyPI page too; a PyPI
+  version badge sits beside the others.
+- GitHub releases are titled from the merge commit and carry that version's CHANGELOG section
+  (`dev/release-notes.sh`), instead of "See CHANGELOG.md".
 
 ## [0.12.3] - 2026-10-15
 

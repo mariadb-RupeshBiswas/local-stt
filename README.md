@@ -9,7 +9,8 @@ A small Whisper model runs on your own laptop. No cloud, no account, no subscrip
 A free, local, open-source alternative to Wispr Flow and Superwhisper.
 
 [![CI](https://github.com/mariadb-RupeshBiswas/local-stt/actions/workflows/ci.yml/badge.svg)](https://github.com/mariadb-RupeshBiswas/local-stt/actions/workflows/ci.yml)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![PyPI](https://img.shields.io/pypi/v/local-stt)](https://pypi.org/project/local-stt/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/LICENSE)
 ![Platforms](https://img.shields.io/badge/platforms-macOS%20%7C%20Windows-lightgrey)
 ![Offline](https://img.shields.io/badge/runs-100%25%20offline-brightgreen)
 
@@ -36,7 +37,7 @@ uvx local-stt
 
 ## How it works
 
-![Recording pill in its states](docs/screenshots/overlay-states-light.png)
+![Recording pill: recording with the live level, transcribing, pasted](https://raw.githubusercontent.com/mariadb-RupeshBiswas/local-stt/main/docs/site/pill-light.png)
 
 1. Hold **Fn + Shift** on a Mac, or **Ctrl + Alt** on Windows. Change it any time in Settings.
 2. Speak. A small glass recording pill shows a red dot and your live microphone level, with a live preview of your words above it.
@@ -46,7 +47,7 @@ uvx local-stt
 
 Every dictation is kept in a local history you can search and copy from. Click Select to tick the ones you no longer need (one, a whole day, or all of them) and delete them, or switch history off.
 
-**Under the hood:** a Rust app built with Tauri. A keyboard hook spots your shortcut, the microphone is recorded in memory, Whisper (whisper.cpp) turns it into text on your computer, simple rules tidy it, and the app pastes it. The full tour, written for newcomers, is in [docs/architecture.md](docs/architecture.md).
+**Under the hood:** a Rust app built with Tauri. A keyboard hook spots your shortcut, the microphone is recorded in memory, Whisper (whisper.cpp) turns it into text on your computer, simple rules tidy it, and the app pastes it. The full tour, written for newcomers, is in [docs/architecture.md](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/docs/architecture.md).
 
 ## Get started
 
@@ -156,7 +157,7 @@ Insights keep totals only (counts per day, the 200 words you use most), never se
 
 Open the app from the menu bar or tray icon.
 
-![Settings, light and dark](docs/screenshots/main-settings.png)
+![Settings, light and dark](https://raw.githubusercontent.com/mariadb-RupeshBiswas/local-stt/main/docs/screenshots/main-settings.png)
 
 | Setting | What it does | Default |
 |---|---|---|
@@ -194,7 +195,7 @@ Each model shows its SHA-256 checksum and a **View on Hugging Face** button that
 
 The files come from the Hugging Face repository of whisper.cpp's author. A CI check rebuilds each one from OpenAI's own Whisper checkpoint and requires the same SHA-256, so they are OpenAI's models converted for whisper.cpp; only a version number in the file header may differ. You cannot add a model by URL: the app's C++ code reads the model file, and a crafted file could attack it.
 
-![Model picker with hardware check](docs/screenshots/main-model.png)
+![Model picker with hardware check](https://raw.githubusercontent.com/mariadb-RupeshBiswas/local-stt/main/docs/screenshots/main-model.png)
 
 ## Languages
 
@@ -229,7 +230,7 @@ The files come from the Hugging Face repository of whisper.cpp's author. A CI ch
 - History and settings are plain local files readable only by your user account. History can be switched off, cleared, or trimmed to the dictations you pick, at any time.
 - Releases are built in GitHub Actions, published with PyPI Trusted Publishing and carry build provenance attestations.
 
-See [SECURITY.md](SECURITY.md) to report a vulnerability privately.
+See [SECURITY.md](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/SECURITY.md) to report a vulnerability privately.
 
 ## FAQ
 
@@ -283,7 +284,7 @@ Your settings, history and models live in `~/Library/Application Support/local-s
 
 ## Contributing
 
-Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/CONTRIBUTING.md).
 
 ### Report a bug
 
@@ -293,9 +294,9 @@ Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBU
 
 ## License
 
-[MIT](LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope). Echo cancellation uses sonora (BSD-3-Clause), a Rust port of WebRTC's AEC3. Summaries use llama.cpp (MIT, ggml-org) with Granite 4.0 Micro (Apache-2.0, IBM) or Gemma 4 E4B (Apache-2.0, Google).
+[MIT](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/LICENSE). Whisper models are released by OpenAI under the MIT license; whisper.cpp is MIT licensed by ggml-org. Telling voices apart uses sherpa-onnx (Apache-2.0, k2-fsa) with ONNX Runtime (MIT, Microsoft) and the CAM++ voice model from 3D-Speaker (Apache-2.0, ModelScope). Echo cancellation uses sonora (BSD-3-Clause), a Rust port of WebRTC's AEC3. Summaries use llama.cpp (MIT, ggml-org) with Granite 4.0 Micro (Apache-2.0, IBM) or Gemma 4 E4B (Apache-2.0, Google).
 
-Full third-party licence notices (Rust crates, bundled native code, downloadable models) are in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Full third-party licence notices (Rust crates, bundled native code, downloadable models) are in [THIRD_PARTY_NOTICES.md](https://github.com/mariadb-RupeshBiswas/local-stt/blob/main/THIRD_PARTY_NOTICES.md).
 
 Wispr Flow, Superwhisper and other product names mentioned here are trademarks of their owners. local-stt is an independent open-source project and is not affiliated with, endorsed by or sponsored by them; the names are used only to say what local-stt can be used instead of.
 
