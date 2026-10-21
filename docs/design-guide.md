@@ -139,3 +139,4 @@ A new command also gets a mock in `dev/preview.html` and at least one UI check.
 4. UI from existing components and tokens, both themes, keyboard and screen reader checked.
 5. Words checked against the rules above.
 6. README and CHANGELOG updated; AGENTS.md if the layout or commands changed.
+
