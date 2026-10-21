@@ -17,6 +17,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (`dev/release-notes.sh`), instead of "See CHANGELOG.md".
 - A merge to main that only touches Markdown or `docs/` no longer re-runs CI and CodeQL; pull
   requests still run everything, and a release still runs the full suite first.
+- A pull request that only touches Markdown or `docs/` skips the build and test jobs; the
+  required checks report as skipped, which counts as passed. CodeQL skips such PRs too.
 
 ### Fixed
 

@@ -6,6 +6,8 @@ on:
     # the PR already ran the scan; a docs-only merge has no code to scan
     paths-ignore: ["**.md", "docs/**"]
   pull_request:
+    # not a required check, so a docs-only PR can skip it outright
+    paths-ignore: ["**.md", "docs/**"]
   schedule:
     - cron: "17 3 * * 1"
 
