@@ -18,6 +18,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - A merge to main that only touches Markdown or `docs/` no longer re-runs CI and CodeQL; pull
   requests still run everything, and a release still runs the full suite first.
 
+### Fixed
+
+- The voice integration tests take turns loading the voice model. Run side by side, two loads
+  aborted the test run about one time in five (sherpa-onnx threw across the C boundary). The
+  app loads the model once, on one thread.
+
 ## [0.12.3] - 2026-10-15
 
 ### Fixed
