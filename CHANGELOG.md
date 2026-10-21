@@ -15,6 +15,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   version badge sits beside the others.
 - GitHub releases are titled from the merge commit and carry that version's CHANGELOG section
   (`dev/release-notes.sh`), instead of "See CHANGELOG.md".
+- A merge to main that only touches Markdown or `docs/` no longer re-runs CI and CodeQL; pull
+  requests still run everything, and a release still runs the full suite first.
 
 ## [0.12.3] - 2026-10-15
 
