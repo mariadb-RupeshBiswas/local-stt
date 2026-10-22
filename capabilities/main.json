@@ -34,6 +34,7 @@
     "allow-rename-speaker",
     "allow-delete-notes",
     "allow-open-accessibility-settings",
+    "allow-open-keyboard-settings",
     "allow-reinstall-app",
     "allow-reset-overlay-position",
     "allow-move-overlay",

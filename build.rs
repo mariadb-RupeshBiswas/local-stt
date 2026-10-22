@@ -100,6 +100,7 @@ fn main() {
         "rename_speaker",
         "delete_notes",
         "open_accessibility_settings",
+        "open_keyboard_settings",
         "reinstall_app",
         "reset_overlay_position",
         "move_overlay",

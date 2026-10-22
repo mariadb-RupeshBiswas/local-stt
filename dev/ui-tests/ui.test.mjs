@@ -886,6 +886,37 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- Fn key switches keyboard language ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=settings&scheme=light&fn=conflict&update=1", { tall: true });
+  const banner = page.locator(".mw-banner");
+  check("an Fn shortcut that macOS swallows shows the banner first, ahead of the update", (await banner.isVisible()) && (await banner.getAttribute("aria-label")) === "Shortcut problem" && (await banner.textContent()).includes("Your Fn shortcut may not work") && (await banner.textContent()).includes("Do Nothing"));
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Fn key$/ }) });
+  check("Settings has an Fn key row saying it switches language", (await row.locator(".tag").textContent()) === "Switches language" && (await row.locator(".srow-desc").textContent()).includes("Do Nothing"));
+  await banner.getByRole("button", { name: "Open Keyboard Settings" }).click();
+  check("the banner opens Keyboard settings", (await calls(page)).includes("open_keyboard_settings"));
+  await banner.getByRole("button", { name: "Later" }).click();
+  check("Later puts it off and the update banner takes its place", (await banner.getAttribute("aria-label")) === "Software update" && (await banner.textContent()).includes("0.2.0 is available"));
+  await page.evaluate(() => { window.__setFnConflict(false); window.__emit("fn-key-conflict", false); });
+  await page.waitForTimeout(200);
+  check("once fixed the row says Ready and the fix is announced", (await row.locator(".tag").textContent()) === "Ready" && (await page.locator(".sr-only[role=status]").textContent()).startsWith("Fn is free again"));
+  await page.evaluate(() => { window.__setFnConflict(true); window.__emit("fn-key-conflict", true); });
+  await page.waitForTimeout(200);
+  check("a relapse after Later shows the banner again", (await banner.getAttribute("aria-label")) === "Shortcut problem");
+  check("no page errors with the Fn banner", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light", { tall: true });
+  check("without the conflict there is no banner and the Fn key row says Ready", (await page.locator(".mw-banner").isHidden()) && (await page.locator(".srow", { has: page.locator(".srow-title", { hasText: /^Fn key$/ }) }).locator(".tag").textContent()) === "Ready");
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows&fn=conflict", { tall: true });
+  check("Windows shows no Fn key row or banner", (await page.locator(".srow-title", { hasText: /^Fn key$/ }).count()) === 0 && (await page.locator(".mw-banner").isHidden()));
+  await ctx.close();
+}
+
 // ---------- README images carry no metadata ----------
 {
   // Lists a PNG's chunk types; anything beyond what is needed to draw (text, time, profile, EXIF) is metadata.
@@ -2132,6 +2163,32 @@ for (const dark of [false, true]) {
     return { bg: cs.backgroundColor, page: getComputedStyle(document.querySelector(".mw")).backgroundColor };
   });
   check((dark ? "dark" : "light") + ": setup draws on the theme tokens", info.bg !== info.page && /^rgba?\(/.test(info.bg), info);
+  await ctx.close();
+}
+
+// ---------- Onboarding: Fn key switches keyboard language ----------
+{
+  const { page, ctx } = await obOpen("&fn=conflict&downloaded=1");
+  await obPrimary(page).click();
+  await waitRow(page, "download", "done");
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  const fk = page.locator('.ob-perm[data-perm="fnkey"]');
+  check("setup shows an Fn key card with the fix", (await fk.isVisible()) && (await fk.textContent()).includes("Do Nothing") && (await fk.locator(".tag-red").textContent()) === "Switches language");
+  await fk.getByRole("button", { name: "Open Keyboard Settings" }).click();
+  check("the setup card opens Keyboard settings", (await calls(page)).includes("open_keyboard_settings"));
+  await page.evaluate(() => { window.__setFnConflict(false); window.__emit("fn-key-conflict", false); });
+  await fk.locator(".tag-green").waitFor({ timeout: 3000 });
+  check("the card flips to Fixed and hides its button", (await fk.locator(".tag-green").textContent()) === "Fixed" && (await fk.getByRole("button", { name: "Open Keyboard Settings" }).isHidden()));
+  await ctx.close();
+}
+{
+  const { page, ctx } = await obOpen("&downloaded=1");
+  await obPrimary(page).click();
+  await waitRow(page, "download", "done");
+  await obPrimary(page).click();
+  await obBtn(page, "Use Recommended Settings").click();
+  check("setup has no Fn key card when Fn is free", (await page.locator('.ob-perm[data-perm="fnkey"]').count()) === 0);
   await ctx.close();
 }
 

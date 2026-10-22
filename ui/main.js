@@ -308,6 +308,8 @@
       loadingModel: "",
       autostartEnabled: null,
       accessibility: null, // macOS: whether the shortcut and paste have their rights; null elsewhere
+      fnKeyConflict: null, // macOS with an Fn shortcut: whether the Fn (Globe) key switches keyboard language; null otherwise
+      fnConflictHidden: false, // the Fn banner was put off with Later, for this session
       moving: false,
       capturingSlot: null, // "hold", "toggle" or null: one capture at a time
       hotkeyErrors: { hold: "", toggle: "" },
@@ -464,6 +466,8 @@
       S.summarizing = typeof state.summarizing === "string" ? state.summarizing : null;
       S.autostartEnabled = typeof state.autostartEnabled === "boolean" ? state.autostartEnabled : null;
       S.accessibility = typeof state.accessibility === "boolean" ? state.accessibility : null;
+      S.fnKeyConflict = typeof state.fnKeyConflict === "boolean" ? state.fnKeyConflict : null;
+      if (S.fnKeyConflict !== true) S.fnConflictHidden = false; // fixed, so a later relapse shows the banner again
       S.update = state.update && typeof state.update === "object" ? state.update : null;
       if (state.notes && typeof state.notes === "object") {
         S.notes = {
@@ -609,7 +613,44 @@
       return banner.querySelector(".btn-install");
     }
 
+    function fnConflictVisible() {
+      return S.fnKeyConflict === true && !S.fnConflictHidden;
+    }
+
+    function openKeyboardSettings() {
+      Promise.resolve(invoke("open_keyboard_settings")).catch(function (err) { toast(errText(err)); });
+    }
+
+    // a shortcut that cannot work outranks any update news
+    function renderFnConflict() {
+      banner.hidden = false;
+      root.classList.add("has-banner");
+      if (bannerKey === "fn") return;
+      bannerKey = "fn";
+      banner.setAttribute("aria-label", "Shortcut problem");
+      var open = h("button", { class: "btn btn-action", type: "button", text: "Open Keyboard Settings", onclick: openKeyboardSettings });
+      var later = h("button", { class: "btn btn-quiet", type: "button", text: "Later", onclick: function () {
+        S.fnConflictHidden = true;
+        renderBanner();
+      } });
+      clear(banner);
+      banner.appendChild(h("div", { class: "banner-main banner-warn" },
+        icon("info"),
+        h("div", { class: "banner-text" },
+          h("div", { text: "Your Fn shortcut may not work: pressing Fn switches your keyboard language." }),
+          h("div", { class: "banner-sub", text: "In Keyboard settings, set “Press 🌐 key to” to Do Nothing." })
+        )
+      ));
+      banner.appendChild(h("div", { class: "banner-actions" }, open, later));
+    }
+
     function renderBanner() {
+      if (fnConflictVisible()) {
+        renderFnConflict();
+        return;
+      }
+      banner.setAttribute("aria-label", "Software update");
+      if (bannerKey === "fn") bannerKey = "";
       var show = updateVisible();
       // a newer version on offer outranks the note that the last update finished
       var notice = !show && S.updatedNotice === true;
@@ -2192,6 +2233,26 @@
       return { el: h("div", { class: "srow-controls" }, status, open), sync: sync };
     }
 
+    // macOS can make Fn (Globe) switch keyboard language, which swallows an Fn shortcut
+    function fnKeyControl() {
+      var status = h("span", { class: "tag" });
+      var open = h("button", { class: "btn", type: "button", text: "Open Settings", onclick: openKeyboardSettings });
+      function sync() {
+        var ok = S.fnKeyConflict !== true;
+        status.className = "tag " + (ok ? "tag-green" : "tag-red");
+        status.textContent = ok ? "Ready" : "Switches language";
+        open.hidden = ok;
+      }
+      sync();
+      return { el: h("div", { class: "srow-controls" }, status, open), sync: sync };
+    }
+
+    function fnKeyDescription() {
+      return S.fnKeyConflict === true
+        ? "Pressing Fn switches your keyboard language, so the shortcut may not work. In Keyboard settings, set “Press 🌐 key to” to Do Nothing."
+        : "Fn is free for your shortcut.";
+    }
+
     function accessDescription() {
       return S.accessibility === true
         ? "The shortcut, paste and call names in notes work."
@@ -2549,6 +2610,7 @@
 
       var general = card([
         S.platform === "macos" && S.accessibility !== null ? settingRow("Accessibility", accessDescription, addSync(accessControl())) : null,
+        S.platform === "macos" && S.fnKeyConflict !== null ? settingRow("Fn key", fnKeyDescription, addSync(fnKeyControl())) : null,
         saveHistoryRow(),
         installRow(),
         startAtLoginRow(),
@@ -3359,6 +3421,17 @@
         cards.push(ax.el);
         paintAccess();
       }
+
+      if (S.platform === "macos" && S.fnKeyConflict === true) {
+        var fk = permCard("Fn key", "Pressing Fn switches your keyboard language, so the Fn shortcut may not work. In Keyboard settings, set “Press 🌐 key to” to Do Nothing.", "fnkey");
+        OB.refs.fk = fk;
+        fk.open = h("button", { class: "btn btn-action", type: "button", text: "Open Keyboard Settings", onclick: openKeyboardSettings });
+        fk.actions.appendChild(fk.open);
+        fk.line = h("div", { class: "ob-line" });
+        fk.status.appendChild(fk.line);
+        cards.push(fk.el);
+        paintFnKey();
+      }
       return {
         title: S.platform === "macos" ? "Allow what local-stt needs" : "Check your microphone",
         el: h("div", { class: "ob-choices" }, cards),
@@ -3423,6 +3496,15 @@
       if (allowed) a.line.appendChild(tagLine("green", "Allowed"));
       else if (OB.access === "waiting") a.line.appendChild(h("span", { class: "ob-waiting", text: "Waiting for you to turn on local-stt" }));
       else if (OB.access === "skipped") a.line.appendChild(tagLine("grey", "Skipped for now"));
+    }
+
+    function paintFnKey() {
+      var f = OB.refs.fk;
+      if (!f) return;
+      var fixed = S.fnKeyConflict !== true;
+      clear(f.line);
+      f.open.hidden = fixed;
+      f.line.appendChild(fixed ? tagLine("green", "Fixed") : tagLine("red", "Switches language"));
     }
 
     // ----- step 5 -----
@@ -3506,7 +3588,10 @@
       if (!OB.on) return;
       var row = obRow("access");
       if (row && row.state === "needs" && S.accessibility === true) setRow(row, "done", "Allowed");
-      if (OB.step === 4) paintAccess();
+      if (OB.step === 4) {
+        paintAccess();
+        paintFnKey();
+      }
       if (OB.step === 5 && OB.refs.try && OB.tryBlocked !== tryBlocked()) {
         var focus = paintTry();
         if (focus) focus.focus();
@@ -3658,6 +3743,14 @@
     subscribe("insights-changed", function () {
       if (S.tab === "insights") loadInsights();
     });
+    // the app checks the Fn (Globe) key every few seconds and says when it starts or stops switching language
+    subscribe("fn-key-conflict", function (on) {
+      var was = S.fnKeyConflict;
+      reloadState().then(function () {
+        if (was === true && on === false) announce("Fn is free again. The shortcut works now.");
+      });
+    });
+
     subscribe("permissions-changed", function () {
       reloadState();
       announce("Accessibility is allowed. The shortcut works now.");
