@@ -310,6 +310,8 @@
       accessibility: null, // macOS: whether the shortcut and paste have their rights; null elsewhere
       fnKeyConflict: null, // macOS with an Fn shortcut: whether the Fn (Globe) key switches keyboard language; null otherwise
       fnConflictHidden: false, // the Fn banner was put off with Later, for this session
+      shortcutClashes: [], // [{ slot, with, fix }]: shortcuts the system also uses
+      clashHidden: false, // the clash banner was put off with Later, for this session
       moving: false,
       capturingSlot: null, // "hold", "toggle" or null: one capture at a time
       hotkeyErrors: { hold: "", toggle: "" },
@@ -468,6 +470,10 @@
       S.accessibility = typeof state.accessibility === "boolean" ? state.accessibility : null;
       S.fnKeyConflict = typeof state.fnKeyConflict === "boolean" ? state.fnKeyConflict : null;
       if (S.fnKeyConflict !== true) S.fnConflictHidden = false; // fixed, so a later relapse shows the banner again
+      S.shortcutClashes = Array.isArray(state.shortcutClashes) ? state.shortcutClashes.filter(function (c) {
+        return c && SLOTS[c.slot] && typeof c.with === "string" && typeof c.fix === "string";
+      }) : [];
+      if (!S.shortcutClashes.length) S.clashHidden = false;
       S.update = state.update && typeof state.update === "object" ? state.update : null;
       if (state.notes && typeof state.notes === "object") {
         S.notes = {
@@ -644,13 +650,57 @@
       banner.appendChild(h("div", { class: "banner-actions" }, open, later));
     }
 
+    function osName() {
+      return S.platform === "windows" ? "Windows" : "macOS";
+    }
+
+    function clashFor(slot) {
+      return S.shortcutClashes.filter(function (c) { return c.slot === slot; })[0] || null;
+    }
+
+    // a shortcut the system also uses: say what for and take the user to the field
+    function renderClash() {
+      var c = S.shortcutClashes[0];
+      banner.hidden = false;
+      root.classList.add("has-banner");
+      var key = "clash|" + c.slot + "|" + c.with;
+      if (bannerKey === key) return;
+      bannerKey = key;
+      banner.setAttribute("aria-label", "Shortcut problem");
+      var change = h("button", { class: "btn btn-action", type: "button", text: "Change Shortcut", onclick: function () {
+        showTab("settings");
+        var field = document.querySelector('.hk[data-slot="' + c.slot + '"]');
+        if (field) {
+          field.scrollIntoView({ block: "center" });
+          field.focus();
+        }
+      } });
+      var later = h("button", { class: "btn btn-quiet", type: "button", text: "Later", onclick: function () {
+        S.clashHidden = true;
+        renderBanner();
+      } });
+      clear(banner);
+      banner.appendChild(h("div", { class: "banner-main banner-warn" },
+        icon("info"),
+        h("div", { class: "banner-text" },
+          h("div", { text: "Your " + SLOTS[c.slot].name.toLowerCase() + " shortcut is also " + osName() + "’s for " + c.with + ", so it may not reach local-stt." }),
+          h("div", { class: "banner-sub", text: c.fix })
+        )
+      ));
+      banner.appendChild(h("div", { class: "banner-actions" }, change, later));
+    }
+
     function renderBanner() {
       if (fnConflictVisible()) {
         renderFnConflict();
         return;
       }
+      if (S.shortcutClashes.length && !S.clashHidden) {
+        renderClash();
+        return;
+      }
       banner.setAttribute("aria-label", "Software update");
-      if (bannerKey === "fn") bannerKey = "";
+      if (bannerKey === "fn" || bannerKey.indexOf("clash|") === 0) bannerKey = "";
       var show = updateVisible();
       // a newer version on offer outranks the note that the last update finished
       var notice = !show && S.updatedNotice === true;
@@ -2173,6 +2223,7 @@
         patchConfig({ toggle_hotkey: null });
       } }) : null;
       var error = h("div", { class: "field-error", role: "alert", hidden: true });
+      var warn = h("div", { class: "field-warn", hidden: true });
 
       field.addEventListener("click", function () {
         if (S.capturingSlot === slot) {
@@ -2210,11 +2261,14 @@
         }
         error.hidden = S.hotkeyErrors[slot] === "";
         error.textContent = S.hotkeyErrors[slot];
+        var clash = capturing ? null : clashFor(slot);
+        warn.hidden = !clash;
+        warn.textContent = clash ? osName() + " also uses this for " + clash.with + ", so it may not reach local-stt. " + clash.fix : "";
         reset.hidden = capturing || !S.config || sameCombo(slotCombo(slot), defaults[S.platform]);
         if (turnOff) turnOff.hidden = capturing || off;
       }
       sync();
-      return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset, turnOff), error), sync: sync };
+      return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, field, reset, turnOff), error, warn), sync: sync };
     }
 
     // the right macOS needs for the shortcut and paste, with a way straight to the setting
@@ -3749,6 +3803,11 @@
       reloadState().then(function () {
         if (was === true && on === false) announce("Fn is free again. The shortcut works now.");
       });
+    });
+
+    // the app re-checks the system's own shortcuts every half minute and says when the list changes
+    subscribe("shortcut-clashes", function () {
+      reloadState();
     });
 
     subscribe("permissions-changed", function () {

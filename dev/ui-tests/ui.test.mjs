@@ -917,6 +917,39 @@ for (const dark of [false, true]) {
   await ctx.close();
 }
 
+// ---------- a shortcut the system also uses ----------
+{
+  const { page, ctx, errors } = await open("?view=main&tab=history&scheme=light", { tall: true });
+  const banner = page.locator(".mw-banner");
+  check("the default shortcuts clash with nothing", await banner.isHidden());
+  await page.locator("#tab-settings").click();
+  const push = page.locator('.hk[data-slot="hold"]');
+  await push.click();
+  await page.waitForTimeout(2500);
+  const warn = page.locator(".srow", { has: push }).locator(".field-warn");
+  check("a captured system shortcut shows a warning under its field", (await warn.isVisible()) && (await warn.textContent()).startsWith("macOS also uses this for switching to the next input source") && (await warn.textContent()).includes("Keyboard Shortcuts"));
+  check("and a banner naming the shortcut and what macOS uses it for", (await banner.getAttribute("aria-label")) === "Shortcut problem" && (await banner.textContent()).includes("Your push to talk shortcut is also macOS’s for switching to the next input source"));
+  await page.locator("#tab-history").click();
+  await banner.getByRole("button", { name: "Change Shortcut" }).click();
+  await page.waitForTimeout(200);
+  check("Change Shortcut opens Settings at that field", (await page.locator("#tab-settings").getAttribute("aria-selected")) === "true" && (await page.evaluate(() => document.activeElement && document.activeElement.dataset.slot)) === "hold");
+  await banner.getByRole("button", { name: "Later" }).click();
+  check("Later puts the clash banner off", await banner.isHidden());
+  await page.getByRole("button", { name: "Reset Push to talk shortcut" }).click();
+  await page.waitForTimeout(400);
+  check("a free shortcut clears the warning", await warn.isHidden());
+  check("no page errors with the clash warning", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&fn=conflict", { tall: true });
+  await page.locator('.hk[data-slot="hold"]').click();
+  await page.waitForTimeout(2500);
+  const text = await page.locator(".mw-banner").textContent();
+  check("the Fn banner outranks a clash banner", text.includes("Your Fn shortcut may not work") && !text.includes("Change Shortcut"));
+  await ctx.close();
+}
+
 // ---------- README images carry no metadata ----------
 {
   // Lists a PNG's chunk types; anything beyond what is needed to draw (text, time, profile, EXIF) is metadata.

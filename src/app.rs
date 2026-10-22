@@ -843,12 +843,14 @@ pub(crate) fn fn_shortcut(cfg: &Config) -> bool {
     hotkey::uses_fn(&cfg.hotkey) || cfg.toggle_hotkey.as_ref().is_some_and(hotkey::uses_fn)
 }
 
-// The Globe key can be set to switch keyboard languages at any time; the window shows a fix while it does.
+// The Globe key or a system shortcut can take local-stt's shortcut at any time; the window shows a fix while one does.
 fn watch_fn_key(app: AppHandle) {
     std::thread::spawn(move || {
         let mut last = None;
+        let mut last_clashes = Vec::new();
         loop {
-            let conflict = fn_shortcut(&shared(&app).config()) && hotkey::globe_switches_input();
+            let cfg = shared(&app).config();
+            let conflict = fn_shortcut(&cfg) && hotkey::globe_switches_input();
             if last != Some(conflict) {
                 if conflict || last.is_some() {
                     diag::log(if conflict {
@@ -860,7 +862,18 @@ fn watch_fn_key(app: AppHandle) {
                 let _ = app.emit("fn-key-conflict", conflict);
                 last = Some(conflict);
             }
-            std::thread::sleep(Duration::from_secs(10));
+            let clashes = hotkey::shortcut_clashes(&cfg.hotkey, cfg.toggle_hotkey.as_ref());
+            if clashes != last_clashes {
+                for c in &clashes {
+                    diag::log(&format!(
+                        "shortcut: the {} shortcut is also the system's for {}",
+                        c.slot, c.with
+                    ));
+                }
+                let _ = app.emit("shortcut-clashes", &clashes);
+                last_clashes = clashes;
+            }
+            std::thread::sleep(Duration::from_secs(30));
         }
     });
 }

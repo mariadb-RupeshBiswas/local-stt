@@ -360,6 +360,20 @@
     return parts.join(" + ");
   }
 
+  // a few of the system shortcuts the app knows, so a captured clash shows like in the app
+  function mockClashes(data) {
+    var taken = platform === "windows"
+      ? { "Ctrl + Space": "turning the Chinese input method on and off", "Win + Space": "switching input language" }
+      : { "Cmd + Space": "Spotlight", "Ctrl + Space": "switching to the previous input source", "Ctrl + Alt + Space": "switching to the next input source" };
+    var fix = platform === "windows" ? "Pick another shortcut." : "Pick another shortcut, or turn this one off in System Settings > Keyboard > Keyboard Shortcuts.";
+    var out = [];
+    [["hold", data.config.hotkey], ["toggle", data.config.toggle_hotkey]].forEach(function (pair) {
+      var with_ = pair[1] ? taken[comboText(pair[1])] : null;
+      if (with_) out.push({ slot: pair[0], with: with_, fix: fix });
+    });
+    return out;
+  }
+
   function mockState() {
     var now = Date.now();
     var minute = 60 * 1000;
@@ -495,6 +509,7 @@
       reset_insights: function () { window.__calls.push("reset_insights"); insightsMode = "empty"; },
       get_state: function () {
         window.__cfg.push("get_state");
+        data.shortcutClashes = mockClashes(data);
         return data;
       },
       set_config: function (a) {
