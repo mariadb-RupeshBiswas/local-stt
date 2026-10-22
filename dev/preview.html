@@ -436,6 +436,8 @@
       toggleDisplay: toggle ? comboText(toggle) : null,
       installed: params.get("installed") === "1",
       accessibility: platform === "windows" ? null : params.get("access") !== "denied",
+      // ?fn=conflict: the Globe key switches keyboard language while the shortcut holds Fn
+      fnKeyConflict: platform === "windows" ? null : params.get("fn") === "conflict",
       update: params.get("update") === "1" ? { current: "0.1.0", latest: "0.2.0", available: true, notesUrl: "https://example.invalid/release-notes" } : null,
       notes: params.get("notes") === "old-macos"
         ? { supported: false, reason: "Notes need macOS 14.6 or later.", active: null }
@@ -564,6 +566,7 @@
       get_history: function () { return data.history; },
       clear_history: function () { data.history = []; },
       open_accessibility_settings: function () { window.__calls.push("open_accessibility_settings"); },
+      open_keyboard_settings: function () { window.__calls.push("open_keyboard_settings"); },
       // about 1 s of levels, then the verdict; ?mic=silent hears nothing, ?mic=error refuses
       check_microphone: function () {
         window.__calls.push("check_microphone");
@@ -769,6 +772,7 @@
     }
     bus = makeBus(commands);
     window.__setAccess = function (on) { data.accessibility = on; };
+    window.__setFnConflict = function (on) { data.fnKeyConflict = on; };
     window.__emit = bus.emit; // lets the checks send app events
 
     var frame = el("div", "pv-window");

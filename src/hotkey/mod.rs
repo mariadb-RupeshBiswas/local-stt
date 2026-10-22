@@ -411,6 +411,44 @@ pub fn accessibility_ok(_prompt: bool) -> bool {
     true
 }
 
+pub fn uses_fn(c: &Combo) -> bool {
+    c.modifiers.contains(&Modifier::Fn)
+}
+
+/// macOS: whether pressing Fn (the Globe key) switches the keyboard language, which breaks Fn shortcuts.
+#[cfg(target_os = "macos")]
+pub fn globe_switches_input() -> bool {
+    let out = crate::proc::command("/usr/bin/defaults")
+        .args(["export", "com.apple.HIToolbox", "-"])
+        .output();
+    out.is_ok_and(|o| o.status.success() && globe_switches(&String::from_utf8_lossy(&o.stdout)))
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn globe_switches_input() -> bool {
+    false
+}
+
+// "Press Globe key to" is AppleFnUsageType (1 = Change Input Source); unset, macOS switches once two sources are on.
+#[cfg(any(target_os = "macos", test))]
+fn globe_switches(plist: &str) -> bool {
+    let usage = plist
+        .split_once("<key>AppleFnUsageType</key>")
+        .and_then(|(_, rest)| rest.trim_start().strip_prefix("<integer>"))
+        .and_then(|rest| rest.split_once("</integer>"))
+        .and_then(|(n, _)| n.trim().parse::<i64>().ok());
+    let enabled = plist
+        .split_once("<key>AppleEnabledInputSources</key>")
+        .and_then(|(_, rest)| rest.split_once("</array>"))
+        .map_or("", |(list, _)| list);
+    let layouts = enabled.matches("<string>Keyboard Layout</string>").count();
+    let input_modes = enabled.matches("<string>Input Mode</string>").count();
+    match usage {
+        Some(v) => v == 1,
+        None => layouts + input_modes >= 2,
+    }
+}
+
 #[cfg(test)]
 mod dual_tests {
     use super::*;
@@ -836,5 +874,54 @@ mod tests {
     #[test]
     fn default_combo_is_valid() {
         assert_eq!(validate(&default_combo()), Ok(()));
+    }
+
+    fn hitoolbox(usage: Option<i64>, kinds: &[&str]) -> String {
+        let mut s = String::from("<plist><dict>\n");
+        if let Some(u) = usage {
+            s += &format!("\t<key>AppleFnUsageType</key>\n\t<integer>{u}</integer>\n");
+        }
+        s += "\t<key>AppleEnabledInputSources</key>\n\t<array>\n";
+        for kind in kinds {
+            s += &format!(
+                "\t\t<dict><key>InputSourceKind</key>\n\t\t<string>{kind}</string></dict>\n"
+            );
+        }
+        // Selected and history lists repeat sources; only the enabled list counts.
+        s += "\t</array>\n\t<key>AppleSelectedInputSources</key>\n\t<array>\n";
+        s += "\t\t<dict><key>InputSourceKind</key><string>Keyboard Layout</string></dict>\n\t</array>\n</dict></plist>";
+        s
+    }
+
+    #[test]
+    fn the_globe_key_breaks_fn_shortcuts_only_when_it_switches_input() {
+        let two = [
+            "Keyboard Layout",
+            "Keyboard Layout",
+            "Non Keyboard Input Method",
+        ];
+        assert!(globe_switches(&hitoolbox(None, &two)));
+        assert!(globe_switches(&hitoolbox(Some(1), &["Keyboard Layout"])));
+        assert!(globe_switches(&hitoolbox(
+            None,
+            &["Keyboard Layout", "Input Mode"]
+        )));
+        assert!(!globe_switches(&hitoolbox(Some(0), &two)));
+        assert!(!globe_switches(&hitoolbox(Some(2), &two)));
+        assert!(!globe_switches(&hitoolbox(
+            None,
+            &["Keyboard Layout", "Non Keyboard Input Method"]
+        )));
+        assert!(!globe_switches(""));
+    }
+
+    #[test]
+    fn only_shortcuts_with_fn_are_affected() {
+        assert!(uses_fn(&default_combo()) == cfg!(target_os = "macos"));
+        let ctrl_alt = Combo {
+            modifiers: vec![Modifier::Ctrl, Modifier::Alt],
+            key: None,
+        };
+        assert!(!uses_fn(&ctrl_alt));
     }
 }

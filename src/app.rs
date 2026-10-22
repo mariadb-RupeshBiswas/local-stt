@@ -242,6 +242,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::rename_speaker,
             crate::commands::delete_notes,
             crate::commands::open_accessibility_settings,
+            crate::commands::open_keyboard_settings,
             crate::commands::reinstall_app,
             crate::commands::reset_overlay_position,
             crate::commands::move_overlay,
@@ -832,6 +833,36 @@ fn start_hotkey(app: &AppHandle) {
         set_tray_problem(app, "allow Accessibility in System Settings");
         watch_accessibility(app.clone());
     }
+    if cfg!(target_os = "macos") {
+        watch_fn_key(app.clone());
+    }
+}
+
+/// True when the push-to-talk or hands-free shortcut holds Fn.
+pub(crate) fn fn_shortcut(cfg: &Config) -> bool {
+    hotkey::uses_fn(&cfg.hotkey) || cfg.toggle_hotkey.as_ref().is_some_and(hotkey::uses_fn)
+}
+
+// The Globe key can be set to switch keyboard languages at any time; the window shows a fix while it does.
+fn watch_fn_key(app: AppHandle) {
+    std::thread::spawn(move || {
+        let mut last = None;
+        loop {
+            let conflict = fn_shortcut(&shared(&app).config()) && hotkey::globe_switches_input();
+            if last != Some(conflict) {
+                if conflict || last.is_some() {
+                    diag::log(if conflict {
+                        "fn key: the Globe key switches keyboard language; Fn shortcuts may not work"
+                    } else {
+                        "fn key: no longer switches keyboard language"
+                    });
+                }
+                let _ = app.emit("fn-key-conflict", conflict);
+                last = Some(conflict);
+            }
+            std::thread::sleep(Duration::from_secs(10));
+        }
+    });
 }
 
 // The system prompt shows once per build, not at every start; Settings explains the rest.

@@ -268,6 +268,8 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 **The shortcut does nothing on macOS, though local-stt is switched on.** macOS can keep the switch of an older copy. In System Settings > Privacy & Security > Accessibility (Device Control and Data Access on newer macOS), select local-stt, click the minus button and add it again, or use Reinstall below. Settings > General shows **Allowed** once it works.
 
+**Pressing Fn switches your keyboard language instead of recording.** With two or more keyboard layouts, macOS makes the Fn (🌐) key change the input source, which swallows an Fn shortcut. In System Settings > Keyboard, set **Press 🌐 key to** to **Do Nothing**. local-stt notices this, during setup or any time later, and shows a banner with a button to Keyboard settings.
+
 **Reinstall.** Settings > Troubleshooting > **Reinstall** (or `local-stt reinstall`) quits local-stt, installs it again (the newest version when one is out) and opens it. On macOS it also resets local-stt's permissions and opens setup, so you can allow them again; your name, history and insights stay. An update that macOS sees as a new app does the same on its own. Tick the box, or add `--clean`, to also delete your settings, history, notes, insights, voice fingerprint and logs; downloaded models stay.
 
 ## Updating

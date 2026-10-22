@@ -40,6 +40,7 @@ pub async fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Result<
         },
         // macOS only: whether the shortcut and paste have the rights they need.
         "accessibility": cfg!(target_os = "macos").then(|| hotkey::accessibility_ok(false)),
+        "fnKeyConflict": crate::app::fn_shortcut(&cfg).then(hotkey::globe_switches_input),
         "demo": crate::demo::active(),
         "toggleDisplay": cfg.toggle_hotkey.as_ref().map(hotkey::display),
         "installed": crate::install::is_installed(),
@@ -523,6 +524,21 @@ pub fn open_accessibility_settings() -> Result<(), String> {
         let pane = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
         crate::proc::command("/usr/bin/open")
             .arg(pane)
+            .status()
+            .map(|_| ())
+            .map_err(|e| format!("could not open System Settings: {e}"))
+    }
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
+/// Opens System Settings at Keyboard, where "Press Globe key to" lives (macOS).
+#[tauri::command]
+pub fn open_keyboard_settings() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        crate::proc::command("/usr/bin/open")
+            .arg("x-apple.systempreferences:com.apple.Keyboard-Settings.extension")
             .status()
             .map(|_| ())
             .map_err(|e| format!("could not open System Settings: {e}"))

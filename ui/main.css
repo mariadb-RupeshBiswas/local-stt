@@ -935,6 +935,8 @@ body {
 
 .banner-main .ic { color: var(--accent-ink); }
 .banner-done .ic { color: var(--green-ink); }
+.banner-warn .ic { color: var(--orange-ink); }
+.banner-sub { font-weight: 400; font-size: 12px; color: var(--label-2); }
 
 /* after-update confetti: each piece falls and spins once, then the layer is removed */
 .confetti {

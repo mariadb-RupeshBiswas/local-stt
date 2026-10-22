@@ -6,6 +6,15 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-10-22
+
+### Added
+
+- macOS: when the Fn (Globe) key switches the keyboard language, which happens by default once
+  two keyboard layouts are on, an Fn shortcut stops working. local-stt now spots this during setup
+  and any time after, and shows a banner, a setup card and a Settings > General row with the fix
+  (Keyboard > Press Globe key to > Do Nothing) and a button that opens Keyboard settings.
+
 ### Changed
 
 - README and package description now mention meeting notes, so people searching for local
