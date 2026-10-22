@@ -6,6 +6,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.2] - 2026-10-22
+
+### Added
+
+- Notes: copy just the summary (button beside Summarize Again) or just the transcript (button
+  beside the new Transcript heading). The note's own copy button still copies everything.
+
 ## [0.13.1] - 2026-10-22
 
 ### Added

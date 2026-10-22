@@ -675,6 +675,19 @@ for (const dark of [false, true]) {
   await panel.locator(".nrow-open").first().click();
   await page.waitForTimeout(300);
   check("renaming a speaker renames them in the summary too", (await panel.locator(".sum-name").allTextContents()).join(",") === "Me,Priya");
+  const copied = () => page.evaluate(() => window.__copied || "");
+  await panel.getByRole("button", { name: "Copy summary" }).click();
+  await page.waitForTimeout(150);
+  const sum = await copied();
+  check("Copy summary copies only the summary, with the names", sum.startsWith("Summary\nThe team reviewed") && sum.includes("Priya:") && !/\(\d+:\d\d\): /.test(sum), sum);
+  await panel.getByRole("button", { name: "Copy transcript" }).click();
+  await page.waitForTimeout(150);
+  const lines = (await copied()).split("\n");
+  check("Copy transcript copies only the lines, in time order", lines.length > 1 && lines.every((l) => /^(Me|Priya) \(\d+:\d\d\): /.test(l)) && !lines.some((l) => l.startsWith("Summary")), lines);
+  await panel.getByRole("button", { name: "Copy note" }).click();
+  await page.waitForTimeout(150);
+  const all = await copied();
+  check("Copy note still copies title, summary and transcript", all.includes("\nSummary\n") && all.endsWith(lines[lines.length - 1]), all.slice(0, 120));
   check("no page errors (note summary)", errors.length === 0, errors);
   await ctx.close();
 }

@@ -1308,10 +1308,15 @@
     function noteText(note) {
       var lines = [noteTitle(note), new Date(note.started_ms).toLocaleString(), ""];
       if (note.summary) lines = lines.concat(summaryText(note), [""]);
-      (note.segments || []).forEach(function (seg) {
-        lines.push(speakerName(seg.speaker, note) + " (" + clock(seg.start_ms) + "): " + seg.text);
+      return lines.concat(transcriptLines(note)).join("\n");
+    }
+
+    // one line per turn, in time order, with the names given in this note
+    function transcriptLines(note) {
+      var segs = (note.segments || []).slice().sort(function (a, b) { return a.start_ms - b.start_ms; });
+      return segs.map(function (seg) {
+        return speakerName(seg.speaker, note) + " (" + clock(seg.start_ms) + "): " + seg.text;
       });
-      return lines.join("\n");
     }
 
     // "s2" is the second voice heard on the other side of the call
@@ -1449,6 +1454,12 @@
       }
       if (S.openStatus === "done" && summariesOn()) noteView.appendChild(summaryCard(note));
       var card = h("div", { class: "card transcript", role: "log", "aria-live": recording ? "polite" : "off" });
+      if (!recording && (note.segments || []).length) {
+        noteView.appendChild(h("div", { class: "transcript-head" },
+          h("h3", { class: "sum-title", text: "Transcript" }),
+          copyButton("Copy transcript", function () { return transcriptLines(S.openNote).join("\n"); })
+        ));
+      }
       noteView.appendChild(card);
       renderTranscript(card);
       noteView._card = card;
@@ -2001,11 +2012,14 @@
       }
       var model = summaryModel();
       var label = note.summary ? "Summarize Again" : "Summarize";
+      var tools = h("div", { class: "sum-tools" });
+      head.appendChild(tools);
+      if (note.summary) tools.appendChild(copyButton("Copy summary", function () { return summaryText(S.openNote).join("\n"); }));
       if (model) {
-        head.appendChild(h("button", { class: note.summary ? "btn" : "btn btn-action", type: "button", text: label,
+        tools.appendChild(h("button", { class: note.summary ? "btn" : "btn btn-action", type: "button", text: label,
           disabled: !!S.summarizing, onclick: function () { summarize(note.id); } }));
       } else {
-        head.appendChild(h("button", { class: "btn", type: "button", text: "Choose a Summary Model", onclick: showSummaryModels }));
+        tools.appendChild(h("button", { class: "btn", type: "button", text: "Choose a Summary Model", onclick: showSummaryModels }));
       }
       if (!note.summary) {
         box.appendChild(h("p", { class: "sum-empty", text: model
