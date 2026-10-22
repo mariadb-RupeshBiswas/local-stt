@@ -814,6 +814,14 @@ body {
   text-align: right;
 }
 
+.field-warn {
+  margin-top: 6px;
+  max-width: 340px;
+  font-size: 12px;
+  color: var(--orange-ink);
+  text-align: right;
+}
+
 .themes {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

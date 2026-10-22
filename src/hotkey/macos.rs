@@ -1,7 +1,7 @@
 //! macOS CGEventTap (listen-only) over hand-written FFI. Owned by Task 4.
 //! Constants checked against the macOS SDK headers (CGEventTypes.h, IOLLEvent.h, Events.h).
 
-use super::{dispatch, Core, HotkeyEvent, KeyState, Modifier};
+use super::{dispatch, Combo, Core, HotkeyEvent, KeyState, Modifier};
 use std::collections::BTreeSet;
 use std::ffi::c_void;
 use std::ptr;
@@ -274,6 +274,74 @@ fn key_name(code: i64) -> &'static str {
         .map_or("Other", |(_, name)| name)
 }
 
+/// Shortcuts set in System Settings > Keyboard > Keyboard Shortcuts, as (on, combo).
+pub(super) fn symbolic_overrides() -> Vec<(bool, Combo)> {
+    let Some(home) = std::env::var_os("HOME") else {
+        return Vec::new();
+    };
+    let plist =
+        std::path::Path::new(&home).join("Library/Preferences/com.apple.symbolichotkeys.plist");
+    let out = crate::proc::command("/usr/bin/plutil")
+        .args(["-convert", "json", "-o", "-"])
+        .arg(&plist)
+        .output();
+    match out {
+        Ok(o) if o.status.success() => parse_symbolic(&String::from_utf8_lossy(&o.stdout)),
+        _ => Vec::new(),
+    }
+}
+
+// Each entry holds parameters [character, keycode, modifier flags]; keys a shortcut cannot use are skipped.
+fn parse_symbolic(json: &str) -> Vec<(bool, Combo)> {
+    let Ok(doc) = serde_json::from_str::<serde_json::Value>(json) else {
+        return Vec::new();
+    };
+    let Some(entries) = doc["AppleSymbolicHotKeys"].as_object() else {
+        return Vec::new();
+    };
+    let mut out = Vec::new();
+    for entry in entries.values() {
+        let enabled = &entry["enabled"];
+        let on = enabled
+            .as_bool()
+            .or_else(|| enabled.as_i64().map(|n| n != 0))
+            .unwrap_or(false);
+        let params = &entry["value"]["parameters"];
+        let (Some(code), Some(flags)) = (params[1].as_i64(), params[2].as_u64()) else {
+            continue;
+        };
+        let key = key_name(code);
+        if key == "Other" {
+            continue;
+        }
+        let mut modifiers = Vec::new();
+        let bits = [
+            (FLAG_SHIFT, Modifier::Shift),
+            (FLAG_CTRL, Modifier::Ctrl),
+            (FLAG_ALT, Modifier::Alt),
+            (FLAG_CMD, Modifier::Meta),
+        ];
+        for (bit, modifier) in bits {
+            if flags & bit != 0 {
+                modifiers.push(modifier);
+            }
+        }
+        // F keys set the Fn flag themselves, so only other keys keep it.
+        let f_key = key.len() > 1 && key.starts_with('F');
+        if flags & FLAG_FN != 0 && !f_key {
+            modifiers.push(Modifier::Fn);
+        }
+        out.push((
+            on,
+            Combo {
+                modifiers,
+                key: Some(key.to_string()),
+            },
+        ));
+    }
+    out
+}
+
 // Turns raw tap events into a KeyState; holds only the keys currently down.
 #[derive(Default)]
 struct MacKeys {
@@ -484,6 +552,53 @@ pub fn spawn(core: Arc<Mutex<Core>>, tx: Sender<HotkeyEvent>) -> Result<Guard, S
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn keyboard_shortcut_settings_become_combos() {
+        let json = r#"{"AppleSymbolicHotKeys":{
+            "60":{"enabled":true,"value":{"parameters":[32,49,262144],"type":"standard"}},
+            "64":{"enabled":false,"value":{"parameters":[32,49,1048576],"type":"standard"}},
+            "61":{"enabled":1,"value":{"parameters":[32,49,786432],"type":"standard"}},
+            "15":{"enabled":false},
+            "164":{"enabled":false,"value":{"parameters":[65535,65535,0],"type":"standard"}},
+            "99":{"enabled":true,"value":{"parameters":[65535,122,8388608],"type":"standard"}}}}"#;
+        let mut got = parse_symbolic(json);
+        got.sort_by_key(|(on, c)| (*on, c.modifiers.len()));
+        let space = Some("Space".to_string());
+        assert_eq!(got.len(), 4);
+        assert_eq!(
+            got[0],
+            (
+                false,
+                Combo {
+                    modifiers: vec![Modifier::Meta],
+                    key: space.clone()
+                }
+            )
+        );
+        assert!(got.contains(&(
+            true,
+            Combo {
+                modifiers: vec![Modifier::Ctrl],
+                key: space.clone()
+            }
+        )));
+        assert!(got.contains(&(
+            true,
+            Combo {
+                modifiers: vec![Modifier::Ctrl, Modifier::Alt],
+                key: space
+            }
+        )));
+        assert!(got.contains(&(
+            true,
+            Combo {
+                modifiers: vec![],
+                key: Some("F1".into())
+            }
+        )));
+        assert!(parse_symbolic("not json").is_empty());
+    }
 
     #[test]
     fn fn_then_shift_builds_fn_shift() {

@@ -6,6 +6,17 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-10-22
+
+### Added
+
+- A shortcut the system also uses gets a warning under its field and a banner, with what the
+  system uses it for and how to free it. macOS: Spotlight, input source switching, screenshots,
+  the emoji viewer, lock screen and app switching, plus anything set in System Settings > Keyboard >
+  Keyboard Shortcuts (turning one off there clears the warning). Windows: input language and layout
+  switching, voice dictation, lock, screenshots and window switching. Shortcuts other apps take
+  cannot be seen.
+
 ## [0.13.0] - 2026-10-22
 
 ### Added

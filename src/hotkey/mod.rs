@@ -5,10 +5,13 @@ use std::collections::BTreeSet;
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
+mod clash;
 #[cfg(target_os = "macos")]
 mod macos;
 #[cfg(any(windows, test))]
 mod windows;
+
+pub use clash::Clash;
 
 #[cfg(target_os = "macos")]
 use macos as os;
@@ -409,6 +412,17 @@ pub fn accessibility_ok(prompt: bool) -> bool {
 #[cfg(not(target_os = "macos"))]
 pub fn accessibility_ok(_prompt: bool) -> bool {
     true
+}
+
+/// Which of local-stt's shortcuts this computer's system shortcuts also use.
+pub fn shortcut_clashes(hold: &Combo, toggle: Option<&Combo>) -> Vec<Clash> {
+    #[cfg(target_os = "macos")]
+    let taken = clash::apply_mac_overrides(clash::mac_defaults(), &macos::symbolic_overrides());
+    #[cfg(windows)]
+    let taken = clash::windows_defaults();
+    #[cfg(not(any(target_os = "macos", windows)))]
+    let taken = Vec::new();
+    clash::clashes(hold, toggle, &taken)
 }
 
 pub fn uses_fn(c: &Combo) -> bool {

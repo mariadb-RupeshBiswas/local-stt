@@ -270,6 +270,8 @@ Your home folder shows as `~` and your user name as `<user>`. Nothing is sent an
 
 **Pressing Fn switches your keyboard language instead of recording.** With two or more keyboard layouts, macOS makes the Fn (🌐) key change the input source, which swallows an Fn shortcut. In System Settings > Keyboard, set **Press 🌐 key to** to **Do Nothing**. local-stt notices this, during setup or any time later, and shows a banner with a button to Keyboard settings.
 
+**A shortcut you picked does nothing.** The system may use it too: on macOS, Cmd + Space opens Spotlight and Ctrl + Space switches input source; on Windows, Win + Space and Ctrl + Shift switch keyboard layout. local-stt warns under the shortcut field and in a banner when your shortcut matches one of these, including shortcuts you set in System Settings > Keyboard > Keyboard Shortcuts on a Mac. Pick another shortcut, or turn the system one off. Shortcuts that other apps grab cannot be seen; if one still does nothing, try a different combination.
+
 **Reinstall.** Settings > Troubleshooting > **Reinstall** (or `local-stt reinstall`) quits local-stt, installs it again (the newest version when one is out) and opens it. On macOS it also resets local-stt's permissions and opens setup, so you can allow them again; your name, history and insights stay. An update that macOS sees as a new app does the same on its own. Tick the box, or add `--clean`, to also delete your settings, history, notes, insights, voice fingerprint and logs; downloaded models stay.
 
 ## Updating

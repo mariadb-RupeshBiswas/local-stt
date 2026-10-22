@@ -41,6 +41,7 @@ pub async fn get_state(app: AppHandle, state: State<'_, Arc<Shared>>) -> Result<
         // macOS only: whether the shortcut and paste have the rights they need.
         "accessibility": cfg!(target_os = "macos").then(|| hotkey::accessibility_ok(false)),
         "fnKeyConflict": crate::app::fn_shortcut(&cfg).then(hotkey::globe_switches_input),
+        "shortcutClashes": hotkey::shortcut_clashes(&cfg.hotkey, cfg.toggle_hotkey.as_ref()),
         "demo": crate::demo::active(),
         "toggleDisplay": cfg.toggle_hotkey.as_ref().map(hotkey::display),
         "installed": crate::install::is_installed(),
