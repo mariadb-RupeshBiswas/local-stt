@@ -10,7 +10,8 @@ $before = Test-Path "$env:SystemRoot\System32\vulkan-1.dll"
 Write-Host "vulkan-1.dll in System32 before the SDK: $before"
 
 $exe = Join-Path $env:RUNNER_TEMP "vulkansdk-windows-X64-$version.exe"
-Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe" -OutFile $exe
+# LunarG sometimes drops the connection mid-download; the checksum below still guards every attempt.
+Invoke-WebRequest -Uri "https://sdk.lunarg.com/sdk/download/$version/windows/vulkansdk-windows-X64-$version.exe" -OutFile $exe -MaximumRetryCount 4 -RetryIntervalSec 15
 $got = (Get-FileHash -Algorithm SHA256 -LiteralPath $exe).Hash.ToLowerInvariant()
 if ($got -ne $sha256) { throw "Vulkan SDK checksum mismatch: expected $sha256, got $got" }
 
