@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-10-23
+
 ### Fixed
 
 - Windows: dictating into a window that runs as administrator no longer fails silently. The text stays
@@ -18,6 +20,28 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   mismatch still deletes it.
 - A microphone that disappears during a recording (for example a Bluetooth headset switching profile)
   stops the recording with a message instead of transcribing silence.
+
+## [0.14.2] - 2026-10-23
+
+### Fixed
+
+- Windows: a graphics chip whose Vulkan driver ggml cannot run (for example one without 16-bit
+  storage) no longer stops dictation. The model loads on the CPU instead, the log says so, and
+  the diagnostic report shows the CPU.
+- The 0.14.1 changelog heading, which kept that version's GitHub release from being made.
+
+### Changed
+
+- CI runs the engine tests on Windows against SwiftShader, a software Vulkan device, to prove
+  that fallback.
+
+## [0.14.1] - 2026-10-23
+
+### Fixed
+
+- Notes: lines you say while Zoom shows you muted stay out of the note, since the call never
+  heard them. A notice says so the first time. It needs your name in setup or Zoom's participant
+  list read, and keeps every line when your tile is not on screen.
 
 ## [0.14.0] - 2026-10-23
 
