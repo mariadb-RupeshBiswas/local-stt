@@ -25,4 +25,3 @@ Add-Content -LiteralPath $env:GITHUB_ENV -Value "VULKAN_SDK=$root"
 # ggml's nested Vulkan shader build passes the 260-character path limit under the default target folder.
 Add-Content -LiteralPath $env:GITHUB_ENV -Value "CARGO_TARGET_DIR=C:\t"
 Add-Content -LiteralPath $env:GITHUB_PATH -Value "$root\Bin"
-if (-not $before -and $after) { Add-Content -LiteralPath $env:GITHUB_ENV -Value "VULKAN_RUNTIME_FROM_SDK=1" }

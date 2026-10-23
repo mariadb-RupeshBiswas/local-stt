@@ -15,6 +15,13 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   "GPU: ... (used)" when it is in use, and the log names the engine at each start.
 - Windows: Settings > Troubleshooting > Use the graphics chip turns this off, for a GPU driver
   that crashes or garbles speech. It applies after a restart.
+- Setup asks two questions on a page of their own: start local-stt at login, and name who is
+  talking in calls (with what it reads, that the Zoom border pixels are never saved, and, on a
+  Mac, the Screen & System Audio Recording request). Start at login left the Recommended and
+  Customize lists.
+- Setup's checks add the graphics chip (which GPU runs speech, or the processor), flag a
+  processor that lacks needed instructions, and on Windows explain a microphone blocked in
+  privacy settings.
 - Diagnostic report: a Speech engine section (GPU or CPU, threads, missing processor
   instructions, AC or battery power) and a Dictation speed section (seconds of work per second of
   speech, median and worst, and how long dictations waited before work started).
