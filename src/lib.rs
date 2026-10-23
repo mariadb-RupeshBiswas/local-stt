@@ -26,6 +26,7 @@ pub mod notes;
 pub mod output;
 pub mod overlay;
 pub mod paths;
+pub mod power;
 pub mod proc;
 pub mod recorder;
 pub mod sound;

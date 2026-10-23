@@ -167,6 +167,12 @@ pub fn run() -> Result<(), String> {
     if unclean {
         diag::log("the previous run did not quit normally (crash or forced quit)");
     }
+    if cfg!(windows) {
+        diag::log(&match crate::power::stay_fast() {
+            Ok(()) => "power throttling: opted out".to_string(),
+            Err(e) => format!("power throttling opt-out failed: {e}"),
+        });
+    }
     // A note cut short by a crash or quit is saved with what reached disk.
     let (smart, english) = (cfg.smart_format, english_output(&cfg));
     std::thread::spawn(move || {
@@ -1486,10 +1492,11 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     // Only sizes and timings; the words themselves never reach the log.
                     if let Ok(text) = &result {
                         diag::log(&format!(
-                            "transcribed {:.1} s of audio in {} ms ({} characters)",
+                            "transcribed {:.1} s of audio in {} ms ({} characters, {} threads)",
                             duration_ms as f64 / 1000.0,
                             started.elapsed().as_millis(),
-                            text.chars().count()
+                            text.chars().count(),
+                            opts.threads
                         ));
                     }
                     shared(&app).final_pending.store(false, Ordering::SeqCst);

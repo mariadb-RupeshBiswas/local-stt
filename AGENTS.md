@@ -57,6 +57,7 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 | `src/focus/` | The focused window's centre, so the pill shows on that screen |
 | `src/diag.rs` | Troubleshooting log, panic hook, stderr capture, diagnostic report |
 | `src/hwprobe/` | RAM, CPU, GPU, disk |
+| `src/power/` | Opt out of Windows power throttling, so background work keeps full speed |
 | `src/models.rs`, `src/download.rs` | Model catalog, hardware fit, verified downloads |
 | `src/config.rs`, `src/history.rs`, `src/paths.rs` | Local files |
 | `src/format.rs`, `src/clipboard.rs` | Smart formatting of transcripts; private clipboard writes |
