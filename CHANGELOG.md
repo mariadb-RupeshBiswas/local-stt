@@ -4,7 +4,23 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]  ## [0.14.1] - 2026-10-23
+## [Unreleased]
+
+## [0.14.2] - 2026-10-23
+
+### Fixed
+
+- Windows: a graphics chip whose Vulkan driver ggml cannot run (for example one without 16-bit
+  storage) no longer stops dictation. The model loads on the CPU instead, the log says so, and
+  the diagnostic report shows the CPU.
+- The 0.14.1 changelog heading, which kept that version's GitHub release from being made.
+
+### Changed
+
+- CI runs the engine tests on Windows against SwiftShader, a software Vulkan device, to prove
+  that fallback.
+
+## [0.14.1] - 2026-10-23
 
 ### Fixed
 

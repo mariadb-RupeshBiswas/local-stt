@@ -21,7 +21,7 @@ unsafe impl Send for Engine {}
 const OUT_LEN: usize = 64 * 1024;
 
 extern "C" {
-    fn lstt_load(path: *const c_char) -> *mut c_void;
+    fn lstt_load(path: *const c_char, use_gpu: c_int) -> *mut c_void;
     fn lstt_transcribe(
         ctx: *mut c_void,
         pcm: *const f32,
@@ -64,6 +64,8 @@ pub fn redirect_stderr(path: &Path) -> bool {
 }
 
 static GPU_OFF: AtomicBool = AtomicBool::new(false);
+// Set when the GPU could not load a model, so the rest of the run reports and plans for the CPU.
+static GPU_FAILED: AtomicBool = AtomicBool::new(false);
 static BACKENDS: Once = Once::new();
 
 /// Keeps whisper.cpp on the CPU for this run; only works before the first model load or GPU query.
@@ -97,6 +99,9 @@ fn cpu_can_run() -> Result<(), String> {
 pub fn gpu_device() -> Option<String> {
     cpu_can_run().ok()?;
     start_backends();
+    if GPU_FAILED.load(Ordering::SeqCst) {
+        return None;
+    }
     let mut out = vec![0u8; 256];
     // SAFETY: out is writable for the length passed; the shim NUL-terminates within it.
     let found = unsafe { lstt_gpu_name(out.as_mut_ptr() as *mut c_char, out.len() as c_int) };
@@ -114,9 +119,32 @@ pub fn abort_previews(on: bool) {
 }
 
 fn load_raw(path: &CStr) -> *mut c_void {
-    start_backends();
-    // SAFETY: path is a valid NUL-terminated string that outlives the call.
-    unsafe { lstt_load(path.as_ptr()) }
+    let gpu = gpu_device().is_some();
+    let loaded = load_falling_back(gpu, |use_gpu| {
+        // SAFETY: path is a valid NUL-terminated string that outlives the call.
+        let ctx = unsafe { lstt_load(path.as_ptr(), use_gpu as c_int) };
+        (!ctx.is_null()).then_some(ctx)
+    });
+    match loaded {
+        Some((ctx, used_gpu)) => {
+            if gpu && !used_gpu {
+                GPU_FAILED.store(true, Ordering::SeqCst);
+                crate::diag::log("speech engine: the GPU could not load the model, using the CPU");
+            }
+            ctx
+        }
+        None => std::ptr::null_mut(),
+    }
+}
+
+// A GPU the driver lists but ggml cannot run (no 16-bit storage, a broken driver) must not stop dictation.
+fn load_falling_back<T>(gpu: bool, load: impl Fn(bool) -> Option<T>) -> Option<(T, bool)> {
+    if gpu {
+        if let Some(loaded) = load(true) {
+            return Some((loaded, true));
+        }
+    }
+    load(false).map(|loaded| (loaded, false))
 }
 
 fn transcribe_raw(
@@ -409,7 +437,31 @@ impl Drop for Llm {
 
 #[cfg(test)]
 mod tests {
-    use super::clean;
+    use super::{clean, load_falling_back};
+    use std::cell::RefCell;
+
+    #[test]
+    fn a_gpu_that_cannot_load_falls_back_to_the_cpu() {
+        let tried = RefCell::new(Vec::new());
+        let loaded = load_falling_back(true, |gpu| {
+            tried.borrow_mut().push(gpu);
+            (!gpu).then_some("ctx")
+        });
+        assert_eq!(loaded, Some(("ctx", false)));
+        assert_eq!(*tried.borrow(), vec![true, false]);
+    }
+
+    #[test]
+    fn a_working_gpu_loads_once_and_no_gpu_tries_only_the_cpu() {
+        assert_eq!(load_falling_back(true, |_| Some(1)), Some((1, true)));
+        let tried = RefCell::new(Vec::new());
+        let none: Option<(u8, bool)> = load_falling_back(false, |gpu| {
+            tried.borrow_mut().push(gpu);
+            None
+        });
+        assert_eq!(none, None);
+        assert_eq!(*tried.borrow(), vec![false]);
+    }
 
     #[test]
     fn strips_noise_tokens() {
