@@ -211,6 +211,8 @@ struct Heard {
     rows: BTreeSet<String>,
     talk: Vec<(u64, String)>,
     source: Option<&'static str>,
+    /// When the user's muted state changed on screen; None while it could not be read.
+    mute: Vec<(u64, Option<bool>)>,
 }
 
 // Per note while it records; names stay in memory until Stop puts them in the note.
@@ -232,6 +234,68 @@ pub fn heard_speaking(note_id: &str, at_ms: u64, name: String) {
         .or_default()
         .talk
         .push((at_ms, name));
+}
+
+/// Notes the user's muted state from what the call app shows `at_ms` into the note, and returns it.
+pub fn heard_audio(
+    note_id: &str,
+    at_ms: u64,
+    rows: &[String],
+    user_name: Option<&str>,
+) -> Option<bool> {
+    let mut seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    let heard = seen.entry(note_id.to_string()).or_default();
+    let mut known: Vec<String> = heard.rows.iter().cloned().collect();
+    known.extend(rows.iter().cloned());
+    let state = user_muted(rows, &User::new(&known, user_name));
+    if heard.mute.last().map(|(_, s)| *s) != Some(state) {
+        heard.mute.push((at_ms, state));
+    }
+    state
+}
+
+/// True when the call app showed the user muted for the whole line, so the call never heard it.
+pub fn said_while_muted(note_id: &str, start_ms: u64, end_ms: u64) -> bool {
+    let seen = SEEN.lock().unwrap_or_else(|e| e.into_inner());
+    seen.get(note_id)
+        .is_some_and(|h| muted_throughout(&h.mute, start_ms, end_ms))
+}
+
+fn muted_throughout(changes: &[(u64, Option<bool>)], start_ms: u64, end_ms: u64) -> bool {
+    let Some(at_start) = changes.iter().rposition(|(at, _)| *at <= start_ms) else {
+        return false;
+    };
+    changes[at_start..]
+        .iter()
+        .take_while(|(at, _)| *at <= end_ms + LAG_MS)
+        .all(|(_, state)| *state == Some(true))
+}
+
+/// Whether the user's own tile or row reads muted; None when it is not on screen or rows disagree.
+pub fn user_muted(rows: &[String], user: &User) -> Option<bool> {
+    let mut muted = false;
+    let mut unmuted = false;
+    for raw in rows {
+        let Some((name, me)) = parse_row(raw) else {
+            continue;
+        };
+        if !me && !user.is(&name) {
+            continue;
+        }
+        for part in top_level_parts(raw).iter().skip(1) {
+            let part = part.trim().to_lowercase();
+            if part.ends_with("audio unmuted") {
+                unmuted = true;
+            } else if part.ends_with("audio muted") {
+                muted = true;
+            }
+        }
+    }
+    match (muted, unmuted) {
+        (true, false) => Some(true),
+        (false, true) => Some(false),
+        _ => None,
+    }
 }
 
 /// Who the call app showed talking during most of a line, while the note still records; None without a clear winner.
@@ -962,5 +1026,64 @@ mod tests {
         assert!(user.is("Rupesh Biswas"));
         assert!(!user.is("Rup 2"));
         assert_eq!(others(&tiles, Some("Rupesh")), vec!["Rup 2"]);
+    }
+
+    #[test]
+    fn the_users_own_tile_or_row_tells_whether_they_are_muted() {
+        let user = User::new(&[], Some("Rupesh"));
+        let tiles = rows(&[
+            "Rupesh Biswas, Computer audio muted",
+            "Priya, Computer audio unmuted",
+        ]);
+        assert_eq!(user_muted(&tiles, &user), Some(true));
+        let tiles = rows(&[
+            "Rupesh Biswas, Computer audio unmuted",
+            "Priya, Computer audio muted",
+        ]);
+        assert_eq!(user_muted(&tiles, &user), Some(false));
+        let marked = rows(&["Rup (Host, me), audio muted", "Priya, audio unmuted"]);
+        assert_eq!(user_muted(&marked, &User::nobody()), Some(true));
+        assert_eq!(user_muted(&rows(&["Priya, audio muted"]), &user), None);
+        assert_eq!(
+            user_muted(&rows(&["Rupesh Biswas, Video off"]), &user),
+            None
+        );
+        let torn = rows(&["Rupesh Biswas, audio muted", "Rupesh Biswas, audio unmuted"]);
+        assert_eq!(user_muted(&torn, &user), None);
+    }
+
+    #[test]
+    fn only_a_line_muted_from_start_to_end_is_left_out() {
+        let changes = [(0, None), (5_000, Some(true)), (20_000, Some(false))];
+        assert!(muted_throughout(&changes, 6_000, 9_000));
+        assert!(
+            !muted_throughout(&changes, 4_000, 9_000),
+            "began before the mute showed"
+        );
+        assert!(
+            !muted_throughout(&changes, 17_000, 19_000),
+            "an unmute seen just after still counts"
+        );
+        assert!(!muted_throughout(&changes, 21_000, 23_000));
+        assert!(
+            !muted_throughout(&[], 6_000, 9_000),
+            "nothing read keeps the line"
+        );
+        assert!(muted_throughout(&[(1_000, Some(true))], 6_000, 9_000));
+    }
+
+    #[test]
+    fn a_note_remembers_mute_changes_and_drops_lines_said_while_muted() {
+        let id = "mute-test-note";
+        let muted = rows(&["Rupesh Biswas, Computer audio muted"]);
+        let open = rows(&["Rupesh Biswas, Computer audio unmuted"]);
+        assert_eq!(heard_audio(id, 1_000, &muted, Some("Rupesh")), Some(true));
+        assert_eq!(heard_audio(id, 2_000, &muted, Some("Rupesh")), Some(true));
+        assert_eq!(heard_audio(id, 30_000, &open, Some("Rupesh")), Some(false));
+        assert!(said_while_muted(id, 3_000, 8_000));
+        assert!(!said_while_muted(id, 31_000, 33_000));
+        let seen = take(id);
+        assert!(seen.rows.is_empty(), "mute looks do not add participants");
+        assert!(!said_while_muted(id, 3_000, 8_000), "Stop forgets it");
     }
 }

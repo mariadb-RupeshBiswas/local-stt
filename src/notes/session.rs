@@ -119,6 +119,7 @@ fn sample_call_names(app: AppHandle, id: String) {
     let mut unreadable: u32 = 0;
     let mut no_talker: u32 = 0;
     let mut border_hinted = false;
+    let mut muted_hinted = false;
     let mut web_live = false;
     loop {
         let Some((now_id, started_ms)) = active(&app) else {
@@ -142,8 +143,14 @@ fn sample_call_names(app: AppHandle, id: String) {
                 border_hinted = true;
                 let _ = app.emit("notice", json!({ "message": BORDER_HINT }));
             }
+            let at = app::now_ms().saturating_sub(started_ms);
+            let user_name = app::shared_of(&app).config().user_name;
+            let muted = super::callnames::heard_audio(&id, at, &look.rows, user_name.as_deref());
+            if muted == Some(true) && !muted_hinted {
+                muted_hinted = true;
+                let _ = app.emit("notice", json!({ "message": MUTED_HINT }));
+            }
             if let Some(name) = look.speaking {
-                let at = app::now_ms().saturating_sub(started_ms);
                 super::callnames::heard_speaking(&id, at, name);
             }
             if full {
@@ -165,6 +172,7 @@ fn sample_call_names(app: AppHandle, id: String) {
 }
 
 const HINT_AFTER_LOOKS: u32 = 6;
+const MUTED_HINT: &str = "You are muted in the call, so what you say stays out of this note.";
 const BORDER_HINT_SECS: u32 = 60;
 const BORDER_HINT: &str = "To name who is talking in gallery view or while someone shares, turn on Read Zoom's speaking border in Settings > Notes.";
 const CALL_NAMES_HINT: &str = "To name who is talking, keep the Zoom meeting in a window or minimized, not full screen. Speaker view names every line.";
@@ -506,6 +514,11 @@ pub fn add_segment(
         speaker: speaker.to_string(),
         text: text.to_string(),
     };
+    // The call never heard it, so the note leaves it out too; checked after transcribing so a fresh unmute is seen.
+    if speaker == ME && super::callnames::said_while_muted(id, seg.start_ms, seg.end_ms) {
+        diag::log("note: left out a line said while muted in the call");
+        return false;
+    }
     if let Err(e) = super::append(id, &seg) {
         diag::log(&format!("note: could not save a segment: {e}"));
         return false;
