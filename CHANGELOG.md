@@ -6,6 +6,15 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.4] - 2026-10-23
+
+### Fixed
+
+- Windows: dictation could take minutes, or never finish. A likely cause is Windows power
+  throttling (EcoQoS), which can move a background app onto slow, low-power cores; local-stt
+  now opts out at start. The troubleshooting log records the outcome and the thread count of
+  each transcription.
+
 ## [0.13.3] - 2026-10-23
 
 ### Fixed
