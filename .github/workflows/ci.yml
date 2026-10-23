@@ -165,13 +165,19 @@ jobs:
         run: |
           $icd = Get-ChildItem "$env:ProgramFiles\Google\Chrome\Application\*\vk_swiftshader_icd.json" | Select-Object -First 1
           if (-not $icd) { throw "Chrome's SwiftShader Vulkan driver is not on this runner" }
-          $env:VK_DRIVER_FILES = $icd.FullName
-          $env:VK_ICD_FILENAMES = $icd.FullName
-          $doctor = cargo run --locked --release -- doctor | Out-String
-          Write-Host $doctor
-          if ($doctor -notmatch 'GPU .*\(used\)') { throw "doctor did not pick the Vulkan device" }
-          cargo test --locked --release --test engine -- --nocapture
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          # The loader ignores VK_DRIVER_FILES in an elevated process, and runners are elevated, so register it like a driver.
+          $drivers = 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers'
+          New-Item -Path $drivers -Force | Out-Null
+          New-ItemProperty -Path $drivers -Name $icd.FullName -PropertyType DWord -Value 0 -Force | Out-Null
+          try {
+            $doctor = cargo run --locked --release -- doctor | Out-String
+            Write-Host $doctor
+            if ($doctor -notmatch 'GPU .*\(used\)') { throw "doctor did not pick the Vulkan device" }
+            cargo test --locked --release --test engine -- --nocapture
+            if ($LASTEXITCODE -ne 0) { throw "engine tests failed through Vulkan" }
+          } finally {
+            Remove-ItemProperty -Path $drivers -Name $icd.FullName
+          }
       - name: Start the app, load the model, quit cleanly
         env:
           LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
