@@ -6,6 +6,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Notes: lines you say while Zoom shows you muted stay out of the note, since the call never
+  heard them. A notice says so the first time. It needs your name in setup or Zoom's participant
+  list read, and keeps every line when your tile is not on screen.
+
 ## [0.14.0] - 2026-10-23
 
 ### Added
