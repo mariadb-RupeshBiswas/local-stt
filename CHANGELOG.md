@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-10-23
+
+### Changed
+
+- Windows: the data folder moves from `%APPDATA%` (Roaming) to `%LOCALAPPDATA%`, so models and
+  private notes are no longer copied to a file server by roaming profiles or FSLogix. A start
+  with no other copy running moves it in one step; until then the app keeps using Roaming.
+
 ## [0.14.3] - 2026-10-23
 
 ### Fixed

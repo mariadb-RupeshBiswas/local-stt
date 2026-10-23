@@ -25,6 +25,8 @@ USAGE:
 ";
 
 fn main() -> ExitCode {
+    // Before any command can read or write the data folder.
+    local_stt::datamove::run();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let result = match args.first().map(String::as_str) {
         None => match local_stt::install::hand_off() {

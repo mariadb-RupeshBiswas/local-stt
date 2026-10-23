@@ -264,7 +264,7 @@ It runs a model you choose, entirely on your device, translates to English if yo
 
 ## Troubleshooting
 
-Something not working? Open Settings > Troubleshooting and click **Export Report**, or run `local-stt diagnostics` (it works even when the app will not start). You get one text file, opened in Finder or Explorer, and its full path is shown (Settings shows a **Show in Finder** or **Show in Explorer** button to open it again). Reports are saved in `~/Library/Application Support/local-stt/diagnostics` on a Mac and `%APPDATA%\local-stt\diagnostics` on Windows. Each report holds:
+Something not working? Open Settings > Troubleshooting and click **Export Report**, or run `local-stt diagnostics` (it works even when the app will not start). You get one text file, opened in Finder or Explorer, and its full path is shown (Settings shows a **Show in Finder** or **Show in Explorer** button to open it again). Reports are saved in `~/Library/Application Support/local-stt/diagnostics` on a Mac and `%LOCALAPPDATA%\local-stt\diagnostics` on Windows. Each report holds:
 
 - app version, how it was started, and your settings (the microphone shows only as "system default" or "a chosen device");
 - your computer's OS, processor, memory, graphics and free disk;
@@ -294,7 +294,9 @@ On macOS, releases are signed with local-stt's own certificate, so an update fro
 local-stt uninstall          # removes the app, the terminal command and the login item
 ```
 
-Your settings, history and models live in `~/Library/Application Support/local-stt` (macOS) or `%APPDATA%\local-stt` (Windows). Delete that folder to remove everything.
+Your settings, history and models live in `~/Library/Application Support/local-stt` (macOS) or `%LOCALAPPDATA%\local-stt` (Windows, `C:\Users\<you>\AppData\Local\local-stt`). Delete that folder to remove everything.
+
+On Windows, older versions kept the folder in `%APPDATA%\local-stt` (Roaming). A newer version moves it to the Local folder on a start when no other copy is running, so models and notes stay off the file server that roaming profiles and FSLogix sync. Until it can move, it keeps using the Roaming folder.
 
 ## Contributing
 
