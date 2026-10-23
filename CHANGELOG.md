@@ -6,11 +6,42 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.4] - 2026-10-23
+
 ### Changed
 
 - Windows: the data folder moves from `%APPDATA%` (Roaming) to `%LOCALAPPDATA%`, so models and
   private notes are no longer copied to a file server by roaming profiles or FSLogix. A start
   with no other copy running moves it in one step; until then the app keeps using Roaming.
+
+## [0.14.3] - 2026-10-23
+
+### Fixed
+
+- Windows: dictating into a window that runs as administrator no longer fails silently. The text stays
+  on the clipboard and the pill says to press Ctrl+V; a failed paste on Windows no longer mentions Accessibility.
+- A failed paste keeps the text on the clipboard even with "restore clipboard" on.
+- Windows: a model download that stops on a certificate revocation error (CRYPT_E_NO_REVOCATION_CHECK or
+  CRYPT_E_REVOCATION_OFFLINE) retries once ignoring an unreachable revocation server; the pinned address list
+  and the SHA-256 check still apply.
+- A model download that fails on the network keeps what it fetched and resumes next time; a checksum
+  mismatch still deletes it.
+- A microphone that disappears during a recording (for example a Bluetooth headset switching profile)
+  stops the recording with a message instead of transcribing silence.
+
+## [0.14.2] - 2026-10-23
+
+### Fixed
+
+- Windows: a graphics chip whose Vulkan driver ggml cannot run (for example one without 16-bit
+  storage) no longer stops dictation. The model loads on the CPU instead, the log says so, and
+  the diagnostic report shows the CPU.
+- The 0.14.1 changelog heading, which kept that version's GitHub release from being made.
+
+### Changed
+
+- CI runs the engine tests on Windows against SwiftShader, a software Vulkan device, to prove
+  that fallback.
 
 ## [0.14.1] - 2026-10-23
 

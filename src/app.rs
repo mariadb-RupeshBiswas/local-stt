@@ -1066,6 +1066,27 @@ fn spawn_controller(app: AppHandle, rx: Receiver<Msg>) {
                     }
                 }
             }
+            if recorder.as_ref().is_some_and(Recorder::invalidated) {
+                // A dead stream yields silence; stop at once instead of transcribing it.
+                diag::log("recording stopped: the microphone stream was lost");
+                machine.on(Input::Cancel, now);
+                apply(
+                    &app,
+                    Action::CancelRecording,
+                    &mut recorder,
+                    &mut machine,
+                    now,
+                );
+                shared(&app)
+                    .dictating
+                    .store(recorder.is_some(), Ordering::SeqCst);
+                let cfg = shared(&app).config();
+                fail(
+                    &app,
+                    "Microphone disconnected. Recording stopped",
+                    cfg.sounds,
+                );
+            }
             if let Some(since) = machine.recording_since() {
                 if now.saturating_sub(since) >= MAX_RECORDING_MS {
                     let action = machine.on(Input::Timeout, now);
@@ -1311,21 +1332,26 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         return fail(app, &format!("Clipboard unavailable: {e}"), cfg.sounds);
     }
     let mut pasted = !cfg.paste;
+    let mut elevated_target = false;
     if cfg.paste {
         // Give the clipboard a beat to settle before the target app reads it.
         std::thread::sleep(Duration::from_millis(40));
         let sent = output::send_paste();
         let allowed = hotkey::accessibility_ok(false);
+        elevated_target = matches!(sent, Err(output::PasteError::ElevatedTarget));
         pasted = sent.is_ok() && allowed;
         diag::log(&match (&sent, allowed) {
             (Ok(()), true) => "pasted".to_string(),
             (Ok(()), false) => "copied; paste blocked (Accessibility not allowed)".to_string(),
+            (Err(output::PasteError::ElevatedTarget), _) => {
+                "copied; paste skipped (focused window runs as administrator)".to_string()
+            }
             (Err(e), _) => format!("copied; paste failed: {e}"),
         });
     } else {
         diag::log("copied (paste is off)");
     }
-    if let Some(prev) = previous {
+    if let Some(prev) = previous.filter(|_| restore_after(cfg.paste, pasted)) {
         let ours = text.clone();
         std::thread::spawn(move || {
             std::thread::sleep(Duration::from_millis(400));
@@ -1346,8 +1372,28 @@ fn deliver(app: &AppHandle, result: Result<String, String>, duration_ms: u64) {
         show_overlay(app, "done", label, None);
         hide_overlay_after(app, 700);
     } else {
-        show_overlay(app, "warning", "Copied. Allow Accessibility to paste", None);
+        show_overlay(
+            app,
+            "warning",
+            unpasted_label(elevated_target, cfg!(windows)),
+            None,
+        );
         hide_overlay_after(app, 3_000);
+    }
+}
+
+/// The text stays on the clipboard whenever no paste happened, or the user would lose it.
+fn restore_after(paste_on: bool, pasted: bool) -> bool {
+    paste_on && pasted
+}
+
+fn unpasted_label(elevated_target: bool, windows: bool) -> &'static str {
+    if elevated_target {
+        "Copied. Admin windows block pasting, press Ctrl+V"
+    } else if windows {
+        "Copied. Paste failed, press Ctrl+V"
+    } else {
+        "Copied. Allow Accessibility to paste"
     }
 }
 
@@ -1760,5 +1806,24 @@ pub fn overlay_positioning(app: &AppHandle, on: bool) {
         show_overlay(app, "positioning", "Drag me anywhere", None);
     } else {
         hide_overlay_after(app, 0);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn clipboard_restores_only_after_a_real_paste() {
+        assert!(restore_after(true, true));
+        assert!(!restore_after(true, false));
+        assert!(!restore_after(false, true));
+    }
+
+    #[test]
+    fn unpasted_label_is_per_platform() {
+        assert!(unpasted_label(true, true).contains("Admin"));
+        assert!(!unpasted_label(false, true).contains("Accessibility"));
+        assert!(unpasted_label(false, false).contains("Accessibility"));
     }
 }

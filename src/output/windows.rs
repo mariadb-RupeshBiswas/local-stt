@@ -1,9 +1,18 @@
 //! Windows Ctrl+V via SendInput, and console detach.
 
+use super::{uipi_blocks, Elevation, PasteError};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, HANDLE};
+use windows_sys::Win32::Security::{
+    GetTokenInformation, TokenElevation, TOKEN_ELEVATION, TOKEN_QUERY,
+};
+use windows_sys::Win32::System::Threading::{
+    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
+};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
     SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, KEYBDINPUT, KEYEVENTF_KEYUP, VIRTUAL_KEY,
     VK_CONTROL, VK_V,
 };
+use windows_sys::Win32::UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowThreadProcessId};
 
 fn key(vk: VIRTUAL_KEY, up: bool) -> INPUT {
     let flags = if up { KEYEVENTF_KEYUP } else { 0 };
@@ -32,7 +41,67 @@ fn send(inputs: &[INPUT]) -> u32 {
     }
 }
 
-pub fn send_paste() -> Result<(), String> {
+fn denied_or_unknown() -> Elevation {
+    if std::io::Error::last_os_error().raw_os_error() == Some(ERROR_ACCESS_DENIED as i32) {
+        Elevation::Denied
+    } else {
+        Elevation::Unknown
+    }
+}
+
+fn token_elevation(process: HANDLE) -> Elevation {
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: process is a live handle or pseudo-handle; token is a valid out pointer.
+    if unsafe { OpenProcessToken(process, TOKEN_QUERY, &mut token) } == 0 {
+        return denied_or_unknown();
+    }
+    let mut info = TOKEN_ELEVATION { TokenIsElevated: 0 };
+    let mut returned = 0u32;
+    // SAFETY: token is open, and the buffer is a live TOKEN_ELEVATION of the size passed.
+    let ok = unsafe {
+        GetTokenInformation(
+            token,
+            TokenElevation,
+            (&mut info as *mut TOKEN_ELEVATION).cast(),
+            std::mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut returned,
+        )
+    };
+    // SAFETY: token came from OpenProcessToken above and is closed once.
+    unsafe { CloseHandle(token) };
+    match (ok != 0, info.TokenIsElevated != 0) {
+        (false, _) => Elevation::Unknown,
+        (true, true) => Elevation::Elevated,
+        (true, false) => Elevation::Normal,
+    }
+}
+
+fn foreground_elevation() -> Elevation {
+    let mut pid = 0u32;
+    // SAFETY: both calls only read window state; pid is a valid out pointer.
+    unsafe {
+        let hwnd = GetForegroundWindow();
+        if hwnd.is_null() || GetWindowThreadProcessId(hwnd, &mut pid) == 0 || pid == 0 {
+            return Elevation::Unknown;
+        }
+    }
+    // SAFETY: plain value arguments; a null return means the open failed.
+    let process = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+    if process.is_null() {
+        return denied_or_unknown();
+    }
+    let elevation = token_elevation(process);
+    // SAFETY: process came from OpenProcess above and is closed once.
+    unsafe { CloseHandle(process) };
+    elevation
+}
+
+pub fn send_paste() -> Result<(), PasteError> {
+    // SAFETY: returns a pseudo-handle for this process that needs no closing.
+    let ours = token_elevation(unsafe { GetCurrentProcess() });
+    if uipi_blocks(ours, foreground_elevation()) {
+        return Err(PasteError::ElevatedTarget);
+    }
     let inputs = [
         key(VK_CONTROL, false),
         key(VK_V, false),
@@ -43,12 +112,12 @@ pub fn send_paste() -> Result<(), String> {
     if sent as usize == inputs.len() {
         return Ok(());
     }
-    // Blocked input (for example an elevated target window) reports fewer events than sent.
-    Err(format!(
+    // UIPI blocking reports success here (no count, no error), so a short count is some other failure.
+    Err(PasteError::Failed(format!(
         "SendInput accepted {sent} of {} events: {}",
         inputs.len(),
         std::io::Error::last_os_error()
-    ))
+    )))
 }
 
 /// Stops children from inheriting this process's stdin, stdout and stderr, which may be a caller's pipe.

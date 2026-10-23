@@ -61,13 +61,14 @@ extern "C" int lstt_gpu_name(char * out, int out_len) {
     }
 }
 
-extern "C" void * lstt_load(const char * path) {
+extern "C" void * lstt_load(const char * path, int use_gpu) {
     try {
         whisper_log_set(lstt_quiet, nullptr);
         struct whisper_context_params cp = whisper_context_default_params();
+        cp.use_gpu = use_gpu != 0;
 #ifdef _WIN32
         // Flash attention on Vulkan has crash reports on Intel and AMD integrated GPUs (whisper.cpp #3537, #3806).
-        if (lstt_gpu_dev()) cp.flash_attn = false;
+        if (cp.use_gpu && lstt_gpu_dev()) cp.flash_attn = false;
 #endif
         return whisper_init_from_file_with_params(path, cp);
     } catch (...) {
