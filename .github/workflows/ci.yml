@@ -155,6 +155,23 @@ jobs:
         env:
           LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
         run: cargo test --locked --release --test engine
+      # Chrome's SwiftShader is a software Vulkan driver, so the GPU code path runs without a GPU.
+      - name: Engine integration tests through Vulkan (SwiftShader)
+        shell: pwsh
+        env:
+          LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
+          LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
+          GGML_VK_VISIBLE_DEVICES: "0"
+        run: |
+          $icd = Get-ChildItem "$env:ProgramFiles\Google\Chrome\Application\*\vk_swiftshader_icd.json" | Select-Object -First 1
+          if (-not $icd) { throw "Chrome's SwiftShader Vulkan driver is not on this runner" }
+          $env:VK_DRIVER_FILES = $icd.FullName
+          $env:VK_ICD_FILENAMES = $icd.FullName
+          $doctor = cargo run --locked --release -- doctor | Out-String
+          Write-Host $doctor
+          if ($doctor -notmatch 'GPU .*\(used\)') { throw "doctor did not pick the Vulkan device" }
+          cargo test --locked --release --test engine -- --nocapture
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Start the app, load the model, quit cleanly
         env:
           LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
