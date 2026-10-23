@@ -6,6 +6,14 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.13.3] - 2026-10-23
+
+### Fixed
+
+- Export Report now shows the report's full path under the button, with a Show in Finder (or
+  Show in Explorer) button to open it again, in case the folder window does not come to the
+  front. `local-stt diagnostics` opens the folder too and prints the full path.
+
 ## [0.13.2] - 2026-10-22
 
 ### Added

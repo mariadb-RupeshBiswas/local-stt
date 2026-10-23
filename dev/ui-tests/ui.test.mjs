@@ -1802,15 +1802,28 @@ for (const dark of [false, true]) {
   await log.click();
   await page.waitForTimeout(250);
   check("turning the log off sends diagnostic_log false", (await page.evaluate(() => window.__cfg.includes('set_config:{"diagnostic_log":false}'))) && (await log.getAttribute("aria-checked")) === "false");
-  const exportBtn = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Diagnostic report" }) }).locator(".btn");
+  const exportBtn = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Diagnostic report" }) }).locator(".btn:not(.btn-quiet)");
   check("Export Report is an enabled 28 pt button", (await exportBtn.textContent()) === "Export Report" && (await exportBtn.isEnabled()) && (await exportBtn.boundingBox()).height >= 28);
   await exportBtn.click();
   await page.waitForTimeout(100);
   check("export shows Saving... and blocks a second click", (await exportBtn.textContent()) === "Saving..." && (await exportBtn.isDisabled()));
   await page.waitForTimeout(600);
-  check("export asks the app once and toasts where it went", (await page.evaluate(() => window.__calls.filter((c) => c === "export_diagnostics").length)) === 1 && (await page.locator(".toast").textContent()).startsWith("Saved local-stt-diagnostics-"));
+  check("export asks the app once and says Finder shows it", (await page.evaluate(() => window.__calls.filter((c) => c === "export_diagnostics").length)) === 1 && (await page.locator(".toast").textContent()).startsWith("Report saved and shown in Finder"));
   check("Export Report is ready again", (await exportBtn.textContent()) === "Export Report" && (await exportBtn.isEnabled()));
+  const reportRow = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Diagnostic report" }) });
+  check("the full path of the saved report shows under the button", (await reportRow.locator(".report-path").textContent()) === "Saved to /Users/you/Library/Application Support/local-stt/diagnostics/local-stt-diagnostics-2026-10-10-09-30-00.txt");
+  await reportRow.getByRole("button", { name: "Show in Finder" }).click();
+  check("Show in Finder asks the app to reveal the report", (await calls(page)).includes("reveal_diagnostics"));
   check("no page errors (troubleshooting)", errors.length === 0, errors);
+  await ctx.close();
+}
+{
+  const { page, ctx } = await open("?view=main&tab=settings&scheme=light&platform=windows", { tall: true });
+  const row = page.locator(".srow", { has: page.locator(".srow-title", { hasText: "Diagnostic report" }) });
+  check("before an export there is no path or Show button", (await row.locator(".report-path").isHidden()) && (await row.getByRole("button", { name: "Show in Explorer" }).isHidden()));
+  await row.getByRole("button", { name: "Export Report" }).click();
+  await page.waitForTimeout(700);
+  check("Windows says Explorer and shows the full Windows path", (await row.locator(".report-path").textContent()).startsWith("Saved to C:\\Users\\you\\AppData\\Roaming\\local-stt\\diagnostics\\") && (await row.getByRole("button", { name: "Show in Explorer" }).isVisible()));
   await ctx.close();
 }
 {

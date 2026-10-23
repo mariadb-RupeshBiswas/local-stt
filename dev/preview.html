@@ -606,9 +606,12 @@
       export_diagnostics: function () {
         window.__calls.push("export_diagnostics");
         return new Promise(function (resolve) {
-          setTimeout(function () { resolve("Saved local-stt-diagnostics-2026-10-10-09-30-00.txt. Read it before you share it."); }, 400);
+          var home = platform === "windows" ? "C:\\Users\\you\\AppData\\Roaming\\local-stt" : "/Users/you/Library/Application Support/local-stt";
+          var sep = platform === "windows" ? "\\" : "/";
+          setTimeout(function () { resolve(home + sep + "diagnostics" + sep + "local-stt-diagnostics-2026-10-10-09-30-00.txt"); }, 400);
         });
       },
+      reveal_diagnostics: function () { window.__calls.push("reveal_diagnostics"); },
       list_notes: function () {
         return data.noteFiles.map(function (n) {
           return { id: n.id, title: n.title, startedMs: n.started_ms, endedMs: n.ended_ms, source: n.source, status: n.status, firstLine: n.segments.length ? n.segments[0].text : "" };

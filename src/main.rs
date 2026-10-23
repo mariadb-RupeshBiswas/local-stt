@@ -92,7 +92,8 @@ fn diagnostics() -> Result<(), String> {
     local_stt::diag::set_enabled(cfg.diagnostic_log);
     let hw = hwprobe::probe(&paths::data_dir());
     let path = local_stt::diag::export(&cfg, &hw)?;
-    println!("Saved {}", without_home(&path));
+    local_stt::diag::reveal(&path);
+    println!("Saved {}", path.display());
     println!("It holds app, system and settings details and recent app logs, never audio or dictated text.");
     println!("Read it before you share it.");
     Ok(())

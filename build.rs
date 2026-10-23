@@ -89,6 +89,7 @@ fn main() {
         "reset_insights",
         "check_microphone",
         "export_diagnostics",
+        "reveal_diagnostics",
         "list_notes",
         "get_note",
         "start_note",
