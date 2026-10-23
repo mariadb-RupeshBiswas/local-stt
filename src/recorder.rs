@@ -282,15 +282,30 @@ where
             }
         }
     };
-    let on_error = move |err: cpal::Error| match err.kind() {
-        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => {}
-        ErrorKind::StreamInvalidated | ErrorKind::DeviceNotAvailable => {
+    let on_error = move |err: cpal::Error| {
+        if ends_stream(err.kind()) {
             invalid.store(true, Ordering::Relaxed);
             eprintln!("local-stt: audio stream ended: {err}");
+        } else if !is_transient(err.kind()) {
+            eprintln!("local-stt: microphone stream error: {err}");
         }
-        _ => eprintln!("local-stt: microphone stream error: {err}"),
     };
     device.build_input_stream(config, on_data, on_error, None)
+}
+
+// The stream is gone for good (headset profile switch, unplugged device); only a new Recorder records again.
+fn ends_stream(kind: ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::StreamInvalidated | ErrorKind::DeviceNotAvailable
+    )
+}
+
+fn is_transient(kind: ErrorKind) -> bool {
+    matches!(
+        kind,
+        ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied
+    )
 }
 
 fn describe(err: cpal::Error, system: bool) -> String {
@@ -311,6 +326,16 @@ fn describe(err: cpal::Error, system: bool) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lost_device_ends_the_stream_but_a_glitch_does_not() {
+        assert!(ends_stream(ErrorKind::StreamInvalidated));
+        assert!(ends_stream(ErrorKind::DeviceNotAvailable));
+        assert!(!ends_stream(ErrorKind::Xrun));
+        assert!(!ends_stream(ErrorKind::DeviceChanged));
+        assert!(is_transient(ErrorKind::Xrun));
+        assert!(!is_transient(ErrorKind::StreamInvalidated));
+    }
 
     #[test]
     fn finish_mono_one_second() {

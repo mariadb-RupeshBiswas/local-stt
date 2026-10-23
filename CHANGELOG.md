@@ -6,6 +6,21 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.3] - 2026-10-23
+
+### Fixed
+
+- Windows: dictating into a window that runs as administrator no longer fails silently. The text stays
+  on the clipboard and the pill says to press Ctrl+V; a failed paste on Windows no longer mentions Accessibility.
+- A failed paste keeps the text on the clipboard even with "restore clipboard" on.
+- Windows: a model download that stops on a certificate revocation error (CRYPT_E_NO_REVOCATION_CHECK or
+  CRYPT_E_REVOCATION_OFFLINE) retries once ignoring an unreachable revocation server; the pinned address list
+  and the SHA-256 check still apply.
+- A model download that fails on the network keeps what it fetched and resumes next time; a checksum
+  mismatch still deletes it.
+- A microphone that disappears during a recording (for example a Bluetooth headset switching profile)
+  stops the recording with a message instead of transcribing silence.
+
 ## [0.14.2] - 2026-10-23
 
 ### Fixed
