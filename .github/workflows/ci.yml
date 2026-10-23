@@ -155,8 +155,8 @@ jobs:
         env:
           LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
         run: cargo test --locked --release --test engine
-      # Chrome's SwiftShader is a software Vulkan driver, so the GPU code path runs without a GPU.
-      - name: Engine integration tests through Vulkan (SwiftShader)
+      # SwiftShader (Chrome's software Vulkan) lacks 16-bit storage, so the model must fall back to the CPU.
+      - name: Engine integration tests on a Vulkan device ggml cannot use (SwiftShader)
         shell: pwsh
         env:
           LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
@@ -174,7 +174,7 @@ jobs:
             Write-Host $doctor
             if ($doctor -notmatch 'GPU .*\(used\)') { throw "doctor did not pick the Vulkan device" }
             cargo test --locked --release --test engine -- --nocapture
-            if ($LASTEXITCODE -ne 0) { throw "engine tests failed through Vulkan" }
+            if ($LASTEXITCODE -ne 0) { throw "engine tests failed with an unusable Vulkan device" }
           } finally {
             Remove-ItemProperty -Path $drivers -Name $icd.FullName
           }
