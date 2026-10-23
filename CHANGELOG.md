@@ -4,7 +4,13 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [Unreleased]  ## [0.14.1] - 2026-10-23
+
+### Fixed
+
+- Notes: lines you say while Zoom shows you muted stay out of the note, since the call never
+  heard them. A notice says so the first time. It needs your name in setup or Zoom's participant
+  list read, and keeps every line when your tile is not on screen.
 
 ## [0.14.0] - 2026-10-23
 
