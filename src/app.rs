@@ -231,6 +231,7 @@ pub fn run() -> Result<(), String> {
             crate::commands::reset_insights,
             crate::commands::check_microphone,
             crate::commands::export_diagnostics,
+            crate::commands::reveal_diagnostics,
             crate::commands::list_notes,
             crate::commands::get_note,
             crate::commands::start_note,

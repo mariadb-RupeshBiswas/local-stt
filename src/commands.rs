@@ -481,11 +481,15 @@ pub async fn export_diagnostics(state: State<'_, Arc<Shared>>) -> Result<String,
         .await
         .map_err(|e| format!("report failed: {e}"))??;
     diag::reveal(&path);
-    let name = path
-        .file_name()
-        .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_default();
-    Ok(format!("Saved {name}. Read it before you share it."))
+    Ok(path.display().to_string())
+}
+
+/// Shows the newest saved report in Finder or Explorer again.
+#[tauri::command]
+pub fn reveal_diagnostics() -> Result<(), String> {
+    let path = diag::latest_report().ok_or("No report is saved yet. Click Export Report first.")?;
+    diag::reveal(&path);
+    Ok(())
 }
 
 /// Reinstalls the app (see `install::reinstall`) and restarts into the new copy.

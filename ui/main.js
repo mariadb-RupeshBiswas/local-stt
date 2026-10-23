@@ -2377,12 +2377,15 @@
     // saves a report in the app's folder and shows it in Finder or Explorer; nothing is sent anywhere
     function reportControl() {
       var busy = false;
+      var savedPath = ""; // where this session's last report went
+      var finder = S.platform === "windows" ? "Explorer" : "Finder";
       var button = h("button", { class: "btn", type: "button", onclick: function () {
         if (busy) return;
         busy = true;
         sync();
-        Promise.resolve(invoke("export_diagnostics")).then(function (message) {
-          toast(typeof message === "string" && message !== "" ? message : "Report saved.");
+        Promise.resolve(invoke("export_diagnostics")).then(function (path) {
+          savedPath = typeof path === "string" ? path : "";
+          toast("Report saved and shown in " + finder + ". Read it before you share it.");
         }).catch(function (err) {
           toast("Couldn't save the report: " + errText(err));
         }).then(function () {
@@ -2390,12 +2393,19 @@
           sync();
         });
       } });
+      var show = h("button", { class: "btn btn-quiet", type: "button", text: "Show in " + finder, hidden: true, onclick: function () {
+        Promise.resolve(invoke("reveal_diagnostics")).catch(function (err) { toast(errText(err)); });
+      } });
+      var where = h("div", { class: "report-path", hidden: true });
       function sync() {
         button.disabled = busy;
         button.textContent = busy ? "Saving..." : "Export Report";
+        show.hidden = savedPath === "";
+        where.hidden = savedPath === "";
+        where.textContent = savedPath ? "Saved to " + savedPath : "";
       }
       sync();
-      return { el: button, sync: sync };
+      return { el: h("div", { class: "hk-wrap" }, h("div", { class: "hk-line" }, show, button), where), sync: sync };
     }
 
     // the button reads Checking... until the app answers with a notice or update-available

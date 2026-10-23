@@ -809,6 +809,17 @@ body {
   50% { opacity: 1; }
 }
 
+.report-path {
+  margin-top: 6px;
+  max-width: 360px;
+  font-size: 12px;
+  color: var(--label-2);
+  text-align: right;
+  overflow-wrap: anywhere;
+  -webkit-user-select: text;
+  user-select: text;
+}
+
 .field-error {
   margin-top: 6px;
   font-size: 12px;

@@ -25,6 +25,7 @@
     "allow-reset-insights",
     "allow-check-microphone",
     "allow-export-diagnostics",
+    "allow-reveal-diagnostics",
     "allow-list-notes",
     "allow-get-note",
     "allow-start-note",

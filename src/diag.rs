@@ -254,6 +254,23 @@ pub fn reveal(path: &Path) {
     }
 }
 
+/// The newest saved report, so the app can show it again later.
+pub fn latest_report() -> Option<PathBuf> {
+    newest_report(&reports_dir())
+}
+
+fn newest_report(dir: &Path) -> Option<PathBuf> {
+    let mut names: Vec<PathBuf> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "txt"))
+        .collect();
+    // The stamp in the name sorts by time.
+    names.sort();
+    names.pop()
+}
+
 fn prune_reports(dir: &Path) {
     let Ok(read) = std::fs::read_dir(dir) else {
         return;
@@ -570,6 +587,24 @@ fn summarize_ips(text: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_newest_report_is_found_by_its_time_stamp() {
+        let dir = std::env::temp_dir().join(format!("lstt-reports-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(newest_report(&dir), None);
+        for name in [
+            "local-stt-diagnostics-2026-10-22-09-00-00.txt",
+            "local-stt-diagnostics-2026-10-23-08-30-00.txt",
+            "notes.json",
+        ] {
+            std::fs::write(dir.join(name), "x").unwrap();
+        }
+        let newest = newest_report(&dir).unwrap();
+        assert!(newest.ends_with("local-stt-diagnostics-2026-10-23-08-30-00.txt"));
+        assert_eq!(newest_report(&dir.join("missing")), None);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn utc_stamp_matches_known_dates() {

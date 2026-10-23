@@ -256,7 +256,7 @@ It runs a model you choose, entirely on your device, translates to English if yo
 
 ## Troubleshooting
 
-Something not working? Open Settings > Troubleshooting and click **Export Report**, or run `local-stt diagnostics` (it works even when the app will not start). You get one text file, shown in Finder or Explorer, with:
+Something not working? Open Settings > Troubleshooting and click **Export Report**, or run `local-stt diagnostics` (it works even when the app will not start). You get one text file, opened in Finder or Explorer, and its full path is shown (Settings shows a **Show in Finder** or **Show in Explorer** button to open it again). Reports are saved in `~/Library/Application Support/local-stt/diagnostics` on a Mac and `%APPDATA%\local-stt\diagnostics` on Windows. Each report holds:
 
 - app version, how it was started, and your settings (the microphone shows only as "system default" or "a chosen device");
 - your computer's OS, processor, memory, graphics and free disk;
