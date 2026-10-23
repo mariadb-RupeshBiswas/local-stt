@@ -52,7 +52,24 @@ fn platform_data_root() -> PathBuf {
 
 #[cfg(windows)]
 fn platform_data_root() -> PathBuf {
-    windows_data_root(std::env::var_os("LOCALAPPDATA"), &home())
+    let local = windows_data_root(std::env::var_os("LOCALAPPDATA"), &home());
+    let roaming = windows_legacy_dir(std::env::var_os("APPDATA"), &home());
+    if still_roaming(local.join(APP_DIR).exists(), roaming.is_dir()) {
+        return roaming.parent().map(PathBuf::from).unwrap_or(local);
+    }
+    local
+}
+
+/// Until the one-time move succeeds (a running older copy can block it), the Roaming folder stays the data folder.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn still_roaming(local_exists: bool, roaming_exists: bool) -> bool {
+    roaming_exists && !local_exists
+}
+
+/// The Windows data folder once moved; the one-time move renames the Roaming folder to this.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn windows_local_dir() -> PathBuf {
+    windows_data_root(std::env::var_os("LOCALAPPDATA"), &home()).join(APP_DIR)
 }
 
 /// Local, not Roaming: roaming profiles copy Roaming to a file server, and this folder holds models and private notes.
@@ -114,6 +131,14 @@ mod tests {
         assert_eq!(old, PathBuf::from("R").join(APP_DIR));
         let old_fallback = home.join("AppData").join("Roaming").join(APP_DIR);
         assert_eq!(windows_legacy_dir(None, home), old_fallback);
+    }
+
+    #[test]
+    fn roaming_stays_the_data_folder_until_the_move_happens() {
+        assert!(still_roaming(false, true));
+        assert!(!still_roaming(true, true));
+        assert!(!still_roaming(false, false));
+        assert!(!still_roaming(true, false));
     }
 
     #[test]

@@ -296,7 +296,7 @@ local-stt uninstall          # removes the app, the terminal command and the log
 
 Your settings, history and models live in `~/Library/Application Support/local-stt` (macOS) or `%LOCALAPPDATA%\local-stt` (Windows, `C:\Users\<you>\AppData\Local\local-stt`). Delete that folder to remove everything.
 
-On Windows, versions before this change kept the folder in `%APPDATA%\local-stt` (Roaming). The first start of a newer version moves it to the Local folder, so models and notes stay off the file server that roaming profiles and FSLogix sync. If the move cannot be done in place, it copies everything except the downloaded models (they download again) and leaves the old Roaming folder behind. Check the new folder has your settings and notes before you delete the old one.
+On Windows, older versions kept the folder in `%APPDATA%\local-stt` (Roaming). A newer version moves it to the Local folder on a start when no other copy is running, so models and notes stay off the file server that roaming profiles and FSLogix sync. Until it can move, it keeps using the Roaming folder.
 
 ## Contributing
 
