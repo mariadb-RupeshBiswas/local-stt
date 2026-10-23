@@ -77,7 +77,7 @@ cpal 0.18.2, tao 0.37.1
 
 ### BSL-1.0 (2)
 
-clipboard-win 5.4.1, error-code 3.4.0
+clipboard-win 5.4.3, error-code 3.4.0
 
 ### MIT OR Zlib OR Apache-2.0 (2)
 
@@ -160,7 +160,7 @@ Taken from the crates' licence files; where a crate ships none, the `authors` fi
 - cargo_metadata 0.19.2: Oliver Schneider <git-spam-no-reply9815368754983@oli-obk.de>
 - cfb 0.14.0: Copyright (c) 2017 Matthew D. Steele
 - cfg-if 1.0.5: Copyright (c) 2014 Alex Crichton
-- clipboard-win 5.4.1: Douman <douman@gmx.se>
+- clipboard-win 5.4.3: Douman <douman@gmx.se>
 - const-oid 0.10.2: Copyright (c) 2020-2026 The RustCrypto Project Developers
 - cookie 0.18.2: Copyright 2017 Sergio Benitez / Copyright 2014 Alex Chricton / Copyright (c) 2017 Sergio Benitez / Copyright (c) 2014 Alex Crichton
 - core-foundation 0.10.1: Copyright (c) 2012-2013 Mozilla Foundation
