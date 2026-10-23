@@ -12,6 +12,14 @@ fn main() {
             .define("GGML_METAL_EMBED_LIBRARY", "ON")
             .define("GGML_BLAS", "ON");
     }
+    // Windows GPU support needs the LunarG Vulkan SDK at build time; CI and releases always have it.
+    let vulkan_sdk = std::env::var("VULKAN_SDK")
+        .ok()
+        .filter(|_| target_os == "windows");
+    if vulkan_sdk.is_some() {
+        cfg.define("GGML_VULKAN", "ON");
+    }
+    println!("cargo:rerun-if-env-changed=VULKAN_SDK");
     let dst = cfg.build();
 
     cc::Build::new()
@@ -29,6 +37,14 @@ fn main() {
     }
     for lib in ["whisper", "ggml", "ggml-base", "ggml-cpu"] {
         println!("cargo:rustc-link-lib=static={lib}");
+    }
+    if let Some(sdk) = &vulkan_sdk {
+        println!("cargo:rustc-link-lib=static=ggml-vulkan");
+        println!("cargo:rustc-link-search=native={sdk}\\Lib");
+        println!("cargo:rustc-link-lib=dylib=vulkan-1");
+        println!("cargo:rustc-link-lib=dylib=delayimp");
+        // Starts on PCs without vulkan-1.dll; engine::start_backends checks for it before ggml's first call.
+        println!("cargo:rustc-link-arg=/DELAYLOAD:vulkan-1.dll");
     }
     if target_os == "macos" {
         for lib in ["ggml-metal", "ggml-blas"] {

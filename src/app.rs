@@ -45,6 +45,7 @@ pub enum Job {
         pcm: Vec<f32>,
         opts: Opts,
         duration_ms: u64,
+        queued: Instant,
     },
     /// One pause-to-pause piece of a note's channel; runs only when no dictation job waits.
     NoteSegment {
@@ -167,6 +168,9 @@ pub fn run() -> Result<(), String> {
     if unclean {
         diag::log("the previous run did not quit normally (crash or forced quit)");
     }
+    if !cfg.use_gpu {
+        crate::engine::keep_off_gpu();
+    }
     if cfg!(windows) {
         diag::log(&match crate::power::stay_fast() {
             Ok(()) => "power throttling: opted out".to_string(),
@@ -188,6 +192,20 @@ pub fn run() -> Result<(), String> {
     } else {
         hwprobe::probe(&paths::data_dir())
     };
+    if cfg!(windows) && !crate::demo::active() {
+        diag::log(if hardware.gpu_accel {
+            "speech engine: GPU (Vulkan)"
+        } else {
+            "speech engine: CPU"
+        });
+    }
+    if !hardware.cpu_missing.is_empty() {
+        diag::log(&format!(
+            "processor lacks {}; speech cannot run here",
+            hardware.cpu_missing.join(", ")
+        ));
+    }
+    diag::log(&format!("power: {}", crate::power::supply().describe()));
     let (worker_tx, worker_rx) = mpsc::channel::<Job>();
     let (ctrl_tx, ctrl_rx) = mpsc::channel::<Msg>();
     let shared = Arc::new(Shared {
@@ -1188,7 +1206,16 @@ fn apply(
             if rec.samples_16k.is_empty() || audio::is_silent(&rec.samples_16k, audio::SILENCE_RMS)
             {
                 machine.on(Input::TranscribeDone, now);
-                fail(app, "No speech heard", cfg.sounds);
+                if crate::meeting::mic_blocked() {
+                    diag::log("microphone blocked by Windows privacy settings");
+                    fail(
+                        app,
+                        "Microphone blocked in Windows privacy settings",
+                        cfg.sounds,
+                    );
+                } else {
+                    fail(app, "No speech heard", cfg.sounds);
+                }
                 return;
             }
             show_overlay(app, "transcribing", "Transcribing", None);
@@ -1196,6 +1223,7 @@ fn apply(
                 pcm: rec.samples_16k,
                 opts: transcribe_opts(&cfg),
                 duration_ms: rec.duration_ms,
+                queued: Instant::now(),
             };
             shared(app).final_pending.store(true, Ordering::SeqCst);
             // Stop a preview already running, so the final pass starts at once.
@@ -1477,8 +1505,10 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     pcm,
                     opts,
                     duration_ms,
+                    queued,
                 } => {
                     let started = Instant::now();
+                    let cpu_before = crate::power::cpu_time();
                     let learn = shared(&app).config().learn_my_voice;
                     if !learn {
                         mine = crate::notes::myvoice::Profile::default();
@@ -1491,12 +1521,21 @@ fn spawn_worker(app: AppHandle, rx: Receiver<Job>) {
                     };
                     // Only sizes and timings; the words themselves never reach the log.
                     if let Ok(text) = &result {
+                        let took = started.elapsed();
+                        // A low figure against the thread count means a starved or throttled CPU.
+                        let busy = cpu_before
+                            .zip(crate::power::cpu_time())
+                            .and_then(|(a, b)| crate::power::cores_busy(b.saturating_sub(a), took))
+                            .map_or_else(|| "-".to_string(), |c| format!("{c:.1}"));
                         diag::log(&format!(
-                            "transcribed {:.1} s of audio in {} ms ({} characters, {} threads)",
+                            "transcribed {:.1} s of audio in {} ms after {} ms waiting ({} characters, {} threads, {} cores busy, {})",
                             duration_ms as f64 / 1000.0,
-                            started.elapsed().as_millis(),
+                            took.as_millis(),
+                            started.duration_since(queued).as_millis(),
                             text.chars().count(),
-                            opts.threads
+                            opts.threads,
+                            busy,
+                            crate::power::supply().describe()
                         ));
                     }
                     shared(&app).final_pending.store(false, Ordering::SeqCst);

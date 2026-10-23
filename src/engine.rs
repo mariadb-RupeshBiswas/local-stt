@@ -2,6 +2,8 @@
 
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Once;
 
 pub struct Opts {
     pub translate: bool,
@@ -33,6 +35,8 @@ extern "C" {
     ) -> c_int;
     fn lstt_free(ctx: *mut c_void);
     fn lstt_set_abort(on: c_int);
+    fn lstt_gpu_off();
+    fn lstt_gpu_name(out: *mut c_char, out_len: c_int) -> c_int;
     #[cfg(unix)]
     fn lstt_redirect_stderr(path: *const c_char) -> c_int;
     #[cfg(windows)]
@@ -59,6 +63,50 @@ pub fn redirect_stderr(path: &Path) -> bool {
     }
 }
 
+static GPU_OFF: AtomicBool = AtomicBool::new(false);
+static BACKENDS: Once = Once::new();
+
+/// Keeps whisper.cpp on the CPU for this run; only works before the first model load or GPU query.
+pub fn keep_off_gpu() {
+    GPU_OFF.store(true, Ordering::SeqCst);
+}
+
+// ggml starts its backends once per process, so the GPU decision must be made before its first call.
+fn start_backends() {
+    BACKENDS.call_once(|| {
+        if GPU_OFF.load(Ordering::SeqCst) || !crate::hwprobe::gpu_runtime_present() {
+            // SAFETY: the shim only sets an environment variable through the C runtime.
+            unsafe { lstt_gpu_off() }
+        }
+    });
+}
+
+// An older CPU would die on an illegal instruction inside ggml, with nothing in the log.
+fn cpu_can_run() -> Result<(), String> {
+    let missing = crate::hwprobe::missing_cpu_features();
+    if missing.is_empty() {
+        return Ok(());
+    }
+    Err(format!(
+        "This processor lacks {}, which the speech engine needs.",
+        missing.join(", ")
+    ))
+}
+
+/// The GPU whisper.cpp runs on, or None for the CPU.
+pub fn gpu_device() -> Option<String> {
+    cpu_can_run().ok()?;
+    start_backends();
+    let mut out = vec![0u8; 256];
+    // SAFETY: out is writable for the length passed; the shim NUL-terminates within it.
+    let found = unsafe { lstt_gpu_name(out.as_mut_ptr() as *mut c_char, out.len() as c_int) };
+    if found == 0 {
+        return None;
+    }
+    let len = out.iter().position(|&b| b == 0).unwrap_or(out.len());
+    Some(String::from_utf8_lossy(&out[..len]).trim().to_string())
+}
+
 /// Stops any running preview pass (and refuses new ones) until called with false.
 pub fn abort_previews(on: bool) {
     // SAFETY: the shim only stores the flag in an atomic.
@@ -66,6 +114,7 @@ pub fn abort_previews(on: bool) {
 }
 
 fn load_raw(path: &CStr) -> *mut c_void {
+    start_backends();
     // SAFETY: path is a valid NUL-terminated string that outlives the call.
     unsafe { lstt_load(path.as_ptr()) }
 }
@@ -149,6 +198,7 @@ impl Engine {
         if !model.is_file() {
             return Err(format!("model file not found: {}", model.display()));
         }
+        cpu_can_run()?;
         let path = model.to_str().ok_or("model path is not valid UTF-8")?;
         let cpath = CString::new(path).map_err(|_| "model path contains a NUL byte".to_string())?;
         let ctx = load_raw(&cpath);
@@ -295,6 +345,8 @@ impl Llm {
         } else {
             0
         };
+        cpu_can_run().ok()?;
+        start_backends();
         // SAFETY: c is NUL-terminated and outlives the call; the shim copies what it needs.
         let model = unsafe { lstt_llm_load(c.as_ptr(), gpu_layers) };
         (!model.is_null()).then_some(Self { model })

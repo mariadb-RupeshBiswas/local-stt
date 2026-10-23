@@ -22,6 +22,13 @@ const VK_RCONTROL: u32 = 0xA3;
 const VK_LMENU: u32 = 0xA4;
 const VK_RMENU: u32 = 0xA5;
 
+// AltGr sends a fake Left Ctrl first, marked with this scan-code bit; it must not count as Ctrl.
+const ALTGR_FAKE_CTRL: u32 = 0x200;
+
+fn is_altgr_ctrl(vk: u32, scan_code: u32) -> bool {
+    vk == VK_LCONTROL && scan_code & ALTGR_FAKE_CTRL != 0
+}
+
 fn modifier_of(vk: u32) -> Option<Modifier> {
     match vk {
         VK_SHIFT | VK_LSHIFT | VK_RSHIFT => Some(Modifier::Shift),
@@ -51,6 +58,11 @@ struct WinKeys {
 }
 
 impl WinKeys {
+    // Key-ups typed on the lock screen or a UAC prompt never reach the hook, so ask Windows what is really down.
+    fn forget_released(&mut self, current: u32, still_down: impl Fn(u32) -> bool) {
+        self.down.retain(|k| *k == current || still_down(*k));
+    }
+
     fn update(&mut self, vk: u32, is_down: bool) -> KeyState {
         if !is_down {
             self.down.retain(|k| *k != vk);
@@ -88,7 +100,9 @@ mod imp {
     use std::time::Duration;
     use windows_sys::Win32::Foundation::{GetLastError, LPARAM, LRESULT, WPARAM};
     use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::System::Threading::{
+        GetCurrentThread, GetCurrentThreadId, SetThreadPriority, THREAD_PRIORITY_ABOVE_NORMAL,
+    };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse as vk;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallNextHookEx, GetMessageW, PeekMessageW, PostThreadMessageW, SetWindowsHookExW,
@@ -141,16 +155,23 @@ mod imp {
         let Some(ctx) = slot.as_mut() else {
             return false;
         };
+        ctx.keys.forget_released(vk_code, key_is_down);
         let state = ctx.keys.update(vk_code, is_down);
         let key = super::key_name(vk_code);
         dispatch(&ctx.core, &ctx.tx, &state, Some(&key))
+    }
+
+    fn key_is_down(vk_code: u32) -> bool {
+        // SAFETY: no preconditions; the high bit means the key is down right now.
+        let state = unsafe { vk::GetAsyncKeyState(vk_code as i32) };
+        state < 0
     }
 
     unsafe extern "system" fn hook_proc(code: i32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
         if code == HC_ACTION as i32 {
             // SAFETY: for HC_ACTION, lparam points to a KBDLLHOOKSTRUCT valid for this call.
             let info = unsafe { &*(lparam as *const KBDLLHOOKSTRUCT) };
-            if on_key(wparam as u32, info.vkCode) {
+            if !is_altgr_ctrl(info.vkCode, info.scanCode) && on_key(wparam as u32, info.vkCode) {
                 // A nonzero return stops the hands-free key from reaching the focused app.
                 return 1;
             }
@@ -199,7 +220,14 @@ mod imp {
         unsafe { PostThreadMessageW(thread, WM_QUIT, 0, 0) };
     }
 
+    // Windows silently drops a low-level hook that answers too slowly, so keep up while the engine is busy.
+    fn raise_priority() {
+        // SAFETY: the pseudo handle names this thread and needs no closing.
+        unsafe { SetThreadPriority(GetCurrentThread(), THREAD_PRIORITY_ABOVE_NORMAL) };
+    }
+
     fn run(ctx: Ctx, ready: Sender<Result<u32, String>>) {
+        raise_priority();
         {
             let mut slot = lock_ctx();
             if slot.is_some() {
@@ -317,6 +345,25 @@ mod tests {
         assert_eq!(key_name(VK_F24), "F24");
         assert_eq!(key_name(VK_SPACE), "Space");
         assert_eq!(key_name(0x25), "Other");
+    }
+
+    #[test]
+    fn altgr_fake_ctrl_is_ignored_but_real_ctrl_is_not() {
+        assert!(is_altgr_ctrl(VK_LCONTROL, 0x21D));
+        assert!(!is_altgr_ctrl(VK_LCONTROL, 0x1D));
+        assert!(!is_altgr_ctrl(VK_RMENU, 0x238));
+    }
+
+    #[test]
+    fn keys_released_elsewhere_are_forgotten() {
+        let mut keys = WinKeys::default();
+        keys.update(VK_LWIN, true);
+        keys.update(0x4C, true);
+        // Win+L locked the screen; both key-ups went to the lock screen.
+        keys.forget_released(VK_LCONTROL, |_| false);
+        let s = keys.update(VK_LCONTROL, true);
+        assert_eq!(s.modifiers, BTreeSet::from([Modifier::Ctrl]));
+        assert_eq!(s.key, None);
     }
 
     #[test]

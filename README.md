@@ -60,6 +60,7 @@ Every dictation is kept in a local history you can search and copy from. Click S
 | Computer | Apple Silicon (M1 or later), macOS 11 or later | 64-bit PC, Windows 10 or 11 |
 | Memory | 4 GB for Whisper Small (more for larger models) | 4 GB for Whisper Small (more for larger models) |
 | Disk | About 200 MB for the app and Whisper Small | About 200 MB for the app and Whisper Small |
+| Graphics | Built-in GPU, always used | Any GPU with a Vulkan driver (Intel, AMD, NVIDIA) is used when present; otherwise the CPU |
 | Internet | Once, to download the speech model | Once, to download the speech model |
 | Installer | [uv](https://docs.astral.sh/uv/getting-started/installation/) | [uv](https://docs.astral.sh/uv/getting-started/installation/) |
 
@@ -84,6 +85,13 @@ winget install --id=astral-sh.uv -e   # once
 # close PowerShell and open a new one, so the uv command is found
 uvx local-stt                          # installs local-stt in the Start menu and opens it
 ```
+
+If it does not start on Windows:
+
+- **"VCRUNTIME140.dll" or "MSVCP140.dll" was not found:** install Microsoft's Visual C++ runtime with `winget install Microsoft.VCRedist.2015+.x64`, then run `uvx local-stt` again.
+- **Behind a company proxy:** set `HTTPS_PROXY` before running `uvx`. If your company inspects HTTPS traffic, also set `UV_SYSTEM_CERTS=true` so uv trusts the company certificate.
+- **"This processor lacks AVX2":** the speech engine needs a CPU from about 2013 or later (Intel Haswell, AMD Excavator or newer).
+- **Windows on Arm:** uv runs the x64 build under emulation, which needs Windows 11 24H2 with updates from December 2025 or later (for AVX2).
 
 ### Linux
 

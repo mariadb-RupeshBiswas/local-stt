@@ -1,7 +1,9 @@
 // Thin C ABI over whisper.cpp so Rust never touches its large params struct; C++ only to stop exceptions at the boundary.
 #include <atomic>
 #include <cstddef>
+#include <cstdlib>
 #include <cstring>
+#include "ggml-backend.h"
 #include "whisper.h"
 
 static void lstt_quiet(enum ggml_log_level level, const char * text, void * user) {
@@ -27,10 +29,46 @@ static bool lstt_spaceless(const char * lang) {
     return false;
 }
 
+// The first GPU ggml registered, or null; the first call starts every backend.
+static ggml_backend_dev_t lstt_gpu_dev() {
+    for (size_t i = 0; i < ggml_backend_dev_count(); i++) {
+        ggml_backend_dev_t dev = ggml_backend_dev_get(i);
+        enum ggml_backend_dev_type type = ggml_backend_dev_type(dev);
+        if (type == GGML_BACKEND_DEVICE_TYPE_GPU || type == GGML_BACKEND_DEVICE_TYPE_IGPU) return dev;
+    }
+    return nullptr;
+}
+
+// ggml reads this with getenv, which on Windows sees only the C runtime's copy, not SetEnvironmentVariable.
+extern "C" void lstt_gpu_off() {
+#ifdef _WIN32
+    _putenv_s("GGML_DISABLE_VULKAN", "1");
+#endif
+}
+
+extern "C" int lstt_gpu_name(char * out, int out_len) {
+    if (!out || out_len <= 0) return 0;
+    out[0] = '\0';
+    try {
+        ggml_backend_dev_t dev = lstt_gpu_dev();
+        if (!dev) return 0;
+        const char * name = ggml_backend_dev_description(dev);
+        std::strncpy(out, name ? name : "GPU", static_cast<size_t>(out_len) - 1);
+        out[out_len - 1] = '\0';
+        return 1;
+    } catch (...) {
+        return 0;
+    }
+}
+
 extern "C" void * lstt_load(const char * path) {
     try {
         whisper_log_set(lstt_quiet, nullptr);
         struct whisper_context_params cp = whisper_context_default_params();
+#ifdef _WIN32
+        // Flash attention on Vulkan has crash reports on Intel and AMD integrated GPUs (whisper.cpp #3537, #3806).
+        if (lstt_gpu_dev()) cp.flash_attn = false;
+#endif
         return whisper_init_from_file_with_params(path, cp);
     } catch (...) {
         return nullptr;

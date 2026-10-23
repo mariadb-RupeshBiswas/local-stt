@@ -3,7 +3,8 @@
 
 use windows_sys::Win32::Foundation::{ERROR_SUCCESS, HWND, LPARAM};
 use windows_sys::Win32::System::Registry::{
-    RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER, KEY_READ,
+    RegCloseKey, RegEnumKeyExW, RegOpenKeyExW, RegQueryValueExW, HKEY, HKEY_CURRENT_USER,
+    HKEY_LOCAL_MACHINE, KEY_READ,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{EnumWindows, GetWindowTextW, IsWindowVisible};
 
@@ -74,6 +75,39 @@ fn qword(key: &Key, value: &str) -> Option<u64> {
         )
     };
     (rc == ERROR_SUCCESS).then_some(data)
+}
+
+fn text(key: &Key, value: &str) -> Option<String> {
+    let value = wide(value);
+    let mut data = [0u16; 64];
+    let mut size = std::mem::size_of_val(&data) as u32;
+    // SAFETY: the buffer holds `size` bytes; the value name is NUL-terminated UTF-16.
+    let rc = unsafe {
+        RegQueryValueExW(
+            key.0,
+            value.as_ptr(),
+            std::ptr::null(),
+            std::ptr::null_mut(),
+            data.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if rc != ERROR_SUCCESS {
+        return None;
+    }
+    let units = (size as usize / 2).min(data.len());
+    let raw = String::from_utf16_lossy(&data[..units]);
+    Some(raw.trim_end_matches('\0').to_string())
+}
+
+/// Privacy settings that block desktop apps from the microphone: the device switch, the user's switch and the desktop-apps switch.
+pub fn mic_blocked() -> bool {
+    let values = [
+        open(HKEY_LOCAL_MACHINE, STORE).and_then(|k| text(&k, "Value")),
+        open(HKEY_CURRENT_USER, STORE).and_then(|k| text(&k, "Value")),
+        open(HKEY_CURRENT_USER, &format!(r"{STORE}\NonPackaged")).and_then(|k| text(&k, "Value")),
+    ];
+    super::any_deny(&values)
 }
 
 fn recording(key: &Key) -> bool {

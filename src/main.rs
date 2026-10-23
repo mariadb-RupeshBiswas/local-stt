@@ -90,7 +90,7 @@ fn diagnostics() -> Result<(), String> {
     let cfg = local_stt::config::load(&paths::config_path());
     // With the log off, saving a report must not start a new log file.
     local_stt::diag::set_enabled(cfg.diagnostic_log);
-    let hw = hwprobe::probe(&paths::data_dir());
+    let hw = probe(&cfg);
     let path = local_stt::diag::export(&cfg, &hw)?;
     local_stt::diag::reveal(&path);
     println!("Saved {}", path.display());
@@ -165,8 +165,16 @@ fn calls() -> Result<(), String> {
     Ok(())
 }
 
+// Same GPU choice as the app, so the CLI reports what a dictation would run on.
+fn probe(cfg: &local_stt::config::Config) -> hwprobe::Hardware {
+    if !cfg.use_gpu {
+        local_stt::engine::keep_off_gpu();
+    }
+    hwprobe::probe(&paths::data_dir())
+}
+
 fn doctor() -> Result<(), String> {
-    let hw = hwprobe::probe(&paths::data_dir());
+    let hw = probe(&local_stt::config::load(&paths::config_path()));
     println!("Hardware");
     println!("  OS           {} ({})", hw.os, hw.arch);
     println!("  CPU          {} ({} threads)", hw.cpu, hw.threads);

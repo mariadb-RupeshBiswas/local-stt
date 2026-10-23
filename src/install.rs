@@ -692,7 +692,15 @@ mod platform {
             .stderr(std::process::Stdio::null())
             .spawn()
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(spawn_error)
+    }
+
+    // ERROR_ACCESS_DISABLED_BY_POLICY: AppLocker or WDAC blocks programs in the user's own folders.
+    pub(super) fn spawn_error(e: std::io::Error) -> String {
+        if e.raw_os_error() == Some(1260) {
+            return "a company policy (such as AppLocker) blocks programs in your user folder; ask IT to allow %LOCALAPPDATA%\\Programs\\local-stt\\local-stt.exe".into();
+        }
+        e.to_string()
     }
 
     // The installed copy starts with no console, so it does not belong to this terminal.
@@ -705,7 +713,7 @@ mod platform {
             .stderr(std::process::Stdio::null())
             .spawn()
             .map(|_| ())
-            .map_err(|e| e.to_string())
+            .map_err(spawn_error)
     }
 
     pub fn handed_off_note() -> String {
@@ -849,6 +857,15 @@ mod platform {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(windows)]
+    #[test]
+    fn policy_block_names_the_cause() {
+        let shown = platform::spawn_error(std::io::Error::from_raw_os_error(1260));
+        assert!(shown.contains("AppLocker"), "{shown}");
+        let other = platform::spawn_error(std::io::Error::from_raw_os_error(2));
+        assert!(!other.contains("AppLocker"), "{other}");
+    }
 
     #[test]
     fn the_installed_copy_counts_as_this_build_by_its_stamp_or_same_bytes() {
