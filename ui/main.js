@@ -324,7 +324,7 @@
       checkingUpdates: false
     };
     var syncers = []; // settings controls, refreshed after every config change
-    var OB = { on: false, step: 1, name: "", nameError: "", custom: false, rows: null, run: 0, dl: null, mic: { state: "idle", level: 0, error: "" }, access: "idle", syncers: [], refs: {}, primary: null }; // setup state
+    var OB = { on: false, step: 1, name: "", nameError: "", custom: false, rows: null, run: 0, dl: null, mic: { state: "idle", level: 0, error: "" }, access: "idle", login: null, speakers: null, screen: "idle", syncers: [], refs: {}, primary: null }; // setup state
     var sink = syncers; // where the control builders register their sync, so setup can build its own copies
     var progressRefs = {}; // model id -> { bar, text, track }
     var unlisten = [];
@@ -2715,7 +2715,7 @@
       settingsPanel.appendChild(outputCard);
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Overlay" }));
       settingsPanel.appendChild(overlayCard);
-      var troubleshooting = card([
+      var troubleRows = [
         settingRow("Troubleshooting log", "Keeps app events like starts, errors and timings on this computer. Never your words, audio or key presses. Off deletes it.", addSync(toggle({
           label: "Troubleshooting log",
           value: function () { return cfg().diagnostic_log !== false; },
@@ -2723,7 +2723,19 @@
         }))),
         settingRow("Diagnostic report", "Saves a text file with app, system and settings details and the log, to share when something goes wrong. Read it before you share it.", addSync(reportControl())),
         settingRow("Reinstall", "Fixes a broken install: installs local-stt again, resets its permissions and opens setup to allow them, keeping your settings and history unless you choose otherwise.", addSync(reinstallControl()))
-      ]);
+      ];
+      // Mac always uses its GPU; on Windows a bad graphics driver can crash, so there is a way out.
+      if (S.platform === "windows") {
+        troubleRows.splice(1, 0, settingRow("Use the graphics chip", "Runs speech on the GPU when this PC has one, which is much faster. Turn off if dictation crashes or types nonsense. Applies after local-stt restarts.", addSync(toggle({
+          label: "Use the graphics chip",
+          value: function () { return cfg().use_gpu !== false; },
+          onChange: function (v) {
+            patchConfig({ use_gpu: v });
+            toast("Restart local-stt to apply this.");
+          }
+        }))));
+      }
+      var troubleshooting = card(troubleRows);
 
       settingsPanel.appendChild(h("h3", { class: "group-title", text: "Notes" }));
       settingsPanel.appendChild(card([settingRow("Detect calls", "When Zoom, Teams, Slack, Webex, FaceTime or a Google Meet tab starts using your microphone, a small prompt offers to take a note.", addSync(toggle({
@@ -3022,7 +3034,9 @@
 
     // ---------- Onboarding ----------
 
-    var OB_STEPS = 5;
+    var OB_STEPS = 6;
+    var OB_PERMS = 5;
+    var OB_TRY = 6;
     var obView = h("section", { class: "ob", "aria-label": "Setup", hidden: true });
     root.appendChild(obView);
 
@@ -3039,6 +3053,9 @@
       OB.dl = null;
       OB.mic = { state: "idle", level: 0, error: "" };
       OB.access = "idle";
+      OB.login = null;
+      OB.speakers = null;
+      OB.screen = "idle";
       OB.run += 1;
       stopMoving();
       toolbar.hidden = true;
@@ -3080,7 +3097,7 @@
       OB.refs = {};
       OB.primary = null;
       clear(obView);
-      var body = [obWelcome, obCheck, obChoice, obPerms, obTry][step - 1]();
+      var body = [obWelcome, obCheck, obChoice, obChoices, obPerms, obTry][step - 1]();
       var head = h("header", { class: "ob-head" },
         h("div", { class: "ob-step", text: "Step " + step + " of " + OB_STEPS }),
         h("button", { class: "linklike ob-skip", type: "button", text: "Skip Setup", onclick: obFinish })
@@ -3169,6 +3186,7 @@
     function obRows() {
       var rows = [
         { id: "hw", title: "Checking your computer", doing: "Reading the chip, memory and disk" },
+        { id: "gpu", title: "Checking the graphics chip", doing: "Looking for a GPU the speech engine can use" },
         { id: "model", title: "Choosing a speech model", doing: "Comparing models with " + thisDevice() },
         { id: "mic", title: "Finding a microphone", doing: "Looking for microphones" }
       ];
@@ -3297,7 +3315,14 @@
     }
 
     function evalRow(row, model) {
-      if (row.id === "hw") return { state: "done", detail: hardwareText() };
+      if (row.id === "hw") {
+        var lacks = (S.hardware && S.hardware.cpu_missing) || [];
+        return lacks.length ? { state: "needs", detail: "This processor lacks " + lacks.join(", ") + ", which the speech engine needs." } : { state: "done", detail: hardwareText() };
+      }
+      if (row.id === "gpu") {
+        var hwNow = S.hardware || {};
+        return hwNow.gpu_accel ? { state: "done", detail: "Speech runs on " + dash(hwNow.gpu) } : { state: "done", detail: "No GPU it can use, so speech runs on the processor" };
+      }
       if (row.id === "model") {
         return model ? { state: "done", detail: dash(model.label) + " fits " + thisDevice() } : { state: "needs", detail: "No speech model fits " + thisDevice() + "." };
       }
@@ -3359,7 +3384,7 @@
       } else {
         setRow(row, result.state, result.detail);
       }
-      if (OB.step === 5) obTryDownload();
+      if (OB.step === OB_TRY) obTryDownload();
     }
 
     function obDownloadProgress(p) {
@@ -3382,8 +3407,9 @@
     }
 
     function obSyncContinue() {
+      if (OB.step === 4) return obChoicesReady();
       var go = OB.refs.next;
-      if (!go || !OB.rows) return;
+      if (!go || !OB.rows || OB.step !== 2) return;
       var ready = OB.rows.every(function (r) { return r.id === "download" || r.state === "done" || r.state === "needs"; });
       go.disabled = !ready;
     }
@@ -3415,8 +3441,7 @@
         ["Output", cfgNow.translate === false ? "Spoken language" : "English"],
         ["Smart formatting", yesNo(cfgNow.smart_format !== false)],
         ["Paste into the focused app", yesNo(cfgNow.paste !== false)],
-        ["Save history", yesNo(cfgNow.save_history !== false)],
-        ["Start at login", yesNo(typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfgNow.autostart === true)]
+        ["Save history", yesNo(cfgNow.save_history !== false)]
       ];
       var list = h("ul", { class: "ob-facts", "aria-label": "Recommended settings" });
       items.forEach(function (item) {
@@ -3435,7 +3460,7 @@
       );
       var customize = h("div", { class: "card ob-choice" },
         h("h2", { class: "ob-choice-title", text: "Customize" }),
-        h("p", { class: "ob-note", text: "Pick the shortcut, language, paste, formatting, history and start at login yourself. Everything else stays in Settings." }),
+        h("p", { class: "ob-note", text: "Pick the shortcut, language, paste, formatting and history yourself. Everything else stays in Settings." }),
         h("button", { class: "btn", type: "button", text: "Customize", onclick: function () { OB.custom = true; obGo(3); } })
       );
       return { title: "How do you want to set up?", el: h("div", { class: "ob-choices" }, recommended, customize), buttons: [] };
@@ -3443,7 +3468,7 @@
 
     function obCustomize() {
       var rows = withSink(OB.syncers, function () {
-        return [pushRow(), outputLanguageRow(), spokenLanguageRow(), pasteRow(), smartFormatRow(), saveHistoryRow(), startAtLoginRow()];
+        return [pushRow(), outputLanguageRow(), spokenLanguageRow(), pasteRow(), smartFormatRow(), saveHistoryRow()];
       });
       OB.syncers.forEach(function (fn) { fn(); });
       return {
@@ -3454,6 +3479,84 @@
     }
 
     // ----- step 4 -----
+
+    // a Yes / No pair whose pressed button shows the choice; onPick saves it
+    function yesNoPicker(label, yesText, current, onPick) {
+      var yes = h("button", { class: "btn", type: "button", text: yesText });
+      var no = h("button", { class: "btn", type: "button", text: "No" });
+      function paint(value) {
+        yes.setAttribute("aria-pressed", String(value === true));
+        no.setAttribute("aria-pressed", String(value === false));
+        yes.classList.toggle("btn-action", value === true);
+        no.classList.toggle("btn-action", value === false);
+      }
+      yes.addEventListener("click", function () { paint(true); onPick(true); });
+      no.addEventListener("click", function () { paint(false); onPick(false); });
+      paint(current);
+      return h("div", { class: "ob-perm-actions", role: "group", "aria-label": label }, yes, no);
+    }
+
+    function obChoicesReady() {
+      var go = OB.refs.next;
+      if (go) go.disabled = OB.login === null || OB.speakers === null;
+    }
+
+    function paintScreen() {
+      var line = OB.refs.screenLine;
+      if (!line) return;
+      clear(line);
+      if (OB.speakers !== true || S.platform !== "macos") return;
+      if (OB.screen === "allowed") line.appendChild(tagLine("green", "Allowed"));
+      else if (OB.screen === "denied") line.appendChild(h("div", {}, tagLine("red", "Not allowed yet"), h("div", { class: "ob-note", text: "Turn on local-stt under System Settings > Privacy & Security > Screen & System Audio Recording. Names still come from the call's own labels until then." })));
+      else if (OB.screen === "asking") line.appendChild(h("span", { class: "ob-waiting", text: "Waiting for macOS" }));
+    }
+
+    function obChoices() {
+      var place = S.platform === "windows" ? "system tray" : "menu bar";
+      var login = h("div", { class: "card ob-perm", "data-choice": "login" },
+        h("h2", { class: "ob-choice-title", text: "Start local-stt when you log in?" }),
+        h("p", { class: "ob-note", text: "It waits in the " + place + ", so your shortcut works as soon as you sign in. It uses little memory until you dictate. You can change this in Settings." }),
+        yesNoPicker("Start at login", "Yes, Start at Login", OB.login, function (v) {
+          OB.login = v;
+          var loginNow = typeof S.autostartEnabled === "boolean" ? S.autostartEnabled : cfg().autostart === true;
+          if (v !== loginNow) patchConfig({ autostart: v });
+          obChoicesReady();
+        })
+      );
+      var mac = S.platform === "macos";
+      var speakerText = "During a meeting note, local-stt names who said what. It reads the names Zoom, Google Meet, Teams and Slack show on screen. In Zoom's gallery view it also checks the green border around whoever is talking: a thin strip around each video tile, looked at in memory once a second and never saved. Nothing leaves " + thisDevice() + ".";
+      if (mac) speakerText += " macOS will ask you to allow Screen & System Audio Recording.";
+      OB.refs.screenLine = h("div", { class: "ob-line" });
+      var speakers = h("div", { class: "card ob-perm", "data-choice": "speakers" },
+        h("h2", { class: "ob-choice-title", text: "Name who is talking in calls?" }),
+        h("p", { class: "ob-note", text: speakerText }),
+        yesNoPicker("Name who is talking", "Yes, Name Speakers", OB.speakers, function (v) {
+          OB.speakers = v;
+          if (v !== (cfg().speaking_border === true)) patchConfig({ speaking_border: v });
+          if (v && mac) {
+            OB.screen = "asking";
+            paintScreen();
+            Promise.resolve(invoke("request_screen_access")).then(function (ok) {
+              OB.screen = ok === false ? "denied" : "allowed";
+              paintScreen();
+            }).catch(function () {
+              OB.screen = "denied";
+              paintScreen();
+            });
+          }
+          paintScreen();
+          obChoicesReady();
+        }),
+        OB.refs.screenLine
+      );
+      return {
+        title: "Two quick choices",
+        el: h("div", { class: "ob-choices" }, login, speakers),
+        buttons: [{ label: "Continue", primary: true, ref: "next", disabled: OB.login === null || OB.speakers === null, onClick: function () { obGo(OB_PERMS); } }]
+      };
+    }
+
+    // ----- step 5 -----
 
     function levelBar() {
       var bar = h("i");
@@ -3513,7 +3616,7 @@
       return {
         title: S.platform === "macos" ? "Allow what local-stt needs" : "Check your microphone",
         el: h("div", { class: "ob-choices" }, cards),
-        buttons: [{ label: "Continue", primary: true, onClick: function () { obGo(5); } }]
+        buttons: [{ label: "Continue", primary: true, onClick: function () { obGo(OB_TRY); } }]
       };
     }
 
@@ -3525,7 +3628,9 @@
       var m = OB.refs.mic;
       if (!m) return;
       var s = OB.mic.state;
-      var hint = S.platform === "macos" ? "Open System Settings > Privacy & Security > Microphone and turn on local-stt." : "Check that your microphone is connected and not muted.";
+      var hint = S.platform === "macos" ? "Open System Settings > Privacy & Security > Microphone and turn on local-stt."
+        : OB.mic.blocked ? "Windows blocks the microphone. Open Settings > Privacy & security > Microphone and turn on Microphone access and Let desktop apps access your microphone."
+        : "Check that your microphone is connected and not muted.";
       clear(m.line);
       m.level.track.hidden = s !== "testing";
       m.test.disabled = s === "testing";
@@ -3555,6 +3660,7 @@
       announce("Listening for 2 seconds. Say something.");
       Promise.resolve(invoke("check_microphone")).then(function (result) {
         OB.mic.state = result && result.heard === true ? "heard" : "silent";
+        OB.mic.blocked = !!(result && result.blocked === true);
         paintMic();
         announce(OB.mic.state === "heard" ? "Heard you." : "Didn't hear anything.");
       }).catch(function (err) {
@@ -3585,7 +3691,7 @@
       f.line.appendChild(fixed ? tagLine("green", "Fixed") : tagLine("red", "Switches language"));
     }
 
-    // ----- step 5 -----
+    // ----- step 6 -----
 
     function obTry() {
       var el = h("div", { class: "ob-try" });
@@ -3648,7 +3754,7 @@
     function obTryDownload() {
       var ref = OB.refs.dl;
       var dl = OB.dl;
-      if (OB.step !== 5 || !OB.refs.try) return;
+      if (OB.step !== OB_TRY || !OB.refs.try) return;
       if (!ref || dl.status !== "running") {
         // the download finished while this step was open
         var focus = paintTry();
@@ -3666,11 +3772,11 @@
       if (!OB.on) return;
       var row = obRow("access");
       if (row && row.state === "needs" && S.accessibility === true) setRow(row, "done", "Allowed");
-      if (OB.step === 4) {
+      if (OB.step === OB_PERMS) {
         paintAccess();
         paintFnKey();
       }
-      if (OB.step === 5 && OB.refs.try && OB.tryBlocked !== tryBlocked()) {
+      if (OB.step === OB_TRY && OB.refs.try && OB.tryBlocked !== tryBlocked()) {
         var focus = paintTry();
         if (focus) focus.focus();
       }

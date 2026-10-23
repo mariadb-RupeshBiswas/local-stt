@@ -140,10 +140,12 @@ fn reasons_against(m: &ModelInfo, hw: &Hardware, downloaded: bool) -> Vec<String
             _ => {}
         }
     }
-    if m.needs_gpu && !hw.gpu_accel {
+    // Large on an integrated GPU through Vulkan is unmeasured, so Windows keeps it off for now.
+    let windows = hw.os.to_lowercase().contains("windows");
+    if m.needs_gpu && (!hw.gpu_accel || windows) {
         let mut reason = String::from("Needs a GPU this app can use");
-        if hw.os.to_lowercase().contains("windows") {
-            reason.push_str("; Windows build runs on CPU");
+        if windows {
+            reason.push_str("; not yet on Windows");
         }
         reasons.push(reason);
     } else if !m.needs_gpu && !hw.gpu_accel && hw.threads < m.min_threads_without_gpu {
@@ -197,6 +199,7 @@ mod tests {
             gpu: "-".into(),
             gpu_accel: gpu,
             free_disk_gb: disk,
+            cpu_missing: Vec::new(),
         }
     }
     fn fits(h: &Hardware) -> Vec<Fit> {
@@ -221,6 +224,29 @@ mod tests {
         assert!(!f[1].supported && f[1].reasons.iter().any(|r| r.contains("8 CPU threads")));
         assert!(!f[2].supported && f[2].reasons.iter().any(|r| r.contains("16 GB RAM")));
         assert!(f[2].reasons.iter().any(|r| r.contains("GPU")));
+    }
+    #[test]
+    fn windows_gpu_lifts_medium_but_not_large() {
+        let mut h = hw(Some(32), 4, true, Some(400.0));
+        h.os = "Windows".into();
+        let f = fits(&h);
+        assert!(
+            f[1].supported,
+            "a Vulkan GPU replaces the 8-thread CPU floor for Medium"
+        );
+        assert!(
+            !f[2].supported
+                && f[2]
+                    .reasons
+                    .iter()
+                    .any(|r| r.contains("not yet on Windows"))
+        );
+    }
+    #[test]
+    fn mac_gpu_still_gets_large() {
+        let mut h = hw(Some(24), 12, true, Some(400.0));
+        h.os = "macOS".into();
+        assert!(fits(&h)[2].supported);
     }
     #[test]
     fn low_disk_blocks_download() {

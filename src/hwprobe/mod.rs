@@ -17,6 +17,8 @@ pub struct Hardware {
     pub gpu: String,
     pub gpu_accel: bool,
     pub free_disk_gb: Option<f64>,
+    /// Instructions the speech engine needs that this CPU lacks; empty when it can run.
+    pub cpu_missing: Vec<String>,
 }
 
 // What only the OS can tell us; any field that could not be read stays None.
@@ -38,6 +40,37 @@ fn facts(_dir: &std::path::Path) -> Facts {
     Facts::default()
 }
 
+/// Whether the GPU runtime ggml would load is installed; Windows needs the Vulkan loader, macOS has Metal.
+pub fn gpu_runtime_present() -> bool {
+    #[cfg(windows)]
+    return windows::vulkan_loader_present();
+    #[cfg(not(windows))]
+    return true;
+}
+
+/// The x86 build compiles whisper.cpp for AVX2-class CPUs (ggml-cpu /arch:AVX2 plus BMI2); older ones crash at load.
+pub fn missing_cpu_features() -> Vec<String> {
+    #[cfg(target_arch = "x86_64")]
+    {
+        let checks = [
+            ("AVX", std::arch::is_x86_feature_detected!("avx")),
+            ("AVX2", std::arch::is_x86_feature_detected!("avx2")),
+            ("FMA", std::arch::is_x86_feature_detected!("fma")),
+            ("F16C", std::arch::is_x86_feature_detected!("f16c")),
+            ("BMI2", std::arch::is_x86_feature_detected!("bmi2")),
+        ];
+        let mut missing = Vec::new();
+        for (name, present) in checks {
+            if !present {
+                missing.push(name.to_string());
+            }
+        }
+        missing
+    }
+    #[cfg(not(target_arch = "x86_64"))]
+    Vec::new()
+}
+
 pub fn probe(dir: &std::path::Path) -> Hardware {
     let facts = facts(dir);
     let threads = std::thread::available_parallelism().map_or(1, |n| n.get() as u32);
@@ -50,6 +83,7 @@ pub fn probe(dir: &std::path::Path) -> Hardware {
         gpu: facts.gpu.unwrap_or_else(dash),
         gpu_accel: facts.gpu_accel,
         free_disk_gb: facts.free_disk_gb,
+        cpu_missing: missing_cpu_features(),
     }
 }
 
@@ -88,7 +122,10 @@ fn existing_ancestor(dir: &std::path::Path) -> Option<&std::path::Path> {
 
 // Runs argv without a shell and gives up after `timeout`; None on any failure.
 #[cfg(any(target_os = "macos", windows, test))]
-fn run_capture(cmd: &mut std::process::Command, timeout: std::time::Duration) -> Option<String> {
+pub(crate) fn run_capture(
+    cmd: &mut std::process::Command,
+    timeout: std::time::Duration,
+) -> Option<String> {
     use std::io::Read;
     use std::process::Stdio;
     use std::time::Instant;

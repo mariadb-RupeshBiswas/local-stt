@@ -370,14 +370,17 @@ pub async fn check_microphone(
     state.mic_check.store(false, Ordering::SeqCst);
     let recording = result.map_err(|e| e.to_string())??;
     let heard = !crate::audio::is_silent(&recording.samples_16k, crate::audio::SILENCE_RMS);
+    let blocked = !heard && crate::meeting::mic_blocked();
     diag::log(if heard {
         "microphone check: heard"
+    } else if blocked {
+        "microphone check: blocked by Windows privacy settings"
     } else {
         "microphone check: silent"
     });
     let rms = crate::audio::rms(&recording.samples_16k);
     let level_db = (rms > 0.0).then(|| (20.0 * rms.log10()).round());
-    Ok(json!({ "heard": heard, "levelDb": level_db }))
+    Ok(json!({ "heard": heard, "blocked": blocked, "levelDb": level_db }))
 }
 
 #[tauri::command]

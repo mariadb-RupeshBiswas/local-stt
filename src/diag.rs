@@ -327,6 +327,29 @@ pub fn report(cfg: &Config, hw: &Hardware) -> String {
     ));
     r.push_str(&format!("Free disk: {} GB\n", dash(hw.free_disk_gb)));
 
+    section(&mut r, "Speech engine");
+    r.push_str(&format!(
+        "Runs on: {}\n",
+        if hw.gpu_accel {
+            format!("GPU ({})", hw.gpu)
+        } else {
+            "CPU".to_string()
+        }
+    ));
+    r.push_str(&format!(
+        "Threads per dictation: {}\n",
+        crate::app::transcribe_opts(cfg).threads
+    ));
+    r.push_str(&format!(
+        "Processor instructions: {}\n",
+        if hw.cpu_missing.is_empty() {
+            "all present".to_string()
+        } else {
+            format!("missing {}", hw.cpu_missing.join(", "))
+        }
+    ));
+    r.push_str(&format!("Power: {}\n", crate::power::supply().describe()));
+
     section(&mut r, "Settings");
     r.push_str(&settings_json(cfg));
     r.push('\n');
@@ -381,9 +404,11 @@ pub fn report(cfg: &Config, hw: &Hardware) -> String {
     section(&mut r, "Error output, the run before");
     r.push_str(&tail(&logs_dir().join(ERR_OLD), ERR_LINES));
 
-    section(&mut r, "App log");
     let mut log_text = tail(&logs_dir().join(LOG_OLD), LOG_LINES);
     log_text.push_str(&tail(&logs_dir().join(LOG), LOG_LINES));
+    section(&mut r, "Dictation speed");
+    r.push_str(&speed_summary(&log_text));
+    section(&mut r, "App log");
     r.push_str(&last_lines(&log_text, LOG_LINES));
 
     let mut r = redact(&r);
@@ -416,6 +441,66 @@ fn os_version() -> String {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .filter(|v| !v.is_empty())
         .unwrap_or_else(|| "-".into())
+}
+
+// One dictation per "transcribed X s of audio in Y ms [after W ms waiting]" log line.
+struct Timing {
+    audio_s: f64,
+    took_ms: f64,
+    waited_ms: Option<f64>,
+}
+
+fn timing(line: &str) -> Option<Timing> {
+    let rest = line.split("transcribed ").nth(1)?;
+    let (audio, rest) = rest.split_once(" s of audio in ")?;
+    let (took, rest) = rest.split_once(" ms")?;
+    let waited_ms = rest
+        .strip_prefix(" after ")
+        .and_then(|r| r.split_once(" ms waiting"))
+        .and_then(|(w, _)| w.parse().ok());
+    Some(Timing {
+        audio_s: audio.parse().ok()?,
+        took_ms: took.parse().ok()?,
+        waited_ms,
+    })
+}
+
+fn median(mut values: Vec<f64>) -> Option<f64> {
+    if values.is_empty() {
+        return None;
+    }
+    values.sort_by(f64::total_cmp);
+    Some(values[values.len() / 2])
+}
+
+// Seconds of work per second of speech: under 1 keeps up, the slow Windows report read 41.
+fn speed_summary(log: &str) -> String {
+    let timings: Vec<Timing> = log
+        .lines()
+        .filter_map(timing)
+        .filter(|t| t.audio_s > 0.0)
+        .collect();
+    if timings.is_empty() {
+        return "No dictations in the log.\n".into();
+    }
+    let ratios: Vec<f64> = timings
+        .iter()
+        .map(|t| t.took_ms / 1000.0 / t.audio_s)
+        .collect();
+    let waits: Vec<f64> = timings.iter().filter_map(|t| t.waited_ms).collect();
+    let fmt =
+        |v: Option<f64>, unit: &str| v.map_or_else(|| "-".to_string(), |x| format!("{x:.1}{unit}"));
+    let mut out = format!("Dictations: {}\n", timings.len());
+    out.push_str(&format!(
+        "Seconds of work per second of speech: median {}, worst {}\n",
+        fmt(median(ratios.clone()), ""),
+        fmt(ratios.iter().copied().reduce(f64::max), "")
+    ));
+    out.push_str(&format!(
+        "Wait before work started: median {}\n",
+        fmt(median(waits).map(|ms| ms / 1000.0), " s")
+    ));
+    out
 }
 
 fn section(r: &mut String, title: &str) {
@@ -636,6 +721,18 @@ mod tests {
             redact_with(r"C:\Users\Jane\AppData and JANE", r"c:\users\jane", "jane"),
             r"~\AppData and <user>"
         );
+    }
+
+    #[test]
+    fn speed_summary_reads_old_and_new_lines() {
+        let log = "2026-10-23 07:18:04 UTC transcribed 4.4 s of audio in 181453 ms (45 characters)\n\
+                   2026-10-23 07:30:00 UTC transcribed 2.0 s of audio in 1000 ms after 80000 ms waiting (9 characters, 8 threads, 1.2 cores busy, AC power)\n\
+                   2026-10-23 07:31:00 UTC pasted\n";
+        let s = speed_summary(log);
+        assert!(s.contains("Dictations: 2"), "{s}");
+        assert!(s.contains("worst 41.2"), "{s}");
+        assert!(s.contains("median 80.0 s"), "{s}");
+        assert_eq!(speed_summary("start\n"), "No dictations in the log.\n");
     }
 
     #[test]

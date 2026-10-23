@@ -211,6 +211,7 @@ mod tests {
             gpu: "-".into(),
             gpu_accel: gpu,
             free_disk_gb: disk,
+            cpu_missing: Vec::new(),
         }
     }
 

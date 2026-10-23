@@ -37,6 +37,7 @@ pub fn sample_hardware() -> crate::hwprobe::Hardware {
         .into(),
         gpu_accel: !windows,
         free_disk_gb: Some(212.4),
+        cpu_missing: Vec::new(),
     }
 }
 

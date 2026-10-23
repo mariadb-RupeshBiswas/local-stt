@@ -6,6 +6,51 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.0] - 2026-10-23
+
+### Added
+
+- Windows: speech runs on the graphics chip through Vulkan when the PC has a GPU driver for it
+  (Intel, AMD or NVIDIA), and on the CPU as before when it does not. The diagnostic report shows
+  "GPU: ... (used)" when it is in use, and the log names the engine at each start.
+- Windows: Settings > Troubleshooting > Use the graphics chip turns this off, for a GPU driver
+  that crashes or garbles speech. It applies after a restart.
+- Setup asks two questions on a page of their own: start local-stt at login, and name who is
+  talking in calls (with what it reads, that the Zoom border pixels are never saved, and, on a
+  Mac, the Screen & System Audio Recording request). Start at login left the Recommended and
+  Customize lists.
+- Setup's checks add the graphics chip (which GPU runs speech, or the processor), flag a
+  processor that lacks needed instructions, and on Windows explain a microphone blocked in
+  privacy settings.
+- Diagnostic report: a Speech engine section (GPU or CPU, threads, missing processor
+  instructions, AC or battery power) and a Dictation speed section (seconds of work per second of
+  speech, median and worst, and how long dictations waited before work started).
+- Troubleshooting log: each dictation records how long it waited, how many cores were busy, and
+  the power source; each start records the power source. Windows shows the processor's full name.
+
+### Fixed
+
+- Windows: AltGr (Right Alt on many European keyboards) no longer starts a recording. Windows
+  sends a fake Left Ctrl with AltGr, which matched the default Ctrl + Alt shortcut.
+- Windows: the shortcut no longer stops working after locking the PC (Win + L), Ctrl + Alt + Del
+  or a UAC prompt. Keys released there are now noticed.
+- Windows: the keyboard hook runs at raised priority, so Windows does not drop it while
+  transcription keeps the CPU busy.
+- Windows: a CPU without AVX2, FMA, F16C or BMI2 now gets a clear message instead of a silent crash
+  when the model loads.
+- Windows: when privacy settings block the microphone, local-stt says so instead of "No speech heard".
+- Windows: when a company policy such as AppLocker blocks the installed app, the terminal says so.
+
+### Changed
+
+- Windows: Whisper Medium no longer needs 8 CPU threads when a GPU is in use. Whisper Large v3
+  stays Mac only until it is measured on Windows GPUs.
+
+### Security
+
+- The Windows build loads the Vulkan loader from System32 only, and starts without it. The build
+  installs the LunarG Vulkan SDK at a pinned version and refuses a download whose SHA256 differs.
+
 ## [0.13.4] - 2026-10-23
 
 ### Fixed

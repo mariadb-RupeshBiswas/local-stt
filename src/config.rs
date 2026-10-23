@@ -86,6 +86,8 @@ pub struct Config {
     pub detect_calls: bool,
     /// Reads Zoom's green speaking border from its window's pixels (needs Screen Recording); off by default.
     pub speaking_border: bool,
+    /// Runs speech on the GPU when there is one (Windows: Vulkan); off is the way out of a GPU driver crash.
+    pub use_gpu: bool,
 }
 
 impl Default for Config {
@@ -123,6 +125,7 @@ impl Default for Config {
             echo_cancellation: true,
             detect_calls: true,
             speaking_border: false,
+            use_gpu: true,
         }
     }
 }

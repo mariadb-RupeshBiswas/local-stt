@@ -5,21 +5,52 @@ use std::os::windows::ffi::OsStrExt;
 use std::path::Path;
 use std::time::Duration;
 use windows_sys::Win32::Storage::FileSystem::GetDiskFreeSpaceExW;
+use windows_sys::Win32::System::LibraryLoader::{LoadLibraryExW, LOAD_LIBRARY_SEARCH_SYSTEM32};
 use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
 
 const GPU_TIMEOUT: Duration = Duration::from_secs(3);
 
 pub(super) fn facts(dir: &Path) -> Facts {
     Facts {
-        cpu: std::env::var("PROCESSOR_IDENTIFIER")
-            .ok()
-            .filter(|s| !s.trim().is_empty()),
+        cpu: cpu_name().or_else(|| {
+            std::env::var("PROCESSOR_IDENTIFIER")
+                .ok()
+                .filter(|s| !s.trim().is_empty())
+        }),
         ram_bytes: ram_bytes(),
         gpu: gpu_name(),
-        // The Windows build runs whisper.cpp on the CPU only.
-        gpu_accel: false,
+        gpu_accel: crate::engine::gpu_device().is_some(),
         free_disk_gb: free_disk_gb(dir),
     }
+}
+
+// The marketing name ("13th Gen Intel(R) Core(TM) i7-1355U") tells the core layout; the family number does not.
+fn cpu_name() -> Option<String> {
+    use windows_sys::Win32::System::Registry::{RegGetValueW, HKEY_LOCAL_MACHINE, RRF_RT_REG_SZ};
+    let key: Vec<u16> = r"HARDWARE\DESCRIPTION\System\CentralProcessor\0"
+        .encode_utf16()
+        .chain([0])
+        .collect();
+    let value: Vec<u16> = "ProcessorNameString".encode_utf16().chain([0]).collect();
+    let mut buf = [0u16; 128];
+    let mut size = std::mem::size_of_val(&buf) as u32;
+    // SAFETY: key and value are NUL-terminated; buf holds `size` bytes and RRF_RT_REG_SZ NUL-terminates it.
+    let rc = unsafe {
+        RegGetValueW(
+            HKEY_LOCAL_MACHINE,
+            key.as_ptr(),
+            value.as_ptr(),
+            RRF_RT_REG_SZ,
+            std::ptr::null_mut(),
+            buf.as_mut_ptr().cast(),
+            &mut size,
+        )
+    };
+    if rc != 0 {
+        return None;
+    }
+    let len = buf.iter().position(|&c| c == 0).unwrap_or(buf.len());
+    Some(String::from_utf16_lossy(&buf[..len]).trim().to_string()).filter(|s| !s.is_empty())
 }
 
 fn ram_bytes() -> Option<u64> {
@@ -82,4 +113,18 @@ fn gpu_name() -> Option<String> {
     } else {
         Some(name.to_string())
     }
+}
+
+/// Loads System32's Vulkan loader and keeps it, so the delay-loaded import can only bind to that copy.
+pub(super) fn vulkan_loader_present() -> bool {
+    let name: Vec<u16> = "vulkan-1.dll".encode_utf16().chain([0]).collect();
+    // SAFETY: name is NUL-terminated UTF-16 that outlives the call; the module is never freed, by design.
+    let module = unsafe {
+        LoadLibraryExW(
+            name.as_ptr(),
+            std::ptr::null_mut(),
+            LOAD_LIBRARY_SEARCH_SYSTEM32,
+        )
+    };
+    !module.is_null()
 }

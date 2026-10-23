@@ -408,7 +408,7 @@
         microphone: null, theme: "pill", show_overlay: true, overlay_pos: null, sounds: true,
         save_history: params.get("hist") !== "off", word_insights: true, learn_my_voice: true, autostart: false, model: "small",
         setup_done: !onboarding, user_name: params.get("name") || null,
-        summaries: params.get("summaries") === "on" || params.get("summary") === "granite", echo_cancellation: true, detect_calls: true, speaking_border: false
+        summaries: params.get("summaries") === "on" || params.get("summary") === "granite", echo_cancellation: true, detect_calls: true, speaking_border: false, use_gpu: true
       },
       models: [
         // a fresh install has nothing on disk and Small recommended; ?downloaded=1 keeps it on disk
@@ -420,12 +420,12 @@
         { id: "large-v3", label: "Large v3", size_mb: 1031, supported: false, recommended: false, downloaded: false,
           sha256: "d75795ecff3f83b5faa89d1900604ad8c780abd5739fae406de19f23ecd98ad1",
           reasons: winReasons
-            ? ["Needs 16 GB RAM, this PC has 8 GB", "Needs a GPU this app can use; Windows build runs on CPU"]
+            ? ["Needs 16 GB RAM, this PC has 8 GB", "Needs a GPU this app can use; not yet on Windows"]
             : ["Needs 16 GB RAM, this Mac has 8 GB", "Free disk space could not be read"] }
       ],
       hardware: winReasons
-        ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: ram, gpu: "Intel Iris Xe Graphics", gpu_accel: false, free_disk_gb: 212.4 }
-        : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: ram, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: params.get("ram") ? 200 : null },
+        ? { os: "Windows 11", arch: "x86_64", cpu: "Intel Core i5-1135G7", threads: 8, ram_gb: ram, gpu: "Intel Iris Xe Graphics", gpu_accel: params.get("gpu") === "1", free_disk_gb: 212.4, cpu_missing: params.get("oldcpu") === "1" ? ["AVX2", "FMA"] : [] }
+        : { os: "macOS 15.1", arch: "aarch64", cpu: "Apple M2", threads: 8, ram_gb: ram, gpu: "Apple M2 GPU (Metal)", gpu_accel: true, free_disk_gb: params.get("ram") ? 200 : null, cpu_missing: [] },
       // like the app: Gemma needs 16 GB and is recommended only where the GPU runs it; ?summary=granite puts Granite on disk
       summaryModels: [
         { id: "granite-micro", label: "Granite 4.0 Micro", maker: "IBM", about: "Fastest and smallest. Good summaries; may guess who owns a task.", size_mb: 2002,
@@ -586,7 +586,8 @@
       check_microphone: function () {
         window.__calls.push("check_microphone");
         if (params.get("mic") === "error" || !data.inputs.length) return Promise.reject("No microphone found.");
-        var silent = params.get("mic") === "silent";
+        var blocked = params.get("mic") === "blocked";
+        var silent = params.get("mic") === "silent" || blocked;
         var tick = 0;
         return new Promise(function (resolve) {
           var timer = setInterval(function () {
@@ -594,7 +595,7 @@
             bus.emit("mic-check-level", { level: silent ? 0.01 : 0.2 + 0.6 * Math.abs(Math.sin(tick / 3)) });
             if (tick >= 20) {
               clearInterval(timer);
-              resolve(silent ? { heard: false, levelDb: null } : { heard: true, levelDb: -24 });
+              resolve(silent ? { heard: false, blocked: blocked, levelDb: null } : { heard: true, levelDb: -24 });
             }
           }, 50);
         });

@@ -120,7 +120,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 75
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -128,17 +128,59 @@ jobs:
           submodules: recursive
       - name: Install toolchain from rust-toolchain.toml
         run: rustup show active-toolchain || rustup toolchain install
+      - name: Install the pinned Vulkan SDK (checksum verified)
+        shell: pwsh
+        run: ./dev/install-vulkan-sdk.ps1
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cargo/registry/index
             ~/.cargo/registry/cache
-            target
-          key: cargo-windows-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '.gitmodules') }}
+            C:\t
+          key: cargo-windows-${{ hashFiles('Cargo.lock', 'rust-toolchain.toml', '.gitmodules', 'dev/install-vulkan-sdk.ps1') }}
       - name: Clippy
         run: cargo clippy --locked --all-targets -- -D warnings
       - name: Unit tests
         run: cargo test --locked --lib --bins
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ runner.temp }}/lstt-data/models
+          key: model-small-ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb
+      - name: Fetch the small model through the app's verified download
+        env:
+          LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
+        run: cargo run --locked --release -- fetch-model small
+      # Same transcripts as the Mac job, through the Vulkan build's CPU fallback (runners have no GPU).
+      - name: Engine integration tests
+        env:
+          LOCAL_STT_TEST_MODEL: ${{ runner.temp }}/lstt-data/models/ggml-small-q5_1.bin
+        run: cargo test --locked --release --test engine
+      - name: Start the app, load the model, quit cleanly
+        env:
+          LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
+          LOCAL_STT_NO_PERMISSION_PROMPTS: "1"
+          LOCAL_STT_EXIT_AFTER_MS: "20000"
+        run: cargo run --locked --release
+      - name: Show the app's own log and error output
+        if: always()
+        shell: pwsh
+        env:
+          LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
+        run: |
+          Get-Content "$env:LOCAL_STT_DATA_DIR/logs/local-stt.log" -ErrorAction SilentlyContinue
+          Get-Content "$env:LOCAL_STT_DATA_DIR/logs/stderr.log" -ErrorAction SilentlyContinue
+      - name: Diagnostic report has the events and no home folder or user name
+        shell: pwsh
+        env:
+          LOCAL_STT_DATA_DIR: ${{ runner.temp }}/lstt-data
+        run: |
+          cargo run --locked --release -- diagnostics
+          $report = (Get-ChildItem "$env:LOCAL_STT_DATA_DIR/diagnostics/*.txt" | Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
+          $text = Get-Content -Raw $report
+          foreach ($want in @('local-stt diagnostic report', 'model Whisper Small loaded', 'power throttling: opted out', 'speech engine: CPU')) {
+            if (-not $text.Contains($want)) { throw "report is missing: $want" }
+          }
+          if ($text.Contains($env:USERPROFILE) -or $text.Contains($env:USERNAME)) { throw "report leaks the home folder or user name" }
 
   version:
     name: Version files agree
@@ -192,6 +234,9 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Install the pinned Vulkan SDK (checksum verified)
+        shell: pwsh
+        run: ./dev/install-vulkan-sdk.ps1
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         with:
           command: build
@@ -236,6 +281,10 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
+      - name: Install the pinned Vulkan SDK (checksum verified)
+        if: runner.os == 'Windows' && needs.changes.outputs.code == 'true'
+        shell: pwsh
+        run: ./dev/install-vulkan-sdk.ps1
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1.51.0
         if: needs.changes.outputs.code == 'true'
         with:
@@ -254,6 +303,34 @@ jobs:
         run: |
           wheel="$(ls dist/*.whl | head -n 1)"
           uvx --from "$wheel" local-stt --version
+      # The runner has a Vulkan loader but no GPU: doctor must fall back to the CPU.
+      - name: Windows build falls back to the CPU without a GPU
+        if: runner.os == 'Windows' && needs.changes.outputs.code == 'true'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          $out = uvx --from $wheel local-stt doctor | Out-String
+          Write-Host $out
+          if ($LASTEXITCODE -ne 0) { throw "doctor failed with exit code $LASTEXITCODE" }
+          if ($out -notmatch 'GPU .*\(not used\)') { throw "expected the CPU fallback on a runner without a GPU" }
+      # A PC without vulkan-1.dll must still start, so the exe may only delay-load it.
+      - name: Windows exe delay-loads vulkan-1.dll and lists its DLLs
+        if: runner.os == 'Windows' && needs.changes.outputs.code == 'true'
+        shell: pwsh
+        run: |
+          $wheel = (Get-ChildItem dist/*.whl | Select-Object -First 1).FullName
+          $dir = Join-Path $env:RUNNER_TEMP "wheel-x"
+          Copy-Item $wheel "$dir.zip"
+          Expand-Archive -LiteralPath "$dir.zip" -DestinationPath $dir -Force
+          $exe = (Get-ChildItem -Recurse -Filter local-stt.exe $dir | Select-Object -First 1).FullName
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $dumpbin = & $vswhere -latest -find "VC\Tools\MSVC\**\bin\Hostx64\x64\dumpbin.exe" | Select-Object -First 1
+          $deps = & $dumpbin /dependents $exe | Out-String
+          Write-Host $deps
+          $parts = $deps -split 'delay load dependencies'
+          if ($parts.Count -ne 2) { throw "no delay-load section in the exe" }
+          if ($parts[0] -match 'vulkan-1\.dll') { throw "vulkan-1.dll is a hard import; the app would not start without it" }
+          if ($parts[1] -notmatch 'vulkan-1\.dll') { throw "vulkan-1.dll is not delay-loaded" }
       # Same script as the release, with a certificate made here, so no secret is needed.
       - name: Signed wheel installs with its signature intact (throwaway certificate)
         if: runner.os == 'macOS' && needs.changes.outputs.code == 'true'

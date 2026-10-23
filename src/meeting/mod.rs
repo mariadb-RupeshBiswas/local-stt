@@ -96,6 +96,20 @@ pub fn mic_users() -> Vec<String> {
     Vec::new()
 }
 
+/// Whether Windows privacy settings stop this app from hearing the microphone; always false elsewhere.
+pub fn mic_blocked() -> bool {
+    #[cfg(windows)]
+    return windows::mic_blocked();
+    #[cfg(not(windows))]
+    false
+}
+
+// A missing value means the switch was never touched, which Windows treats as allowed.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn any_deny(values: &[Option<String>]) -> bool {
+    values.iter().any(|v| v.as_deref() == Some("Deny"))
+}
+
 fn browser_titles() -> Vec<String> {
     #[cfg(target_os = "macos")]
     return macos::browser_titles();
@@ -169,6 +183,13 @@ impl Detector {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn any_deny_blocks_and_missing_allows() {
+        assert!(!any_deny(&[None, None]));
+        assert!(!any_deny(&[Some("Allow".into()), None]));
+        assert!(any_deny(&[Some("Allow".into()), Some("Deny".into())]));
+    }
 
     #[test]
     fn call_apps_and_their_helpers_are_named() {
