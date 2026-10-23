@@ -712,6 +712,15 @@ mod tests {
     }
 
     #[test]
+    fn redaction_masks_the_windows_local_data_folder() {
+        let shown = r"C:\Users\Jane\AppData\Local\local-stt\logs";
+        assert_eq!(
+            redact_with(shown, r"C:\Users\Jane", "Jane"),
+            r"~\AppData\Local\local-stt\logs"
+        );
+    }
+
+    #[test]
     fn redaction_takes_whole_names_in_any_case() {
         assert_eq!(
             redact_with("start: recording started by art", "/Users/art", "art"),

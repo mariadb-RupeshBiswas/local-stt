@@ -7,6 +7,7 @@ pub mod autostart;
 pub mod clipboard;
 pub mod commands;
 pub mod config;
+pub mod datamove;
 pub mod demo;
 pub mod diag;
 pub mod download;

@@ -1840,7 +1840,7 @@ for (const dark of [false, true]) {
   check("before an export there is no path or Show button", (await row.locator(".report-path").isHidden()) && (await row.getByRole("button", { name: "Show in Explorer" }).isHidden()));
   await row.getByRole("button", { name: "Export Report" }).click();
   await page.waitForTimeout(700);
-  check("Windows says Explorer and shows the full Windows path", (await row.locator(".report-path").textContent()).startsWith("Saved to C:\\Users\\you\\AppData\\Roaming\\local-stt\\diagnostics\\") && (await row.getByRole("button", { name: "Show in Explorer" }).isVisible()));
+  check("Windows says Explorer and shows the full Windows path", (await row.locator(".report-path").textContent()).startsWith("Saved to C:\\Users\\you\\AppData\\Local\\local-stt\\diagnostics\\") && (await row.getByRole("button", { name: "Show in Explorer" }).isVisible()));
   await ctx.close();
 }
 {

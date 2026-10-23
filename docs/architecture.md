@@ -169,7 +169,7 @@ The three windows (main window, pill, live text) are web pages inside Tauri.
 ## What is stored, and where
 
 Everything lives in one folder, readable only by you: `~/Library/Application Support/local-stt`
-on a Mac, `%APPDATA%\local-stt` on Windows.
+on a Mac, `%LOCALAPPDATA%\local-stt` on Windows (older versions used `%APPDATA%`; `src/datamove.rs` moves it once, at the start of `main`).
 
 | File | Holds |
 |---|---|

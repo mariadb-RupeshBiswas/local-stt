@@ -52,9 +52,32 @@ fn platform_data_root() -> PathBuf {
 
 #[cfg(windows)]
 fn platform_data_root() -> PathBuf {
-    std::env::var_os("APPDATA")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| home().join("AppData").join("Roaming"))
+    windows_data_root(std::env::var_os("LOCALAPPDATA"), &home())
+}
+
+/// Local, not Roaming: roaming profiles copy Roaming to a file server, and this folder holds models and private notes.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn windows_data_root(
+    local_app_data: Option<std::ffi::OsString>,
+    home: &std::path::Path,
+) -> PathBuf {
+    match local_app_data {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => home.join("AppData").join("Local"),
+    }
+}
+
+/// Where older Windows versions kept the data folder (Roaming), for the one-time move.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn windows_legacy_dir(
+    app_data: Option<std::ffi::OsString>,
+    home: &std::path::Path,
+) -> PathBuf {
+    let root = match app_data {
+        Some(dir) if !dir.is_empty() => PathBuf::from(dir),
+        _ => home.join("AppData").join("Roaming"),
+    };
+    root.join(APP_DIR)
 }
 
 #[cfg(not(any(target_os = "macos", windows)))]
@@ -78,6 +101,20 @@ pub(crate) static TEST_DATA_DIR: std::sync::Mutex<()> = std::sync::Mutex::new(()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_roots_use_local_then_roaming_with_home_fallbacks() {
+        let home = std::path::Path::new("H");
+        let local = Some(std::ffi::OsString::from("L"));
+        assert_eq!(windows_data_root(local, home), PathBuf::from("L"));
+        let fallback = home.join("AppData").join("Local");
+        assert_eq!(windows_data_root(None, home), fallback);
+        assert_eq!(windows_data_root(Some("".into()), home), fallback);
+        let old = windows_legacy_dir(Some("R".into()), home);
+        assert_eq!(old, PathBuf::from("R").join(APP_DIR));
+        let old_fallback = home.join("AppData").join("Roaming").join(APP_DIR);
+        assert_eq!(windows_legacy_dir(None, home), old_fallback);
+    }
 
     #[test]
     fn override_env_wins() {

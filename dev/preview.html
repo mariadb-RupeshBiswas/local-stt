@@ -607,7 +607,7 @@
       export_diagnostics: function () {
         window.__calls.push("export_diagnostics");
         return new Promise(function (resolve) {
-          var home = platform === "windows" ? "C:\\Users\\you\\AppData\\Roaming\\local-stt" : "/Users/you/Library/Application Support/local-stt";
+          var home = platform === "windows" ? "C:\\Users\\you\\AppData\\Local\\local-stt" : "/Users/you/Library/Application Support/local-stt";
           var sep = platform === "windows" ? "\\" : "/";
           setTimeout(function () { resolve(home + sep + "diagnostics" + sep + "local-stt-diagnostics-2026-10-10-09-30-00.txt"); }, 400);
         });

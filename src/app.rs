@@ -156,6 +156,7 @@ pub fn run() -> Result<(), String> {
     let cfg = config::load(&paths::config_path());
     output::detach_own_console();
     diag::set_enabled(cfg.diagnostic_log);
+    crate::datamove::log_outcome();
     diag::install_panic_hook();
     diag::capture_stderr();
     diag::log(&format!(

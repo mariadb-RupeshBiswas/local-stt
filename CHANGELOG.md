@@ -4,7 +4,16 @@ All notable changes to this project are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the
 project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]  ## [0.14.1] - 2026-10-23
+## [Unreleased]
+
+### Changed
+
+- Windows: the data folder moves from `%APPDATA%` (Roaming) to `%LOCALAPPDATA%`, so models and
+  private notes are no longer copied to a file server by roaming profiles or FSLogix. The first
+  start moves the old folder. If that is not possible it copies everything except the downloaded
+  models and leaves the old folder in place; check the new one before deleting the old.
+
+## [0.14.1] - 2026-10-23
 
 ### Fixed
 
