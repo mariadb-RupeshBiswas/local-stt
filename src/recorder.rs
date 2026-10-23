@@ -325,6 +325,8 @@ fn describe(err: cpal::Error, system: bool) -> String {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn lost_device_ends_the_stream_but_a_glitch_does_not() {
         assert!(ends_stream(ErrorKind::StreamInvalidated));
@@ -334,8 +336,6 @@ mod tests {
         assert!(is_transient(ErrorKind::Xrun));
         assert!(!is_transient(ErrorKind::StreamInvalidated));
     }
-
-    use super::*;
 
     #[test]
     fn finish_mono_one_second() {

@@ -217,7 +217,9 @@ fn fetch_and_verify(
         .map_err(|e| Failure::discard(format!("cannot create {}: {e}", part.display())))?;
     let have = std::fs::metadata(part).map(|m| m.len()).unwrap_or(0);
     if have >= MAX_BYTES {
-        let _ = std::fs::remove_file(part);
+        // A failed removal stops here, so the retry below cannot loop.
+        std::fs::remove_file(part)
+            .map_err(|e| Failure::discard(format!("cannot remove {}: {e}", part.display())))?;
         return fetch_and_verify(
             url,
             sha256_hex,
