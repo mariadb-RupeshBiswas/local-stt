@@ -11,6 +11,12 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - CI: a weekly security audit (Mondays, and on demand) re-checks `Cargo.lock` with cargo-deny and
   the UI test lockfile with `npm audit`, so advisories published after a merge still surface.
 
+### Changed
+
+- CI: Dependabot no longer bumps the whisper.cpp and llama.cpp submodules. It could only move them
+  to branch heads, which broke the build whenever llama.cpp needed a newer ggml than whisper.cpp's
+  release ships; both now move together by hand on each whisper.cpp release.
+
 ## [0.14.4] - 2026-10-23
 
 ### Changed
