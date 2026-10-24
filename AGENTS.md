@@ -100,6 +100,8 @@ stderr in the terminal). `LOCAL_STT_REPLACES` is set by an update on the new cop
 - Missing values show as `-`, never `0`.
 - Comments are one line and explain why.
 - New behaviour comes with a test. Run lint and tests before every commit.
+- Local CI first: before every push, run Lint, Unit tests, UI checks and Workflow audit from the
+  table above, and push only when all pass. Remote CI confirms a green tree; it does not find bugs.
 - Workflows: actions pinned to full SHAs, least-privilege permissions, no untrusted
   `${{ }}` inside `run:`; keep `uvx zizmor .github/workflows` clean.
 - Update `CHANGELOG.md` under Unreleased.

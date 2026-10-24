@@ -6,6 +6,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- CI: a weekly security audit (Mondays, and on demand) re-checks `Cargo.lock` with cargo-deny and
+  the UI test lockfile with `npm audit`, so advisories published after a merge still surface.
+
 ## [0.14.4] - 2026-10-23
 
 ### Changed
