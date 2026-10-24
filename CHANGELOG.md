@@ -10,6 +10,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - CI: a weekly security audit (Mondays, and on demand) re-checks `Cargo.lock` with cargo-deny and
   the UI test lockfile with `npm audit`, so advisories published after a merge still surface.
+- CI: the same weekly run opens one issue when whisper.cpp publishes a release newer than the
+  pinned submodule, as the reminder to bump whisper.cpp and llama.cpp together.
 
 ### Changed
 
