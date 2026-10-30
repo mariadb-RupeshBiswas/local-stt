@@ -3,7 +3,7 @@ name: Weekly security audit
 # New advisories land without a code change, so re-check the lockfiles on a schedule.
 on:
   schedule:
-    - cron: "17 4 * * 1"
+    - cron: "17 4 * * 5"
   workflow_dispatch:
 
 permissions: {}
