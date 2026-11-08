@@ -23,7 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         model: [small, medium, large-v3]
-    runs-on: ubuntu-latest
+    # pinned: a newer GCC quantizes q5_0 to different bytes than the shipped files.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       # CPU-only torch: the CUDA build from PyPI would not fit beside large-v3 on the runner disk.
