@@ -23,7 +23,8 @@ jobs:
       fail-fast: false
       matrix:
         model: [small, medium, large-v3]
-    runs-on: ubuntu-latest
+    # pinned: a newer GCC quantizes q5_0 to different bytes than the shipped files.
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     env:
       # CPU-only torch: the CUDA build from PyPI would not fit beside large-v3 on the runner disk.
@@ -33,7 +34,7 @@ jobs:
         with:
           persist-credentials: false
           submodules: recursive
-      - uses: astral-sh/setup-uv@07a047e608db84b3d8c06cd9a7c7dcc9c355c18e # v10.3.2
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
         with:
           version: "0.12.22"
           enable-cache: false
