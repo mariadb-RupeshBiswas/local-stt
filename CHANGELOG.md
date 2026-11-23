@@ -19,6 +19,11 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   to branch heads, which broke the build whenever llama.cpp needed a newer ggml than whisper.cpp's
   release ships; both now move together by hand on each whisper.cpp release.
 
+### Security
+
+- `url` 2.5.9 (with `form_urlencoded` 1.2.3) for RUSTSEC-2026-0592: `Url::origin()` could overflow
+  the stack on a deeply nested `blob:` URL. cargo-deny failed on it for every branch.
+
 ## [0.14.4] - 2026-10-23
 
 ### Changed
