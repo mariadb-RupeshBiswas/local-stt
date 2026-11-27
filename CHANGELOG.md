@@ -6,6 +6,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.14.5] - 2026-11-27
+
 ### Added
 
 - CI: a weekly security audit (Mondays, and on demand) re-checks `Cargo.lock` with cargo-deny and
@@ -23,6 +25,8 @@ project uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `url` 2.5.9 (with `form_urlencoded` 1.2.3) for RUSTSEC-2026-0592: `Url::origin()` could overflow
   the stack on a deeply nested `blob:` URL. cargo-deny failed on it for every branch.
+- `cookie` 0.18.3 (via Tauri) for RUSTSEC-2026-0594: private cookie nonces could repeat in a
+  process that forks. The weekly cargo-deny audit failed on it.
 
 ## [0.14.4] - 2026-10-23
 
